@@ -1,10 +1,20 @@
-import { useState } from 'react';
-import { Check, Copy, Download, Share2, X, MessageCircle } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Check, Copy, Download, Image as ImageIcon, MessageCircle, Share2, X } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
 import type { Language, Product } from '../types';
 import { formatCurrency, translations } from '../i18n';
-import { buildShareText, renderProductShareCardBlob } from '../utils/image';
-import { saveOrShareBlob } from '../utils/download';
+import {
+  buildAllProductPhotoFiles,
+  buildShareText,
+  renderProductShareCardBlob,
+  type ShareableMediaFile,
+} from '../utils/image';
+import {
+  canWebShareFiles,
+  downloadBlobs,
+  saveOrShareBlob,
+  shareProductMediaAndText,
+} from '../utils/download';
 
 interface ShareModalProps {
   product: Product | null;
@@ -16,16 +26,53 @@ interface ShareModalProps {
 export function ShareModal({ product, lang, currency, onClose }: ShareModalProps) {
   const t = translations[lang];
   const [copied, setCopied] = useState(false);
-  const [downloading, setDownloading] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [downloadingPhotos, setDownloadingPhotos] = useState(false);
+  const [downloadingCard, setDownloadingCard] = useState(false);
+  const [feedback, setFeedback] = useState<{
+    message: string;
+    channel?: 'whatsapp' | 'facebook';
+  } | null>(null);
+
+  useEffect(() => {
+    setCopied(false);
+    setPublishing(false);
+    setDownloadingPhotos(false);
+    setDownloadingCard(false);
+    setFeedback(null);
+  }, [product?.id]);
 
   if (!product) return null;
 
+  const photos = [...(product.photos || [])].sort(
+    (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)
+  );
+  const primaryPhoto = photos[0];
   const shareText = buildShareText(product, currency, lang);
-  const primaryPhoto = product.photos[0]?.imageData;
+  const shareTitle = `${product.code} — ${product.name}`;
+
   const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(shareText)}`;
   const facebookUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(
     window.location.href
   )}&quote=${encodeURIComponent(shareText)}`;
+
+  const preparePublishFiles = async (): Promise<ShareableMediaFile[]> => {
+    const files = await buildAllProductPhotoFiles(product);
+    if (files.length > 0) {
+      return files;
+    }
+    const cardBlob = await renderProductShareCardBlob(product, currency, lang);
+    if (cardBlob) {
+      return [
+        {
+          blob: cardBlob,
+          filename: `${product.code || 'fiche'}.png`,
+          mimeType: 'image/png',
+        },
+      ];
+    }
+    return [];
+  };
 
   const handleCopy = async () => {
     try {
@@ -37,56 +84,82 @@ export function ShareModal({ product, lang, currency, onClose }: ShareModalProps
     }
   };
 
+  const handlePublishAll = async (channel?: 'whatsapp' | 'facebook') => {
+    setPublishing(true);
+    setFeedback(null);
+    try {
+      const files = await preparePublishFiles();
+      const result = await shareProductMediaAndText({
+        files,
+        title: shareTitle,
+        text: shareText,
+        dialogTitle: shareTitle,
+      });
+
+      if (result.copiedText) {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2500);
+      }
+
+      if (result.outcome === 'shared') {
+        setFeedback({ message: t.shareCaptionCopiedHint });
+      } else if (result.outcome === 'downloaded' || result.outcome === 'copied') {
+        setFeedback({
+          message: t.desktopShareFallbackHint,
+          channel,
+        });
+      }
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  const handleSocialClick = async (channel: 'whatsapp' | 'facebook') => {
+    const supportsNativeOrWebFiles = Capacitor.isNativePlatform() || canWebShareFiles();
+    if (supportsNativeOrWebFiles) {
+      await handlePublishAll(channel);
+      return;
+    }
+
+    // Desktop browsers cannot attach image files via wa.me or sharer.php URLs.
+    // Download all product photos, copy product text, and expose a direct open link.
+    setPublishing(true);
+    setFeedback(null);
+    try {
+      const files = await preparePublishFiles();
+      if (files.length > 0) {
+        await downloadBlobs(files, shareTitle, shareText);
+      }
+      await handleCopy();
+      setFeedback({
+        message: t.desktopShareFallbackHint,
+        channel,
+      });
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  const handleDownloadAllPhotos = async () => {
+    setDownloadingPhotos(true);
+    try {
+      const files = await preparePublishFiles();
+      if (files.length === 0) return;
+      await downloadBlobs(files, shareTitle, shareText);
+    } finally {
+      setDownloadingPhotos(false);
+    }
+  };
+
   const handleDownloadCard = async () => {
-    setDownloading(true);
+    setDownloadingCard(true);
     try {
       const blob = await renderProductShareCardBlob(product, currency, lang);
       if (!blob) return;
       const filename = `${product.code}-${product.name.slice(0, 24).replace(/\s+/g, '-')}.png`;
-      await saveOrShareBlob(blob, filename, `${product.code} — ${product.name}`, shareText);
+      await saveOrShareBlob(blob, filename, shareTitle, shareText);
     } finally {
-      setDownloading(false);
-    }
-  };
-
-  const handleNativeShare = async () => {
-    if (Capacitor.isNativePlatform()) {
-      try {
-        const cardBlob = await renderProductShareCardBlob(product, currency, lang);
-        if (cardBlob) {
-          await saveOrShareBlob(
-            cardBlob,
-            `${product.code}.png`,
-            `${product.code} — ${product.name}`,
-            shareText
-          );
-          return;
-        }
-      } catch {
-        // fall through
-      }
-    }
-    if (!navigator.share) {
-      await handleCopy();
-      return;
-    }
-    try {
-      const shareData: ShareData = {
-        title: `${product.code} — ${product.name}`,
-        text: shareText,
-      };
-      if (primaryPhoto) {
-        const cardBlob = await renderProductShareCardBlob(product, currency, lang);
-        if (cardBlob) {
-          const file = new File([cardBlob], `${product.code}.png`, { type: 'image/png' });
-          if (navigator.canShare && navigator.canShare({ files: [file] })) {
-            shareData.files = [file];
-          }
-        }
-      }
-      await navigator.share(shareData);
-    } catch {
-      // user canceled share sheet
+      setDownloadingCard(false);
     }
   };
 
@@ -121,21 +194,61 @@ export function ShareModal({ product, lang, currency, onClose }: ShareModalProps
           </button>
         </div>
 
-        {/* Shareable Card Preview */}
+        {/* Shareable Card Preview showing ALL photos */}
         <div className="mb-5 overflow-hidden rounded-2xl border border-[#DCE7E0] bg-[#F7FAF8] dark:border-[#1E3A2D] dark:bg-[#091611]">
           <div className="flex items-center justify-between border-b border-[#DCE7E0] bg-[#115E3B] px-4 py-2 text-xs font-semibold text-white dark:border-[#1E3A2D]">
             <span>{t.brandName}</span>
-            <span className="font-mono-code tracking-wider">{product.code}</span>
+            <div className="flex items-center gap-2">
+              {photos.length > 0 && (
+                <span className="tabular-nums rounded-md bg-white/15 px-2 py-0.5 text-[11px] font-medium">
+                  {photos.length} {t.photosIncluded}
+                </span>
+              )}
+              <span className="font-mono-code tracking-wider">{product.code}</span>
+            </div>
           </div>
 
-          {primaryPhoto && (
-            <div className="aspect-[16/10] w-full overflow-hidden bg-[#E8F2EC] dark:bg-[#102119]">
-              <img
-                src={primaryPhoto}
-                alt={product.name}
-                referrerPolicy="no-referrer"
-                className="h-full w-full object-cover"
-              />
+          {primaryPhoto ? (
+            <div className="space-y-2 bg-[#E8F2EC] p-2 dark:bg-[#102119]">
+              <div className="relative aspect-[16/10] w-full overflow-hidden rounded-xl">
+                <img
+                  src={primaryPhoto.imageData}
+                  alt={primaryPhoto.photoCode || product.name}
+                  referrerPolicy="no-referrer"
+                  className="h-full w-full object-cover"
+                />
+                {primaryPhoto.photoCode && (
+                  <span className="font-mono-code absolute left-2 top-2 rounded-md bg-black/65 px-2 py-0.5 text-[11px] font-semibold text-white backdrop-blur-xs">
+                    {primaryPhoto.photoCode}
+                  </span>
+                )}
+              </div>
+
+              {photos.length > 1 && (
+                <div className="flex items-center gap-2 overflow-x-auto pb-0.5">
+                  {photos.map((photo) => (
+                    <div
+                      key={photo.id}
+                      className="flex shrink-0 flex-col items-center overflow-hidden rounded-lg border border-[#DCE7E0] bg-white p-1 dark:border-[#1E3A2D] dark:bg-[#0F2119]"
+                    >
+                      <span className="font-mono-code mb-0.5 text-[10px] font-semibold text-[#115E3B] dark:text-[#34D399]">
+                        {photo.photoCode}
+                      </span>
+                      <img
+                        src={photo.imageData}
+                        alt={photo.photoCode}
+                        referrerPolicy="no-referrer"
+                        className="h-12 w-16 rounded-md object-cover"
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="flex aspect-[16/7] w-full flex-col items-center justify-center bg-[#E8F2EC] text-[#335947] dark:bg-[#102119] dark:text-[#9EC0AE]">
+              <ImageIcon className="mb-1.5 h-8 w-8 opacity-50" />
+              <span className="text-xs">{t.noPhotoHint}</span>
             </div>
           )}
 
@@ -156,45 +269,69 @@ export function ShareModal({ product, lang, currency, onClose }: ShareModalProps
             )}
 
             <p className="tabular-nums text-xs font-medium text-[#115E3B] dark:text-[#6EE7B7]">
-              {t.dimensionsShort} : {product.lengthCm} × {product.widthCm} × {product.heightCm} {t.cmUnit} ·{' '}
-              {product.thicknessCm} {t.cmUnit} · {product.piecesCount} {t.piecesUnit}
+              {t.dimensionsShort} : {product.lengthCm} × {product.widthCm} × {product.heightCm}{' '}
+              {t.cmUnit} · {product.thicknessCm} {t.cmUnit} · {product.piecesCount} {t.piecesUnit}
             </p>
           </div>
         </div>
 
-        {/* Share Actions */}
-        <div className="grid grid-cols-2 gap-2.5">
-          {(Capacitor.isNativePlatform() ||
-            (typeof navigator !== 'undefined' && typeof navigator.share === 'function')) && (
-            <button
-              type="button"
-              onClick={handleNativeShare}
-              className="col-span-2 flex min-h-[48px] items-center justify-center gap-2 rounded-xl bg-[#115E3B] px-4 text-sm font-semibold text-white hover:bg-[#0D4A2E] dark:bg-[#10B981] dark:text-[#052E1C]"
-            >
-              <Share2 className="h-4 w-4" />
-              <span>{t.nativeShare}</span>
-            </button>
-          )}
+        {/* Inline publish feedback */}
+        {feedback && (
+          <div className="mb-4 flex flex-col gap-2 rounded-xl border border-[#DCE7E0] bg-[#ECF7F1] px-3.5 py-2.5 text-xs text-[#115E3B] dark:border-[#1E3A2D] dark:bg-[#132B20] dark:text-[#6EE7B7]">
+            <span>{feedback.message}</span>
+            {feedback.channel && (
+              <a
+                href={feedback.channel === 'whatsapp' ? whatsappUrl : facebookUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex w-fit items-center gap-1.5 font-semibold underline underline-offset-2"
+              >
+                <Share2 className="h-3.5 w-3.5" />
+                <span>
+                  {feedback.channel === 'whatsapp' ? t.shareWhatsapp : t.shareFacebook}
+                </span>
+              </a>
+            )}
+          </div>
+        )}
 
-          <a
-            href={whatsappUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex min-h-[48px] items-center justify-center gap-2 rounded-xl border border-[#DCE7E0] bg-[#ECF7F1] px-4 text-sm font-semibold text-[#115E3B] hover:bg-[#DCF0E4] dark:border-[#1E3A2D] dark:bg-[#132B20] dark:text-[#34D399]"
+        {/* Share / Publish Actions */}
+        <div className="grid grid-cols-2 gap-2.5">
+          <button
+            type="button"
+            onClick={() => handlePublishAll()}
+            disabled={publishing}
+            className="col-span-2 flex min-h-[48px] items-center justify-center gap-2 rounded-xl bg-[#115E3B] px-4 text-sm font-semibold text-white hover:bg-[#0D4A2E] disabled:opacity-60 dark:bg-[#10B981] dark:text-[#052E1C]"
+          >
+            <Share2 className="h-4 w-4" />
+            <span>
+              {publishing
+                ? t.publishing
+                : photos.length > 0
+                  ? `${t.nativeShare} (${photos.length})`
+                  : t.nativeShare}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleSocialClick('whatsapp')}
+            disabled={publishing}
+            className="flex min-h-[48px] items-center justify-center gap-2 rounded-xl border border-[#DCE7E0] bg-[#ECF7F1] px-4 text-sm font-semibold text-[#115E3B] hover:bg-[#DCF0E4] disabled:opacity-60 dark:border-[#1E3A2D] dark:bg-[#132B20] dark:text-[#34D399]"
           >
             <MessageCircle className="h-4 w-4" />
             <span>{t.shareWhatsapp}</span>
-          </a>
+          </button>
 
-          <a
-            href={facebookUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex min-h-[48px] items-center justify-center gap-2 rounded-xl border border-[#DCE7E0] bg-white px-4 text-sm font-semibold text-[#0B1F16] hover:bg-[#F7FAF8] dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#F2F9F5]"
+          <button
+            type="button"
+            onClick={() => handleSocialClick('facebook')}
+            disabled={publishing}
+            className="flex min-h-[48px] items-center justify-center gap-2 rounded-xl border border-[#DCE7E0] bg-white px-4 text-sm font-semibold text-[#0B1F16] hover:bg-[#F7FAF8] disabled:opacity-60 dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#F2F9F5]"
           >
             <Share2 className="h-4 w-4" />
             <span>{t.shareFacebook}</span>
-          </a>
+          </button>
 
           <button
             type="button"
@@ -205,15 +342,41 @@ export function ShareModal({ product, lang, currency, onClose }: ShareModalProps
             <span>{copied ? t.copied : t.copyText}</span>
           </button>
 
-          <button
-            type="button"
-            onClick={handleDownloadCard}
-            disabled={downloading}
-            className="flex min-h-[48px] items-center justify-center gap-2 rounded-xl border border-[#DCE7E0] bg-white px-4 text-xs font-semibold text-[#0B1F16] hover:bg-[#F7FAF8] disabled:opacity-50 dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#F2F9F5]"
-          >
-            <Download className="h-4 w-4" />
-            <span>{t.downloadCardImage}</span>
-          </button>
+          {photos.length > 0 ? (
+            <button
+              type="button"
+              onClick={handleDownloadAllPhotos}
+              disabled={downloadingPhotos}
+              className="flex min-h-[48px] items-center justify-center gap-2 rounded-xl border border-[#DCE7E0] bg-white px-4 text-xs font-semibold text-[#0B1F16] hover:bg-[#F7FAF8] disabled:opacity-50 dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#F2F9F5]"
+            >
+              <Download className="h-4 w-4" />
+              <span>
+                {t.downloadAllPhotos} ({photos.length})
+              </span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleDownloadCard}
+              disabled={downloadingCard}
+              className="flex min-h-[48px] items-center justify-center gap-2 rounded-xl border border-[#DCE7E0] bg-white px-4 text-xs font-semibold text-[#0B1F16] hover:bg-[#F7FAF8] disabled:opacity-50 dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#F2F9F5]"
+            >
+              <Download className="h-4 w-4" />
+              <span>{t.downloadCardImage}</span>
+            </button>
+          )}
+
+          {photos.length > 0 && (
+            <button
+              type="button"
+              onClick={handleDownloadCard}
+              disabled={downloadingCard}
+              className="col-span-2 flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-4 text-xs font-medium text-[#335947] hover:bg-[#ECF7F1] disabled:opacity-50 dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#9EC0AE]"
+            >
+              <Download className="h-3.5 w-3.5" />
+              <span>{t.downloadCardImage}</span>
+            </button>
+          )}
         </div>
       </div>
     </div>

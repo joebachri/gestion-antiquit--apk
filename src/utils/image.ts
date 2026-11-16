@@ -70,6 +70,120 @@ export function buildShareText(product: Product, currency: string, lang: Languag
     .join('\n');
 }
 
+export interface ShareableMediaFile {
+  blob: Blob;
+  filename: string;
+  mimeType: string;
+}
+
+function sanitizeAsciiFilenamePart(input: string, fallback = 'item'): string {
+  const ascii = input
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Za-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return ascii || fallback;
+}
+
+function canvasEncodeJpeg(img: HTMLImageElement, quality = 0.92): Promise<Blob | null> {
+  return new Promise((resolve) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = img.naturalWidth || img.width || 1080;
+    canvas.height = img.naturalHeight || img.height || 1080;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      resolve(null);
+      return;
+    }
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob((blob) => resolve(blob), 'image/jpeg', quality);
+  });
+}
+
+export async function photoDataToBlob(
+  imageData: string
+): Promise<{ blob: Blob; ext: string; mimeType: string } | null> {
+  if (!imageData) return null;
+
+  try {
+    const response = await fetch(imageData);
+    if (response.ok) {
+      const rawBlob = await response.blob();
+      if (rawBlob.size > 0) {
+        if (rawBlob.type === 'image/png') {
+          return { blob: rawBlob, ext: 'png', mimeType: 'image/png' };
+        }
+        if (rawBlob.type === 'image/jpeg' || rawBlob.type === 'image/jpg') {
+          return { blob: rawBlob, ext: 'jpg', mimeType: 'image/jpeg' };
+        }
+        // Re-encode webp or untyped blobs to JPEG for maximum social/Android compatibility
+        const objectUrl = URL.createObjectURL(rawBlob);
+        try {
+          const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+            const el = new Image();
+            el.onload = () => resolve(el);
+            el.onerror = reject;
+            el.src = objectUrl;
+          });
+          const jpegBlob = await canvasEncodeJpeg(img);
+          if (jpegBlob) {
+            return { blob: jpegBlob, ext: 'jpg', mimeType: 'image/jpeg' };
+          }
+        } finally {
+          URL.revokeObjectURL(objectUrl);
+        }
+      }
+    }
+  } catch {
+    // fallback to Image element decoding below
+  }
+
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.crossOrigin = 'anonymous';
+      el.onload = () => resolve(el);
+      el.onerror = reject;
+      el.src = imageData;
+    });
+    const jpegBlob = await canvasEncodeJpeg(img);
+    if (jpegBlob) {
+      return { blob: jpegBlob, ext: 'jpg', mimeType: 'image/jpeg' };
+    }
+  } catch {
+    // ignore unrecoverable image
+  }
+
+  return null;
+}
+
+export async function buildAllProductPhotoFiles(product: Product): Promise<ShareableMediaFile[]> {
+  const orderedPhotos = [...(product.photos || [])].sort(
+    (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)
+  );
+  const baseCode = sanitizeAsciiFilenamePart(product.code || 'produit', 'produit');
+  const results: ShareableMediaFile[] = [];
+
+  for (let i = 0; i < orderedPhotos.length; i += 1) {
+    const photo = orderedPhotos[i];
+    const converted = await photoDataToBlob(photo.imageData);
+    if (!converted) continue;
+
+    const photoPart = sanitizeAsciiFilenamePart(
+      photo.photoCode || `${baseCode}-${i + 1}`,
+      `${baseCode}-${i + 1}`
+    );
+    const filename = `${photoPart}.${converted.ext}`;
+    results.push({
+      blob: converted.blob,
+      filename,
+      mimeType: converted.mimeType,
+    });
+  }
+
+  return results;
+}
+
 export async function renderProductShareCardBlob(
   product: Product,
   currency: string,
