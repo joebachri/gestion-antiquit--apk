@@ -1,0 +1,385 @@
+import type {
+  InventorySummary,
+  Product,
+  ProductPayload,
+  ProductPhoto,
+  ShopSettings,
+} from '../types';
+import { extractPrefixLetter } from './image';
+import lanternImg from '../assets/images/antique_copper_lantern_1794787509666.jpg';
+import chestImg from '../assets/images/antique_berber_chest_1794787509355.jpg';
+import ceramicImg from '../assets/images/antique_fez_ceramic_1794787509914.jpg';
+import teaServiceImg from '../assets/images/antique_silver_tea_service_1794787510384.jpg';
+
+const DB_NAME = 'gestion_antiquites_db';
+const DB_VERSION = 1;
+const STORE_PRODUCTS = 'products';
+const STORE_SETTINGS = 'settings';
+
+function openDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(STORE_PRODUCTS)) {
+        db.createObjectStore(STORE_PRODUCTS, { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains(STORE_SETTINGS)) {
+        db.createObjectStore(STORE_SETTINGS, { keyPath: 'key' });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function getAllFromStore<T>(db: IDBDatabase, storeName: string): Promise<T[]> {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, 'readonly');
+    const store = tx.objectStore(storeName);
+    const req = store.getAll();
+    req.onsuccess = () => resolve((req.result || []) as T[]);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function getFromStore<T>(db: IDBDatabase, storeName: string, key: string): Promise<T | undefined> {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, 'readonly');
+    const store = tx.objectStore(storeName);
+    const req = store.get(key);
+    req.onsuccess = () => resolve(req.result as T | undefined);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function putInStore<T>(db: IDBDatabase, storeName: string, value: T): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, 'readwrite');
+    tx.objectStore(storeName).put(value);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+function deleteFromStore(db: IDBDatabase, storeName: string, key: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, 'readwrite');
+    tx.objectStore(storeName).delete(key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+function buildPhotoCode(productCode: string, index: number): string {
+  return index === 0 ? productCode : `${productCode}-${index + 1}`;
+}
+
+function computeNextCode(products: Product[], name: string, excludeId?: string): string {
+  const prefix = extractPrefixLetter(name);
+  let maxNum = 0;
+  for (const item of products) {
+    if (excludeId && item.id === excludeId) continue;
+    if (!item.code.startsWith(prefix)) continue;
+    const suffix = item.code.slice(prefix.length);
+    if (/^\d+$/.test(suffix)) {
+      const n = Number.parseInt(suffix, 10);
+      if (n > maxNum) maxNum = n;
+    }
+  }
+  return `${prefix}${String(maxNum + 1).padStart(4, '0')}`;
+}
+
+function computeSummary(products: Product[]): InventorySummary {
+  let totalUnits = 0;
+  let totalSellingValue = 0;
+  let totalReferenceCost = 0;
+
+  for (const item of products) {
+    const qty = Math.max(0, Number(item.quantity) || 0);
+    totalUnits += qty;
+    totalSellingValue += qty * (Number(item.sellingPrice) || 0);
+    totalReferenceCost += qty * ((Number(item.referencePrice) || 0) + (Number(item.expenses) || 0));
+  }
+
+  return {
+    totalReferences: products.length,
+    totalUnits,
+    totalSellingValue,
+    totalReferenceCost,
+  };
+}
+
+async function ensureSeeded(db: IDBDatabase): Promise<void> {
+  const seeded = await getFromStore<{ key: string; value: string }>(db, STORE_SETTINGS, 'seeded');
+  if (seeded?.value === '1') return;
+
+  const existing = await getAllFromStore<Product>(db, STORE_PRODUCTS);
+  if (existing.length > 0) {
+    await putInStore(db, STORE_SETTINGS, { key: 'seeded', value: '1' });
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const today = now.slice(0, 10);
+
+  const seeds: Array<{
+    name: string;
+    description: string;
+    lengthCm: number;
+    widthCm: number;
+    heightCm: number;
+    thicknessCm: number;
+    piecesCount: number;
+    quantity: number;
+    referencePrice: number;
+    expenses: number;
+    sellingPrice: number;
+    image: string;
+  }> = [
+    {
+      name: 'Lanterne Fassi en Cuivre Cisélé',
+      description:
+        "Lanterne octogonale ancienne en laiton et cuivre ajouré à motifs géométriques traditionnels de Fès, patine authentique d'époque.",
+      lengthCm: 28,
+      widthCm: 28,
+      heightCm: 62,
+      thicknessCm: 0.4,
+      piecesCount: 1,
+      quantity: 2,
+      referencePrice: 1800,
+      expenses: 250,
+      sellingPrice: 3200,
+      image: lanternImg,
+    },
+    {
+      name: 'Coffre Berbère en Bois de Cèdre Sculpté',
+      description:
+        'Coffre de mariage ancien du Moyen-Atlas en bois de cèdre massif sculpté à la main, ferrures et moraillon en laiton oxydé.',
+      lengthCm: 94,
+      widthCm: 48,
+      heightCm: 52,
+      thicknessCm: 2.5,
+      piecesCount: 1,
+      quantity: 1,
+      referencePrice: 4500,
+      expenses: 600,
+      sellingPrice: 7800,
+      image: chestImg,
+    },
+    {
+      name: 'Plat Ancien en Céramique de Fès',
+      description:
+        'Grand plat décoratif ancien de Fès émaillé vert émeraude et bleu de cobalt, motif floral étoilé peint à la main.',
+      lengthCm: 42,
+      widthCm: 42,
+      heightCm: 8,
+      thicknessCm: 1.2,
+      piecesCount: 1,
+      quantity: 3,
+      referencePrice: 950,
+      expenses: 120,
+      sellingPrice: 1750,
+      image: ceramicImg,
+    },
+    {
+      name: 'Service à Thé Royal en Argent Ciselé',
+      description:
+        "Théière ancienne gravée à la main sur plateau circulaire ciselé en maillechort argenté, accompagnée de son sucrier d'époque.",
+      lengthCm: 46,
+      widthCm: 46,
+      heightCm: 29,
+      thicknessCm: 0.3,
+      piecesCount: 3,
+      quantity: 1,
+      referencePrice: 2600,
+      expenses: 300,
+      sellingPrice: 4600,
+      image: teaServiceImg,
+    },
+  ];
+
+  const createdList: Product[] = [];
+  for (const s of seeds) {
+    const id = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+    const code = computeNextCode(createdList, s.name);
+    const product: Product = {
+      id,
+      code,
+      name: s.name,
+      description: s.description,
+      lengthCm: s.lengthCm,
+      widthCm: s.widthCm,
+      heightCm: s.heightCm,
+      thicknessCm: s.thicknessCm,
+      piecesCount: s.piecesCount,
+      quantity: s.quantity,
+      referencePrice: s.referencePrice,
+      expenses: s.expenses,
+      sellingPrice: s.sellingPrice,
+      addedDate: today,
+      createdAt: now,
+      updatedAt: now,
+      photos: [
+        {
+          id: crypto.randomUUID ? crypto.randomUUID() : `${id}-p0`,
+          productId: id,
+          photoCode: buildPhotoCode(code, 0),
+          imageData: s.image,
+          sortOrder: 0,
+          createdAt: now,
+        },
+      ],
+    };
+    createdList.push(product);
+    await putInStore(db, STORE_PRODUCTS, product);
+  }
+
+  await putInStore(db, STORE_SETTINGS, { key: 'seeded', value: '1' });
+  await putInStore(db, STORE_SETTINGS, { key: 'currency', value: 'MAD' });
+  await putInStore(db, STORE_SETTINGS, { key: 'customLogo', value: '' });
+}
+
+export async function localListProducts(
+  query: string
+): Promise<{ products: Product[]; summary: InventorySummary }> {
+  const db = await openDb();
+  await ensureSeeded(db);
+  const all = await getAllFromStore<Product>(db, STORE_PRODUCTS);
+  all.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? all.filter(
+        (p) =>
+          p.name.toLowerCase().includes(q) ||
+          p.code.toLowerCase().includes(q) ||
+          p.photos.some((ph) => ph.photoCode.toLowerCase().includes(q))
+      )
+    : all;
+
+  return {
+    products: filtered,
+    summary: computeSummary(all),
+  };
+}
+
+export async function localNextCode(name: string, excludeId?: string): Promise<string> {
+  const db = await openDb();
+  await ensureSeeded(db);
+  const all = await getAllFromStore<Product>(db, STORE_PRODUCTS);
+  return computeNextCode(all, name, excludeId);
+}
+
+export async function localCreateProduct(payload: ProductPayload): Promise<Product> {
+  const db = await openDb();
+  await ensureSeeded(db);
+  const all = await getAllFromStore<Product>(db, STORE_PRODUCTS);
+  const now = new Date().toISOString();
+  const id = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+  const code = computeNextCode(all, payload.name);
+
+  const photos: ProductPhoto[] = (payload.photos || []).map((p, idx) => ({
+    id: p.id || (crypto.randomUUID ? crypto.randomUUID() : `${id}-p${idx}`),
+    productId: id,
+    photoCode: buildPhotoCode(code, idx),
+    imageData: p.imageData,
+    sortOrder: idx,
+    createdAt: now,
+  }));
+
+  const product: Product = {
+    id,
+    code,
+    name: payload.name.trim(),
+    description: payload.description.trim(),
+    lengthCm: payload.lengthCm || 0,
+    widthCm: payload.widthCm || 0,
+    heightCm: payload.heightCm || 0,
+    thicknessCm: payload.thicknessCm || 0,
+    piecesCount: Math.max(1, payload.piecesCount || 1),
+    quantity: Math.max(0, payload.quantity ?? 1),
+    referencePrice: payload.referencePrice || 0,
+    expenses: payload.expenses || 0,
+    sellingPrice: payload.sellingPrice || 0,
+    addedDate: payload.addedDate || now.slice(0, 10),
+    createdAt: now,
+    updatedAt: now,
+    photos,
+  };
+
+  await putInStore(db, STORE_PRODUCTS, product);
+  return product;
+}
+
+export async function localUpdateProduct(id: string, payload: ProductPayload): Promise<Product> {
+  const db = await openDb();
+  await ensureSeeded(db);
+  const all = await getAllFromStore<Product>(db, STORE_PRODUCTS);
+  const existing = all.find((p) => p.id === id);
+  if (!existing) throw new Error('Product not found');
+
+  const now = new Date().toISOString();
+  const shouldRegen =
+    Boolean(payload.regenerateCode) ||
+    extractPrefixLetter(payload.name) !== extractPrefixLetter(existing.name);
+  const code = shouldRegen ? computeNextCode(all, payload.name, id) : existing.code;
+
+  const photos: ProductPhoto[] = (payload.photos || []).map((p, idx) => ({
+    id: p.id || (crypto.randomUUID ? crypto.randomUUID() : `${id}-p${idx}`),
+    productId: id,
+    photoCode: buildPhotoCode(code, idx),
+    imageData: p.imageData,
+    sortOrder: idx,
+    createdAt: now,
+  }));
+
+  const updated: Product = {
+    ...existing,
+    code,
+    name: payload.name.trim(),
+    description: payload.description.trim(),
+    lengthCm: payload.lengthCm || 0,
+    widthCm: payload.widthCm || 0,
+    heightCm: payload.heightCm || 0,
+    thicknessCm: payload.thicknessCm || 0,
+    piecesCount: Math.max(1, payload.piecesCount || 1),
+    quantity: Math.max(0, payload.quantity ?? 1),
+    referencePrice: payload.referencePrice || 0,
+    expenses: payload.expenses || 0,
+    sellingPrice: payload.sellingPrice || 0,
+    addedDate: payload.addedDate || existing.addedDate,
+    updatedAt: now,
+    photos,
+  };
+
+  await putInStore(db, STORE_PRODUCTS, updated);
+  return updated;
+}
+
+export async function localDeleteProduct(id: string): Promise<void> {
+  const db = await openDb();
+  await deleteFromStore(db, STORE_PRODUCTS, id);
+}
+
+export async function localGetSettings(): Promise<ShopSettings> {
+  const db = await openDb();
+  await ensureSeeded(db);
+  const logo = await getFromStore<{ key: string; value: string }>(db, STORE_SETTINGS, 'customLogo');
+  const currency = await getFromStore<{ key: string; value: string }>(
+    db,
+    STORE_SETTINGS,
+    'currency'
+  );
+  return {
+    customLogo: logo?.value ?? '',
+    currency: currency?.value || 'MAD',
+  };
+}
+
+export async function localSaveSettings(settings: ShopSettings): Promise<ShopSettings> {
+  const db = await openDb();
+  await putInStore(db, STORE_SETTINGS, { key: 'customLogo', value: settings.customLogo ?? '' });
+  await putInStore(db, STORE_SETTINGS, { key: 'currency', value: settings.currency || 'MAD' });
+  return settings;
+}
