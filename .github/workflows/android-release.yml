@@ -43,12 +43,14 @@ jobs:
           "$SDK_MANAGER" --sdk_root="$SDK_ROOT" "platforms;android-36" "platform-tools"
 
       - name: Install dependencies
-        run: npm install
+        run: npm install --legacy-peer-deps
 
       - name: Build web assets
         run: npm run build
 
       - name: Sync Capacitor Android project
+        env:
+          CI: true
         run: npx cap sync android
 
       - name: Make Gradle wrapper executable
