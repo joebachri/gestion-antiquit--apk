@@ -184,110 +184,423 @@ export async function buildAllProductPhotoFiles(product: Product): Promise<Share
   return results;
 }
 
+function loadHtmlImage(src: string): Promise<HTMLImageElement | null> {
+  return new Promise((resolve) => {
+    const el = new Image();
+    el.crossOrigin = 'anonymous';
+    el.onload = () => resolve(el);
+    el.onerror = () => resolve(null);
+    el.src = src;
+  });
+}
+
+function wrapCanvasText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+  maxLines: number
+): string[] {
+  const cleaned = (text || '').trim();
+  if (!cleaned) return [];
+
+  const paragraphs = cleaned.split(/\r?\n/);
+  const lines: string[] = [];
+
+  for (const para of paragraphs) {
+    const words = para.trim().split(/\s+/).filter(Boolean);
+    if (words.length === 0) continue;
+
+    let current = '';
+    for (const word of words) {
+      const candidate = current ? `${current} ${word}` : word;
+      if (ctx.measureText(candidate).width > maxWidth) {
+        if (current) {
+          lines.push(current);
+          if (lines.length >= maxLines) return lines;
+          current = word;
+        } else {
+          lines.push(word);
+          if (lines.length >= maxLines) return lines;
+          current = '';
+        }
+      } else {
+        current = candidate;
+      }
+    }
+    if (current) {
+      lines.push(current);
+      if (lines.length >= maxLines) return lines;
+    }
+  }
+
+  return lines.slice(0, maxLines);
+}
+
+function drawRoundedRectPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number
+): void {
+  const radius = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.arcTo(x + w, y, x + w, y + h, radius);
+  ctx.arcTo(x + w, y + h, x, y + h, radius);
+  ctx.arcTo(x, y + h, x, y, radius);
+  ctx.arcTo(x, y, x + w, y, radius);
+  ctx.closePath();
+}
+
+function drawCoverPhotoBox(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement | null,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  badgeText?: string,
+  isRtl = false
+): void {
+  ctx.save();
+  drawRoundedRectPath(ctx, x, y, w, h, 20);
+  ctx.fillStyle = '#E8F2EC';
+  ctx.fill();
+  ctx.clip();
+
+  if (img && img.width > 0 && img.height > 0) {
+    const scale = Math.max(w / img.width, h / img.height);
+    const drawW = img.width * scale;
+    const drawH = img.height * scale;
+    const dx = x + (w - drawW) / 2;
+    const dy = y + (h - drawH) / 2;
+    ctx.drawImage(img, dx, dy, drawW, drawH);
+  }
+
+  if (badgeText) {
+    ctx.font = 'bold 20px monospace';
+    const textW = ctx.measureText(badgeText).width;
+    const pillW = textW + 24;
+    const pillH = 34;
+    const pillX = isRtl ? x + w - pillW - 14 : x + 14;
+    const pillY = y + 14;
+
+    ctx.fillStyle = 'rgba(11, 31, 22, 0.72)';
+    drawRoundedRectPath(ctx, pillX, pillY, pillW, pillH, 10);
+    ctx.fill();
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.textAlign = 'left';
+    ctx.direction = 'ltr';
+    ctx.fillText(badgeText, pillX + 12, pillY + 24);
+  }
+
+  ctx.restore();
+
+  ctx.save();
+  drawRoundedRectPath(ctx, x, y, w, h, 20);
+  ctx.strokeStyle = '#CBE0D3';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.restore();
+}
+
 export async function renderProductShareCardBlob(
   product: Product,
   currency: string,
   lang: Language
 ): Promise<Blob | null> {
+  const isRtl = lang === 'ar';
+  const orderedPhotos = [...(product.photos || [])].sort(
+    (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)
+  );
+
+  const loadedImages = await Promise.all(orderedPhotos.map((p) => loadHtmlImage(p.imageData)));
+
+  const W = 1080;
+  const PAD = 56;
+  const CW = W - PAD * 2;
+  const GAP = 16;
+  const HEADER_H = 136;
+  const photoStartY = HEADER_H + 34;
+
+  // Compute photo collage boxes for 0, 1, 2, 3, 4, or 5+ photos
+  interface PhotoSlot {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    img: HTMLImageElement | null;
+    code: string;
+  }
+
+  const slots: PhotoSlot[] = [];
+  let photoSectionH = 0;
+
+  if (orderedPhotos.length === 0) {
+    photoSectionH = 260;
+  } else if (orderedPhotos.length === 1) {
+    const h = 580;
+    slots.push({
+      x: PAD,
+      y: photoStartY,
+      w: CW,
+      h,
+      img: loadedImages[0],
+      code: orderedPhotos[0].photoCode || product.code,
+    });
+    photoSectionH = h;
+  } else if (orderedPhotos.length === 2) {
+    const colW = (CW - GAP) / 2;
+    const h = 460;
+    for (let i = 0; i < 2; i += 1) {
+      slots.push({
+        x: PAD + i * (colW + GAP),
+        y: photoStartY,
+        w: colW,
+        h,
+        img: loadedImages[i],
+        code: orderedPhotos[i].photoCode,
+      });
+    }
+    photoSectionH = h;
+  } else if (orderedPhotos.length === 3) {
+    const heroH = 420;
+    const subH = 280;
+    const colW = (CW - GAP) / 2;
+    slots.push({
+      x: PAD,
+      y: photoStartY,
+      w: CW,
+      h: heroH,
+      img: loadedImages[0],
+      code: orderedPhotos[0].photoCode,
+    });
+    for (let i = 1; i < 3; i += 1) {
+      slots.push({
+        x: PAD + (i - 1) * (colW + GAP),
+        y: photoStartY + heroH + GAP,
+        w: colW,
+        h: subH,
+        img: loadedImages[i],
+        code: orderedPhotos[i].photoCode,
+      });
+    }
+    photoSectionH = heroH + GAP + subH;
+  } else if (orderedPhotos.length === 4) {
+    const colW = (CW - GAP) / 2;
+    const rowH = 300;
+    for (let i = 0; i < 4; i += 1) {
+      const row = Math.floor(i / 2);
+      const col = i % 2;
+      slots.push({
+        x: PAD + col * (colW + GAP),
+        y: photoStartY + row * (rowH + GAP),
+        w: colW,
+        h: rowH,
+        img: loadedImages[i],
+        code: orderedPhotos[i].photoCode,
+      });
+    }
+    photoSectionH = rowH * 2 + GAP;
+  } else {
+    const heroH = 390;
+    const subH = 220;
+    const colW = (CW - GAP * 2) / 3;
+    slots.push({
+      x: PAD,
+      y: photoStartY,
+      w: CW,
+      h: heroH,
+      img: loadedImages[0],
+      code: orderedPhotos[0].photoCode,
+    });
+    const restCount = orderedPhotos.length - 1;
+    const rows = Math.ceil(restCount / 3);
+    for (let i = 1; i < orderedPhotos.length; i += 1) {
+      const idx = i - 1;
+      const row = Math.floor(idx / 3);
+      const col = idx % 3;
+      slots.push({
+        x: PAD + col * (colW + GAP),
+        y: photoStartY + heroH + GAP + row * (subH + GAP),
+        w: colW,
+        h: subH,
+        img: loadedImages[i],
+        code: orderedPhotos[i].photoCode,
+      });
+    }
+    photoSectionH = heroH + rows * (subH + GAP);
+  }
+
+  // Measure text blocks before creating final canvas height
+  const measureCanvas = document.createElement('canvas');
+  const mCtx = measureCanvas.getContext('2d');
+  if (!mCtx) return null;
+
+  mCtx.font = 'bold 42px Georgia, serif';
+  const titleLines = wrapCanvasText(mCtx, product.name, CW, 2);
+
+  mCtx.font = '26px sans-serif';
+  const descLines = wrapCanvasText(mCtx, product.description || '', CW, 6);
+
+  const detailsStartY = photoStartY + photoSectionH + 46;
+  const titleBlockH = Math.max(1, titleLines.length) * 52;
+  const priceBlockH = 66;
+  const specsBoxH = 112;
+  const descBlockH = descLines.length > 0 ? descLines.length * 38 + 26 : 0;
+  const footerH = 74;
+  const totalH = Math.max(
+    1180,
+    detailsStartY + titleBlockH + priceBlockH + specsBoxH + descBlockH + footerH
+  );
+
   const canvas = document.createElement('canvas');
-  canvas.width = 1080;
-  canvas.height = 1280;
+  canvas.width = W;
+  canvas.height = totalH;
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
 
   // Clean heritage white & deep emerald palette
   ctx.fillStyle = '#F7FAF8';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillRect(0, 0, W, totalH);
 
   // Top emerald header band
   ctx.fillStyle = '#115E3B';
-  ctx.fillRect(0, 0, canvas.width, 136);
+  ctx.fillRect(0, 0, W, HEADER_H);
 
+  const headerAnchorX = isRtl ? W - PAD : PAD;
+  const oppositeAnchorX = isRtl ? PAD : W - PAD;
+
+  ctx.save();
   ctx.fillStyle = '#FFFFFF';
   ctx.font = 'bold 40px Georgia, serif';
-  ctx.fillText(lang === 'ar' ? 'إدارة التحف' : 'Gestion Antiquités', 56, 72);
+  ctx.textAlign = isRtl ? 'right' : 'left';
+  ctx.direction = isRtl ? 'rtl' : 'ltr';
+  ctx.fillText(isRtl ? 'إدارة التحف' : 'Gestion Antiquités', headerAnchorX, 68);
+
   ctx.font = '600 24px monospace';
   ctx.fillStyle = '#D1FAE5';
-  ctx.fillText(product.code, 56, 110);
+  ctx.textAlign = isRtl ? 'right' : 'left';
+  ctx.direction = 'ltr';
+  ctx.fillText(product.code, headerAnchorX, 108);
 
-  // Photo container
-  const imgX = 56;
-  const imgY = 176;
-  const imgW = 968;
-  const imgH = 620;
+  if (orderedPhotos.length > 0) {
+    const countLabel = isRtl
+      ? `${orderedPhotos.length} صور`
+      : `${orderedPhotos.length} photo${orderedPhotos.length > 1 ? 's' : ''}`;
+    ctx.font = '600 22px sans-serif';
+    ctx.fillStyle = '#ECF7F1';
+    ctx.textAlign = isRtl ? 'left' : 'right';
+    ctx.direction = isRtl ? 'rtl' : 'ltr';
+    ctx.fillText(countLabel, oppositeAnchorX, 82);
+  }
+  ctx.restore();
 
-  ctx.fillStyle = '#E8F2EC';
-  ctx.fillRect(imgX, imgY, imgW, imgH);
-
-  const primaryPhoto = product.photos[0]?.imageData;
-  if (primaryPhoto) {
-    try {
-      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-        const el = new Image();
-        el.crossOrigin = 'anonymous';
-        el.onload = () => resolve(el);
-        el.onerror = reject;
-        el.src = primaryPhoto;
-      });
-      const scale = Math.max(imgW / img.width, imgH / img.height);
-      const drawW = img.width * scale;
-      const drawH = img.height * scale;
-      const dx = imgX + (imgW - drawW) / 2;
-      const dy = imgY + (imgH - drawH) / 2;
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(imgX, imgY, imgW, imgH);
-      ctx.clip();
-      ctx.drawImage(img, dx, dy, drawW, drawH);
-      ctx.restore();
-    } catch {
-      // keep clean stone placeholder
+  // Draw photos (or clean placeholder)
+  if (slots.length === 0) {
+    drawCoverPhotoBox(ctx, null, PAD, photoStartY, CW, photoSectionH, product.code, isRtl);
+  } else {
+    for (const slot of slots) {
+      drawCoverPhotoBox(ctx, slot.img, slot.x, slot.y, slot.w, slot.h, slot.code, isRtl);
     }
   }
 
-  // Product details area
+  // Product Name
+  let cursorY = detailsStartY;
+  ctx.save();
   ctx.fillStyle = '#0B1F16';
   ctx.font = 'bold 42px Georgia, serif';
-  ctx.fillText(product.name.slice(0, 44), 56, 868);
+  ctx.textAlign = isRtl ? 'right' : 'left';
+  ctx.direction = isRtl ? 'rtl' : 'ltr';
+  const textX = isRtl ? W - PAD : PAD;
+
+  for (const tLine of titleLines) {
+    ctx.fillText(tLine, textX, cursorY);
+    cursorY += 52;
+  }
 
   // Selling Price
+  cursorY += 12;
   ctx.fillStyle = '#115E3B';
   ctx.font = 'bold 44px sans-serif';
-  ctx.fillText(formatCurrency(product.sellingPrice, currency, lang), 56, 932);
+  ctx.fillText(formatCurrency(product.sellingPrice, currency, lang), textX, cursorY);
+  cursorY += 34;
 
-  // Dimensions line
+  // Dimensions & Stock Specs Box
+  ctx.fillStyle = '#ECF7F1';
+  drawRoundedRectPath(ctx, PAD, cursorY, CW, 92, 18);
+  ctx.fill();
+  ctx.strokeStyle = '#CBE0D3';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  const specPadX = isRtl ? W - PAD - 24 : PAD + 24;
+  ctx.fillStyle = '#115E3B';
+  ctx.font = '600 24px sans-serif';
+  const dimText = isRtl
+    ? `الأبعاد: ${product.lengthCm} × ${product.widthCm} × ${product.heightCm} سم · السماكة: ${product.thicknessCm} سم · ${product.piecesCount} قطع`
+    : `Dimensions : L ${product.lengthCm} × l ${product.widthCm} × H ${product.heightCm} cm · Ép. ${product.thicknessCm} cm · ${product.piecesCount} pièce(s)`;
+  ctx.fillText(dimText, specPadX, cursorY + 38);
+
   ctx.fillStyle = '#335947';
-  ctx.font = '600 25px sans-serif';
-  const dimText =
-    lang === 'ar'
-      ? `الأبعاد: ${product.lengthCm} × ${product.widthCm} × ${product.heightCm} سم · السماكة ${product.thicknessCm} سم · ${product.piecesCount} قطع`
-      : `Dimensions : L ${product.lengthCm} × l ${product.widthCm} × H ${product.heightCm} cm · Ép. ${product.thicknessCm} cm · ${product.piecesCount} p.`;
-  ctx.fillText(dimText, 56, 990);
+  ctx.font = '500 22px sans-serif';
+  const metaText = isRtl
+    ? `الرمز: ${product.code} · الكمية المتوفرة: ${product.quantity}`
+    : `Référence : ${product.code} · Quantité disponible : ${product.quantity}`;
+  ctx.fillText(metaText, specPadX, cursorY + 72);
 
-  // Description wrap (max 4 lines)
-  ctx.fillStyle = '#476656';
-  ctx.font = '26px sans-serif';
-  const words = (product.description || '').split(/\s+/);
-  let line = '';
-  let y = 1052;
-  let lineCount = 0;
-  for (const word of words) {
-    const testLine = line ? `${line} ${word}` : word;
-    if (ctx.measureText(testLine).width > 968) {
-      ctx.fillText(line, 56, y);
-      line = word;
-      y += 38;
-      lineCount += 1;
-      if (lineCount >= 4) break;
-    } else {
-      line = testLine;
+  cursorY += 126;
+
+  // Description lines
+  if (descLines.length > 0) {
+    ctx.fillStyle = '#335947';
+    ctx.font = '26px sans-serif';
+    for (const dLine of descLines) {
+      ctx.fillText(dLine, textX, cursorY);
+      cursorY += 38;
     }
   }
-  if (line && lineCount < 4) {
-    ctx.fillText(line, 56, y);
-  }
+
+  // Subtle footer divider
+  const footerY = totalH - 36;
+  ctx.strokeStyle = '#DCE7E0';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(PAD, footerY - 24);
+  ctx.lineTo(W - PAD, footerY - 24);
+  ctx.stroke();
+
+  ctx.fillStyle = '#6B8A7A';
+  ctx.font = '500 20px sans-serif';
+  ctx.fillText(
+    isRtl
+      ? `إدارة التحف · بطاقة منتج (${product.code})`
+      : `Gestion Antiquités · Fiche produit (${product.code})`,
+    textX,
+    footerY
+  );
+  ctx.restore();
 
   return new Promise((resolve) => {
     canvas.toBlob((blob) => resolve(blob), 'image/png');
   });
+}
+
+export async function buildProductCardFile(
+  product: Product,
+  currency: string,
+  lang: Language
+): Promise<ShareableMediaFile | null> {
+  const cardBlob = await renderProductShareCardBlob(product, currency, lang);
+  if (!cardBlob) return null;
+  const safeCode = sanitizeAsciiFilenamePart(product.code || 'produit', 'produit');
+  const safeName = sanitizeAsciiFilenamePart(product.name.slice(0, 24), 'fiche');
+  return {
+    blob: cardBlob,
+    filename: `${safeCode}-${safeName}-carte.png`,
+    mimeType: 'image/png',
+  };
 }

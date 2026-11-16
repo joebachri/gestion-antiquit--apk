@@ -5,15 +5,16 @@ import type { Language, Product } from '../types';
 import { formatCurrency, translations } from '../i18n';
 import {
   buildAllProductPhotoFiles,
+  buildProductCardFile,
   buildShareText,
   renderProductShareCardBlob,
-  type ShareableMediaFile,
 } from '../utils/image';
 import {
   canWebShareFiles,
   downloadBlobs,
   saveOrShareBlob,
   shareProductMediaAndText,
+  tryCopyCardImageToClipboard,
 } from '../utils/download';
 
 interface ShareModalProps {
@@ -29,6 +30,7 @@ export function ShareModal({ product, lang, currency, onClose }: ShareModalProps
   const [publishing, setPublishing] = useState(false);
   const [downloadingPhotos, setDownloadingPhotos] = useState(false);
   const [downloadingCard, setDownloadingCard] = useState(false);
+  const [cardPreviewUrl, setCardPreviewUrl] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{
     message: string;
     channel?: 'whatsapp' | 'facebook';
@@ -40,7 +42,28 @@ export function ShareModal({ product, lang, currency, onClose }: ShareModalProps
     setDownloadingPhotos(false);
     setDownloadingCard(false);
     setFeedback(null);
-  }, [product?.id]);
+
+    if (!product) {
+      setCardPreviewUrl(null);
+      return;
+    }
+
+    let canceled = false;
+    let objectUrl: string | null = null;
+
+    renderProductShareCardBlob(product, currency, lang).then((blob) => {
+      if (canceled || !blob) return;
+      objectUrl = URL.createObjectURL(blob);
+      setCardPreviewUrl(objectUrl);
+    });
+
+    return () => {
+      canceled = true;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [product, currency, lang]);
 
   if (!product) return null;
 
@@ -56,24 +79,6 @@ export function ShareModal({ product, lang, currency, onClose }: ShareModalProps
     window.location.href
   )}&quote=${encodeURIComponent(shareText)}`;
 
-  const preparePublishFiles = async (): Promise<ShareableMediaFile[]> => {
-    const files = await buildAllProductPhotoFiles(product);
-    if (files.length > 0) {
-      return files;
-    }
-    const cardBlob = await renderProductShareCardBlob(product, currency, lang);
-    if (cardBlob) {
-      return [
-        {
-          blob: cardBlob,
-          filename: `${product.code || 'fiche'}.png`,
-          mimeType: 'image/png',
-        },
-      ];
-    }
-    return [];
-  };
-
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(shareText);
@@ -84,53 +89,49 @@ export function ShareModal({ product, lang, currency, onClose }: ShareModalProps
     }
   };
 
-  const handlePublishAll = async (channel?: 'whatsapp' | 'facebook') => {
+  const handlePublishCard = async (channel?: 'whatsapp' | 'facebook') => {
     setPublishing(true);
     setFeedback(null);
     try {
-      const files = await preparePublishFiles();
-      const result = await shareProductMediaAndText({
-        files,
-        title: shareTitle,
-        text: shareText,
-        dialogTitle: shareTitle,
-      });
+      const cardFile = await buildProductCardFile(product, currency, lang);
+      const files = cardFile ? [cardFile] : await buildAllProductPhotoFiles(product);
 
-      if (result.copiedText) {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2500);
-      }
+      const supportsNativeOrWebFiles = Capacitor.isNativePlatform() || canWebShareFiles();
 
-      if (result.outcome === 'shared') {
-        setFeedback({ message: t.shareCaptionCopiedHint });
-      } else if (result.outcome === 'downloaded' || result.outcome === 'copied') {
-        setFeedback({
-          message: t.desktopShareFallbackHint,
-          channel,
+      if (supportsNativeOrWebFiles) {
+        const result = await shareProductMediaAndText({
+          files,
+          title: shareTitle,
+          text: shareText,
+          dialogTitle: shareTitle,
         });
-      }
-    } finally {
-      setPublishing(false);
-    }
-  };
 
-  const handleSocialClick = async (channel: 'whatsapp' | 'facebook') => {
-    const supportsNativeOrWebFiles = Capacitor.isNativePlatform() || canWebShareFiles();
-    if (supportsNativeOrWebFiles) {
-      await handlePublishAll(channel);
-      return;
-    }
+        if (result.copiedText) {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2500);
+        }
 
-    // Desktop browsers cannot attach image files via wa.me or sharer.php URLs.
-    // Download all product photos, copy product text, and expose a direct open link.
-    setPublishing(true);
-    setFeedback(null);
-    try {
-      const files = await preparePublishFiles();
-      if (files.length > 0) {
-        await downloadBlobs(files, shareTitle, shareText);
+        if (result.outcome === 'shared') {
+          setFeedback({ message: t.shareCaptionCopiedHint });
+          return;
+        }
+        if (result.outcome === 'canceled') {
+          return;
+        }
       }
-      await handleCopy();
+
+      // Desktop browser fallback: copy the Card PNG to clipboard (for Ctrl+V paste into WhatsApp/Facebook),
+      // download the Card PNG file, and show the channel link.
+      if (cardFile) {
+        await downloadBlobs([cardFile], shareTitle, shareText);
+        const copiedImg = await tryCopyCardImageToClipboard(cardFile.blob);
+        if (!copiedImg) {
+          await handleCopy();
+        }
+      } else {
+        await handleCopy();
+      }
+
       setFeedback({
         message: t.desktopShareFallbackHint,
         channel,
@@ -140,10 +141,14 @@ export function ShareModal({ product, lang, currency, onClose }: ShareModalProps
     }
   };
 
+  const handleSocialClick = async (channel: 'whatsapp' | 'facebook') => {
+    await handlePublishCard(channel);
+  };
+
   const handleDownloadAllPhotos = async () => {
     setDownloadingPhotos(true);
     try {
-      const files = await preparePublishFiles();
+      const files = await buildAllProductPhotoFiles(product);
       if (files.length === 0) return;
       await downloadBlobs(files, shareTitle, shareText);
     } finally {
@@ -194,86 +199,97 @@ export function ShareModal({ product, lang, currency, onClose }: ShareModalProps
           </button>
         </div>
 
-        {/* Shareable Card Preview showing ALL photos */}
-        <div className="mb-5 overflow-hidden rounded-2xl border border-[#DCE7E0] bg-[#F7FAF8] dark:border-[#1E3A2D] dark:bg-[#091611]">
-          <div className="flex items-center justify-between border-b border-[#DCE7E0] bg-[#115E3B] px-4 py-2 text-xs font-semibold text-white dark:border-[#1E3A2D]">
-            <span>{t.brandName}</span>
-            <div className="flex items-center gap-2">
-              {photos.length > 0 && (
-                <span className="tabular-nums rounded-md bg-white/15 px-2 py-0.5 text-[11px] font-medium">
-                  {photos.length} {t.photosIncluded}
-                </span>
-              )}
-              <span className="font-mono-code tracking-wider">{product.code}</span>
-            </div>
+        {/* Shareable Card Preview: displays the exact generated Card PNG when ready */}
+        {cardPreviewUrl ? (
+          <div className="mb-5 overflow-hidden rounded-2xl border border-[#DCE7E0] bg-[#F7FAF8] shadow-xs dark:border-[#1E3A2D] dark:bg-[#091611]">
+            <img
+              src={cardPreviewUrl}
+              alt={shareTitle}
+              className="block max-h-[420px] w-full object-contain"
+            />
           </div>
-
-          {primaryPhoto ? (
-            <div className="space-y-2 bg-[#E8F2EC] p-2 dark:bg-[#102119]">
-              <div className="relative aspect-[16/10] w-full overflow-hidden rounded-xl">
-                <img
-                  src={primaryPhoto.imageData}
-                  alt={primaryPhoto.photoCode || product.name}
-                  referrerPolicy="no-referrer"
-                  className="h-full w-full object-cover"
-                />
-                {primaryPhoto.photoCode && (
-                  <span className="font-mono-code absolute left-2 top-2 rounded-md bg-black/65 px-2 py-0.5 text-[11px] font-semibold text-white backdrop-blur-xs">
-                    {primaryPhoto.photoCode}
+        ) : (
+          <div className="mb-5 overflow-hidden rounded-2xl border border-[#DCE7E0] bg-[#F7FAF8] dark:border-[#1E3A2D] dark:bg-[#091611]">
+            <div className="flex items-center justify-between border-b border-[#DCE7E0] bg-[#115E3B] px-4 py-2 text-xs font-semibold text-white dark:border-[#1E3A2D]">
+              <span>{t.brandName}</span>
+              <div className="flex items-center gap-2">
+                {photos.length > 0 && (
+                  <span className="tabular-nums rounded-md bg-white/15 px-2 py-0.5 text-[11px] font-medium">
+                    {photos.length} {t.photosIncluded}
                   </span>
                 )}
+                <span className="font-mono-code tracking-wider">{product.code}</span>
               </div>
+            </div>
 
-              {photos.length > 1 && (
-                <div className="flex items-center gap-2 overflow-x-auto pb-0.5">
-                  {photos.map((photo) => (
-                    <div
-                      key={photo.id}
-                      className="flex shrink-0 flex-col items-center overflow-hidden rounded-lg border border-[#DCE7E0] bg-white p-1 dark:border-[#1E3A2D] dark:bg-[#0F2119]"
-                    >
-                      <span className="font-mono-code mb-0.5 text-[10px] font-semibold text-[#115E3B] dark:text-[#34D399]">
-                        {photo.photoCode}
-                      </span>
-                      <img
-                        src={photo.imageData}
-                        alt={photo.photoCode}
-                        referrerPolicy="no-referrer"
-                        className="h-12 w-16 rounded-md object-cover"
-                      />
-                    </div>
-                  ))}
+            {primaryPhoto ? (
+              <div className="space-y-2 bg-[#E8F2EC] p-2 dark:bg-[#102119]">
+                <div className="relative aspect-[16/10] w-full overflow-hidden rounded-xl">
+                  <img
+                    src={primaryPhoto.imageData}
+                    alt={primaryPhoto.photoCode || product.name}
+                    referrerPolicy="no-referrer"
+                    className="h-full w-full object-cover"
+                  />
+                  {primaryPhoto.photoCode && (
+                    <span className="font-mono-code absolute left-2 top-2 rounded-md bg-black/65 px-2 py-0.5 text-[11px] font-semibold text-white backdrop-blur-xs">
+                      {primaryPhoto.photoCode}
+                    </span>
+                  )}
                 </div>
-              )}
-            </div>
-          ) : (
-            <div className="flex aspect-[16/7] w-full flex-col items-center justify-center bg-[#E8F2EC] text-[#335947] dark:bg-[#102119] dark:text-[#9EC0AE]">
-              <ImageIcon className="mb-1.5 h-8 w-8 opacity-50" />
-              <span className="text-xs">{t.noPhotoHint}</span>
-            </div>
-          )}
 
-          <div className="space-y-2 p-4">
-            <div className="flex items-start justify-between gap-3">
-              <h3 className="font-display text-lg font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
-                {product.name}
-              </h3>
-              <span className="tabular-nums shrink-0 text-base font-bold text-[#115E3B] dark:text-[#34D399]">
-                {formatCurrency(product.sellingPrice, currency, lang)}
-              </span>
-            </div>
-
-            {product.description && (
-              <p className="line-clamp-3 text-xs leading-relaxed text-[#335947] dark:text-[#9EC0AE]">
-                {product.description}
-              </p>
+                {photos.length > 1 && (
+                  <div className="flex items-center gap-2 overflow-x-auto pb-0.5">
+                    {photos.map((photo) => (
+                      <div
+                        key={photo.id}
+                        className="flex shrink-0 flex-col items-center overflow-hidden rounded-lg border border-[#DCE7E0] bg-white p-1 dark:border-[#1E3A2D] dark:bg-[#0F2119]"
+                      >
+                        <span className="font-mono-code mb-0.5 text-[10px] font-semibold text-[#115E3B] dark:text-[#34D399]">
+                          {photo.photoCode}
+                        </span>
+                        <img
+                          src={photo.imageData}
+                          alt={photo.photoCode}
+                          referrerPolicy="no-referrer"
+                          className="h-12 w-16 rounded-md object-cover"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex aspect-[16/7] w-full flex-col items-center justify-center bg-[#E8F2EC] text-[#335947] dark:bg-[#102119] dark:text-[#9EC0AE]">
+                <ImageIcon className="mb-1.5 h-8 w-8 opacity-50" />
+                <span className="text-xs">{t.noPhotoHint}</span>
+              </div>
             )}
 
-            <p className="tabular-nums text-xs font-medium text-[#115E3B] dark:text-[#6EE7B7]">
-              {t.dimensionsShort} : {product.lengthCm} × {product.widthCm} × {product.heightCm}{' '}
-              {t.cmUnit} · {product.thicknessCm} {t.cmUnit} · {product.piecesCount} {t.piecesUnit}
-            </p>
+            <div className="space-y-2 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <h3 className="font-display text-lg font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+                  {product.name}
+                </h3>
+                <span className="tabular-nums shrink-0 text-base font-bold text-[#115E3B] dark:text-[#34D399]">
+                  {formatCurrency(product.sellingPrice, currency, lang)}
+                </span>
+              </div>
+
+              {product.description && (
+                <p className="line-clamp-3 text-xs leading-relaxed text-[#335947] dark:text-[#9EC0AE]">
+                  {product.description}
+                </p>
+              )}
+
+              <p className="tabular-nums text-xs font-medium text-[#115E3B] dark:text-[#6EE7B7]">
+                {t.dimensionsShort} : {product.lengthCm} × {product.widthCm} × {product.heightCm}{' '}
+                {t.cmUnit} · {product.thicknessCm} {t.cmUnit} · {product.piecesCount}{' '}
+                {t.piecesUnit}
+              </p>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Inline publish feedback */}
         {feedback && (
@@ -299,7 +315,7 @@ export function ShareModal({ product, lang, currency, onClose }: ShareModalProps
         <div className="grid grid-cols-2 gap-2.5">
           <button
             type="button"
-            onClick={() => handlePublishAll()}
+            onClick={() => handlePublishCard()}
             disabled={publishing}
             className="col-span-2 flex min-h-[48px] items-center justify-center gap-2 rounded-xl bg-[#115E3B] px-4 text-sm font-semibold text-white hover:bg-[#0D4A2E] disabled:opacity-60 dark:bg-[#10B981] dark:text-[#052E1C]"
           >
@@ -342,39 +358,27 @@ export function ShareModal({ product, lang, currency, onClose }: ShareModalProps
             <span>{copied ? t.copied : t.copyText}</span>
           </button>
 
-          {photos.length > 0 ? (
-            <button
-              type="button"
-              onClick={handleDownloadAllPhotos}
-              disabled={downloadingPhotos}
-              className="flex min-h-[48px] items-center justify-center gap-2 rounded-xl border border-[#DCE7E0] bg-white px-4 text-xs font-semibold text-[#0B1F16] hover:bg-[#F7FAF8] disabled:opacity-50 dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#F2F9F5]"
-            >
-              <Download className="h-4 w-4" />
-              <span>
-                {t.downloadAllPhotos} ({photos.length})
-              </span>
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={handleDownloadCard}
-              disabled={downloadingCard}
-              className="flex min-h-[48px] items-center justify-center gap-2 rounded-xl border border-[#DCE7E0] bg-white px-4 text-xs font-semibold text-[#0B1F16] hover:bg-[#F7FAF8] disabled:opacity-50 dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#F2F9F5]"
-            >
-              <Download className="h-4 w-4" />
-              <span>{t.downloadCardImage}</span>
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={handleDownloadCard}
+            disabled={downloadingCard}
+            className="flex min-h-[48px] items-center justify-center gap-2 rounded-xl border border-[#DCE7E0] bg-white px-4 text-xs font-semibold text-[#0B1F16] hover:bg-[#F7FAF8] disabled:opacity-50 dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#F2F9F5]"
+          >
+            <Download className="h-4 w-4" />
+            <span>{t.downloadCardImage}</span>
+          </button>
 
           {photos.length > 0 && (
             <button
               type="button"
-              onClick={handleDownloadCard}
-              disabled={downloadingCard}
+              onClick={handleDownloadAllPhotos}
+              disabled={downloadingPhotos}
               className="col-span-2 flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-4 text-xs font-medium text-[#335947] hover:bg-[#ECF7F1] disabled:opacity-50 dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#9EC0AE]"
             >
               <Download className="h-3.5 w-3.5" />
-              <span>{t.downloadCardImage}</span>
+              <span>
+                {t.downloadAllPhotos} ({photos.length})
+              </span>
             </button>
           )}
         </div>
