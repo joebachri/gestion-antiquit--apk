@@ -1,8 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { Camera, ImagePlus, Trash2, X, Check, Star, RefreshCw } from 'lucide-react';
+import { Camera, ImagePlus, Trash2, X, Check, Star, RefreshCw, Video } from 'lucide-react';
 import type { Language, Product, ProductPayload } from '../types';
 import { translations } from '../i18n';
-import { compressImageBlob, extractPrefixLetter } from '../utils/image';
+import {
+  compressImageBlob,
+  extractPrefixLetter,
+  isVideoMedia,
+  readVideoAsDataUrl,
+} from '../utils/image';
 import { fetchNextCodeApi } from '../utils/api';
 import { CameraModal } from './CameraModal';
 
@@ -129,13 +134,24 @@ export function ProductFormModal({
 
   const handleImportFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
+    setErrorMsg('');
+    const maxVideoBytes = 60 * 1024 * 1024;
     const added: DraftPhoto[] = [];
     for (const file of Array.from(files)) {
       try {
-        const compressed = await compressImageBlob(file);
-        added.push({ imageData: compressed });
+        if (file.type.startsWith('video/')) {
+          if (file.size > maxVideoBytes) {
+            setErrorMsg(t.videoTooLargeError);
+            continue;
+          }
+          const videoData = await readVideoAsDataUrl(file);
+          if (videoData) added.push({ imageData: videoData });
+        } else {
+          const compressed = await compressImageBlob(file);
+          added.push({ imageData: compressed });
+        }
       } catch {
-        // skip unreadable image
+        // skip unreadable media
       }
     }
     if (added.length > 0) {
@@ -280,7 +296,7 @@ export function ProductFormModal({
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept="image/*"
+                  accept="image/*,video/*"
                   multiple
                   className="hidden"
                   onChange={(e) => {
@@ -335,12 +351,29 @@ export function ProductFormModal({
                           </div>
                         </div>
 
-                        <div className="aspect-[4/3] w-full overflow-hidden">
-                          <img
-                            src={photo.imageData}
-                            alt={photoCode}
-                            className="h-full w-full object-cover"
-                          />
+                        <div className="relative aspect-[4/3] w-full overflow-hidden bg-black">
+                          {isVideoMedia(photo.imageData) ? (
+                            <>
+                              <video
+                                src={photo.imageData}
+                                controls
+                                playsInline
+                                muted
+                                preload="metadata"
+                                className="h-full w-full object-cover"
+                              />
+                              <span className="pointer-events-none absolute left-2 top-2 inline-flex items-center gap-1 rounded-md bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                                <Video className="h-3 w-3" />
+                                <span>{t.videoLabel}</span>
+                              </span>
+                            </>
+                          ) : (
+                            <img
+                              src={photo.imageData}
+                              alt={photoCode}
+                              className="h-full w-full object-cover"
+                            />
+                          )}
                         </div>
                       </div>
                     );
@@ -573,6 +606,7 @@ export function ProductFormModal({
       <CameraModal
         isOpen={cameraOpen}
         lang={lang}
+        allowVideo
         onClose={() => setCameraOpen(false)}
         onConfirmPhotos={(capturedPhotos) => {
           setPhotos((prev) => [

@@ -100,6 +100,23 @@ function canvasEncodeJpeg(img: HTMLImageElement, quality = 0.92): Promise<Blob |
   });
 }
 
+export function isVideoMedia(mediaData: string): boolean {
+  if (!mediaData) return false;
+  return (
+    mediaData.startsWith('data:video/') ||
+    /\.(mp4|webm|mov|m4v|3gp)(\?|$)/i.test(mediaData)
+  );
+}
+
+export function readVideoAsDataUrl(fileOrBlob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Failed to read video file'));
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.readAsDataURL(fileOrBlob);
+  });
+}
+
 export async function photoDataToBlob(
   imageData: string
 ): Promise<{ blob: Blob; ext: string; mimeType: string } | null> {
@@ -110,6 +127,15 @@ export async function photoDataToBlob(
     if (response.ok) {
       const rawBlob = await response.blob();
       if (rawBlob.size > 0) {
+        if (rawBlob.type.startsWith('video/')) {
+          const cleanMime = rawBlob.type.split(';')[0] || 'video/mp4';
+          const ext = cleanMime.includes('webm')
+            ? 'webm'
+            : cleanMime.includes('quicktime')
+              ? 'mov'
+              : 'mp4';
+          return { blob: rawBlob, ext, mimeType: cleanMime };
+        }
         if (rawBlob.type === 'image/png') {
           return { blob: rawBlob, ext: 'png', mimeType: 'image/png' };
         }
@@ -194,6 +220,70 @@ function loadHtmlImage(src: string): Promise<HTMLImageElement | null> {
   });
 }
 
+function extractVideoPosterImage(src: string): Promise<HTMLImageElement | null> {
+  return new Promise((resolve) => {
+    const video = document.createElement('video');
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = 'auto';
+    video.crossOrigin = 'anonymous';
+
+    let settled = false;
+    const finish = (img: HTMLImageElement | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      video.removeAttribute('src');
+      video.load();
+      resolve(img);
+    };
+
+    const timer = setTimeout(() => finish(null), 2500);
+
+    const captureFrame = () => {
+      try {
+        const w = video.videoWidth || 640;
+        const h = video.videoHeight || 480;
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          finish(null);
+          return;
+        }
+        ctx.drawImage(video, 0, 0, w, h);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        void loadHtmlImage(dataUrl).then(finish);
+      } catch {
+        finish(null);
+      }
+    };
+
+    video.onerror = () => finish(null);
+    video.onloadeddata = () => {
+      if (video.duration && Number.isFinite(video.duration) && video.duration > 0.4) {
+        video.currentTime = Math.min(0.3, video.duration / 4);
+      } else {
+        captureFrame();
+      }
+    };
+    video.onseeked = captureFrame;
+    video.src = src;
+  });
+}
+
+async function loadMediaCardImage(
+  src: string
+): Promise<{ img: HTMLImageElement | null; isVideo: boolean }> {
+  if (isVideoMedia(src)) {
+    const poster = await extractVideoPosterImage(src);
+    return { img: poster, isVideo: true };
+  }
+  const img = await loadHtmlImage(src);
+  return { img, isVideo: false };
+}
+
 function wrapCanvasText(
   ctx: CanvasRenderingContext2D,
   text: string,
@@ -262,11 +352,12 @@ function drawCoverPhotoBox(
   w: number,
   h: number,
   badgeText?: string,
-  isRtl = false
+  isRtl = false,
+  isVideo = false
 ): void {
   ctx.save();
   drawRoundedRectPath(ctx, x, y, w, h, 20);
-  ctx.fillStyle = '#E8F2EC';
+  ctx.fillStyle = isVideo ? '#0E241A' : '#E8F2EC';
   ctx.fill();
   ctx.clip();
 
@@ -279,9 +370,32 @@ function drawCoverPhotoBox(
     ctx.drawImage(img, dx, dy, drawW, drawH);
   }
 
+  if (isVideo) {
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    const r = Math.min(w, h) * 0.14;
+    ctx.fillStyle = 'rgba(11, 31, 22, 0.72)';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    const triOffset = r * 0.38;
+    ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath();
+    ctx.moveTo(cx - triOffset * 0.65, cy - triOffset);
+    ctx.lineTo(cx + triOffset * 1.15, cy);
+    ctx.lineTo(cx - triOffset * 0.65, cy + triOffset);
+    ctx.closePath();
+    ctx.fill();
+  }
+
   if (badgeText) {
+    const label = isVideo ? `${badgeText} · VID` : badgeText;
     ctx.font = 'bold 20px monospace';
-    const textW = ctx.measureText(badgeText).width;
+    const textW = ctx.measureText(label).width;
     const pillW = textW + 24;
     const pillH = 34;
     const pillX = isRtl ? x + w - pillW - 14 : x + 14;
@@ -294,7 +408,7 @@ function drawCoverPhotoBox(
     ctx.fillStyle = '#FFFFFF';
     ctx.textAlign = 'left';
     ctx.direction = 'ltr';
-    ctx.fillText(badgeText, pillX + 12, pillY + 24);
+    ctx.fillText(label, pillX + 12, pillY + 24);
   }
 
   ctx.restore();
@@ -317,7 +431,7 @@ export async function renderProductShareCardBlob(
     (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)
   );
 
-  const loadedImages = await Promise.all(orderedPhotos.map((p) => loadHtmlImage(p.imageData)));
+  const loadedMedia = await Promise.all(orderedPhotos.map((p) => loadMediaCardImage(p.imageData)));
 
   const W = 1080;
   const PAD = 56;
@@ -326,13 +440,14 @@ export async function renderProductShareCardBlob(
   const HEADER_H = 136;
   const photoStartY = HEADER_H + 34;
 
-  // Compute photo collage boxes for 0, 1, 2, 3, 4, or 5+ photos
+  // Compute photo collage boxes for 0, 1, 2, 3, 4, or 5+ media items
   interface PhotoSlot {
     x: number;
     y: number;
     w: number;
     h: number;
     img: HTMLImageElement | null;
+    isVideo: boolean;
     code: string;
   }
 
@@ -348,7 +463,8 @@ export async function renderProductShareCardBlob(
       y: photoStartY,
       w: CW,
       h,
-      img: loadedImages[0],
+      img: loadedMedia[0].img,
+      isVideo: loadedMedia[0].isVideo,
       code: orderedPhotos[0].photoCode || product.code,
     });
     photoSectionH = h;
@@ -361,7 +477,8 @@ export async function renderProductShareCardBlob(
         y: photoStartY,
         w: colW,
         h,
-        img: loadedImages[i],
+        img: loadedMedia[i].img,
+        isVideo: loadedMedia[i].isVideo,
         code: orderedPhotos[i].photoCode,
       });
     }
@@ -375,7 +492,8 @@ export async function renderProductShareCardBlob(
       y: photoStartY,
       w: CW,
       h: heroH,
-      img: loadedImages[0],
+      img: loadedMedia[0].img,
+      isVideo: loadedMedia[0].isVideo,
       code: orderedPhotos[0].photoCode,
     });
     for (let i = 1; i < 3; i += 1) {
@@ -384,7 +502,8 @@ export async function renderProductShareCardBlob(
         y: photoStartY + heroH + GAP,
         w: colW,
         h: subH,
-        img: loadedImages[i],
+        img: loadedMedia[i].img,
+        isVideo: loadedMedia[i].isVideo,
         code: orderedPhotos[i].photoCode,
       });
     }
@@ -400,7 +519,8 @@ export async function renderProductShareCardBlob(
         y: photoStartY + row * (rowH + GAP),
         w: colW,
         h: rowH,
-        img: loadedImages[i],
+        img: loadedMedia[i].img,
+        isVideo: loadedMedia[i].isVideo,
         code: orderedPhotos[i].photoCode,
       });
     }
@@ -414,7 +534,8 @@ export async function renderProductShareCardBlob(
       y: photoStartY,
       w: CW,
       h: heroH,
-      img: loadedImages[0],
+      img: loadedMedia[0].img,
+      isVideo: loadedMedia[0].isVideo,
       code: orderedPhotos[0].photoCode,
     });
     const restCount = orderedPhotos.length - 1;
@@ -428,7 +549,8 @@ export async function renderProductShareCardBlob(
         y: photoStartY + heroH + GAP + row * (subH + GAP),
         w: colW,
         h: subH,
-        img: loadedImages[i],
+        img: loadedMedia[i].img,
+        isVideo: loadedMedia[i].isVideo,
         code: orderedPhotos[i].photoCode,
       });
     }
@@ -499,12 +621,22 @@ export async function renderProductShareCardBlob(
   }
   ctx.restore();
 
-  // Draw photos (or clean placeholder)
+  // Draw photos/videos (or clean placeholder)
   if (slots.length === 0) {
-    drawCoverPhotoBox(ctx, null, PAD, photoStartY, CW, photoSectionH, product.code, isRtl);
+    drawCoverPhotoBox(ctx, null, PAD, photoStartY, CW, photoSectionH, product.code, isRtl, false);
   } else {
     for (const slot of slots) {
-      drawCoverPhotoBox(ctx, slot.img, slot.x, slot.y, slot.w, slot.h, slot.code, isRtl);
+      drawCoverPhotoBox(
+        ctx,
+        slot.img,
+        slot.x,
+        slot.y,
+        slot.w,
+        slot.h,
+        slot.code,
+        isRtl,
+        slot.isVideo
+      );
     }
   }
 

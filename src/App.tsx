@@ -3,10 +3,12 @@ import {
   Edit3,
   FileSpreadsheet,
   Image as ImageIcon,
+  Play,
   Plus,
   Search,
   Share2,
   Trash2,
+  Video,
   X,
 } from 'lucide-react';
 import type {
@@ -26,6 +28,7 @@ import {
   saveSettingsApi,
 } from './utils/api';
 import { saveOrShareBlob } from './utils/download';
+import { isVideoMedia } from './utils/image';
 import { Header } from './components/Header';
 import { ProductFormModal } from './components/ProductFormModal';
 import { ProductDetailSheet } from './components/ProductDetailSheet';
@@ -337,6 +340,7 @@ export default function App() {
           <section className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
             {products.map((product) => {
               const primaryPhoto = product.photos[0]?.imageData;
+              const videoCount = product.photos.filter((p) => isVideoMedia(p.imageData)).length;
               const isDeletingThis = pendingDeleteId === product.id;
 
               return (
@@ -349,28 +353,48 @@ export default function App() {
                     <span className="font-mono-code text-sm font-bold tracking-wider text-[#115E3B] dark:text-[#34D399]">
                       {product.code}
                     </span>
-                    <span className="tabular-nums text-xs text-[#335947] dark:text-[#9EC0AE]">
+                    <span className="tabular-nums flex items-center gap-1.5 text-xs text-[#335947] dark:text-[#9EC0AE]">
+                      {videoCount > 0 && (
+                        <Video className="h-3.5 w-3.5 text-[#115E3B] dark:text-[#34D399]" />
+                      )}
                       {product.photos.length > 0
-                        ? `${product.photos.length} ${t.photoLabel}${product.photos.length > 1 && lang === 'fr' ? 's' : ''}`
+                        ? `${product.photos.length} ${t.mediaLabel}${product.photos.length > 1 && lang === 'fr' ? 's' : ''}`
                         : '0'}
                       {' · '}
                       {product.addedDate}
                     </span>
                   </div>
 
-                  {/* Clickable Image area -> opens full detailed product sheet */}
+                  {/* Clickable Media area -> opens full detailed product sheet */}
                   <button
                     type="button"
                     onClick={() => setDetailProduct(product)}
                     className="group relative aspect-[4/3] w-full overflow-hidden bg-[#E8F2EC] text-left focus-visible:outline-2 focus-visible:outline-[#115E3B] dark:bg-[#091611]"
                   >
                     {primaryPhoto ? (
-                      <img
-                        src={primaryPhoto}
-                        alt={product.name}
-                        referrerPolicy="no-referrer"
-                        className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
-                      />
+                      isVideoMedia(primaryPhoto) ? (
+                        <div className="relative h-full w-full bg-black">
+                          <video
+                            src={primaryPhoto}
+                            muted
+                            playsInline
+                            preload="metadata"
+                            className="h-full w-full object-cover"
+                          />
+                          <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/25">
+                            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/65 text-white ring-2 ring-white/80">
+                              <Play className="h-5 w-5 fill-white" />
+                            </span>
+                          </span>
+                        </div>
+                      ) : (
+                        <img
+                          src={primaryPhoto}
+                          alt={product.name}
+                          referrerPolicy="no-referrer"
+                          className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+                        />
+                      )
                     ) : (
                       <div className="flex h-full w-full flex-col items-center justify-center text-[#335947] dark:text-[#9EC0AE]">
                         <ImageIcon className="mb-1.5 h-8 w-8 opacity-45" />

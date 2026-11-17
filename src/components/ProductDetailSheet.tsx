@@ -4,12 +4,14 @@ import {
   ChevronRight,
   Edit3,
   Image as ImageIcon,
+  Play,
   Share2,
   Trash2,
   X,
 } from 'lucide-react';
 import type { Language, Product } from '../types';
 import { formatCurrency, formatNumber, translations } from '../i18n';
+import { isVideoMedia } from '../utils/image';
 
 interface ProductDetailSheetProps {
   product: Product | null;
@@ -107,12 +109,23 @@ export function ProductDetailSheet({
 
             <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl border border-[#DCE7E0] bg-[#E8F2EC] dark:border-[#1E3A2D] dark:bg-[#091611]">
               {activePhoto ? (
-                <img
-                  src={activePhoto.imageData}
-                  alt={product.name}
-                  referrerPolicy="no-referrer"
-                  className="h-full w-full object-cover"
-                />
+                isVideoMedia(activePhoto.imageData) ? (
+                  <video
+                    key={activePhoto.id}
+                    src={activePhoto.imageData}
+                    controls
+                    playsInline
+                    preload="metadata"
+                    className="h-full w-full bg-black object-contain"
+                  />
+                ) : (
+                  <img
+                    src={activePhoto.imageData}
+                    alt={product.name}
+                    referrerPolicy="no-referrer"
+                    className="h-full w-full object-cover"
+                  />
+                )
               ) : (
                 <div className="flex h-full w-full flex-col items-center justify-center text-[#335947] dark:text-[#9EC0AE]">
                   <ImageIcon className="mb-2 h-10 w-10 opacity-50" />
@@ -146,28 +159,48 @@ export function ProductDetailSheet({
 
             {photos.length > 1 && (
               <div className="mt-2.5 flex items-center gap-2 overflow-x-auto pb-1">
-                {photos.map((photo, idx) => (
-                  <button
-                    key={photo.id}
-                    type="button"
-                    onClick={() => setPhotoIdx(idx)}
-                    className={`flex shrink-0 flex-col items-center overflow-hidden rounded-xl border p-1 transition-colors ${
-                      idx === photoIdx
-                        ? 'border-[#115E3B] bg-[#ECF7F1] dark:border-[#10B981] dark:bg-[#132B20]'
-                        : 'border-[#DCE7E0] bg-white dark:border-[#1E3A2D] dark:bg-[#091611]'
-                    }`}
-                  >
-                    <span className="font-mono-code mb-1 text-[10px] font-semibold text-[#115E3B] dark:text-[#34D399]">
-                      {photo.photoCode}
-                    </span>
-                    <img
-                      src={photo.imageData}
-                      alt={photo.photoCode}
-                      referrerPolicy="no-referrer"
-                      className="h-12 w-16 rounded-lg object-cover"
-                    />
-                  </button>
-                ))}
+                {photos.map((photo, idx) => {
+                  const isVid = isVideoMedia(photo.imageData);
+                  return (
+                    <button
+                      key={photo.id}
+                      type="button"
+                      onClick={() => setPhotoIdx(idx)}
+                      className={`flex shrink-0 flex-col items-center overflow-hidden rounded-xl border p-1 transition-colors ${
+                        idx === photoIdx
+                          ? 'border-[#115E3B] bg-[#ECF7F1] dark:border-[#10B981] dark:bg-[#132B20]'
+                          : 'border-[#DCE7E0] bg-white dark:border-[#1E3A2D] dark:bg-[#091611]'
+                      }`}
+                    >
+                      <span className="font-mono-code mb-1 text-[10px] font-semibold text-[#115E3B] dark:text-[#34D399]">
+                        {photo.photoCode}
+                      </span>
+                      <div className="relative h-12 w-16 overflow-hidden rounded-lg bg-black">
+                        {isVid ? (
+                          <>
+                            <video
+                              src={photo.imageData}
+                              muted
+                              playsInline
+                              preload="metadata"
+                              className="h-full w-full object-cover"
+                            />
+                            <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/25">
+                              <Play className="h-4 w-4 fill-white text-white" />
+                            </span>
+                          </>
+                        ) : (
+                          <img
+                            src={photo.imageData}
+                            alt={photo.photoCode}
+                            referrerPolicy="no-referrer"
+                            className="h-full w-full object-cover"
+                          />
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>

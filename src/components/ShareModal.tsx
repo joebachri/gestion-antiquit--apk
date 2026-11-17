@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Check, Copy, Download, Image as ImageIcon, MessageCircle, Share2, X } from 'lucide-react';
+import { Check, Copy, Download, Image as ImageIcon, MessageCircle, Play, Share2, Video, X } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
 import type { Language, Product } from '../types';
 import { formatCurrency, translations } from '../i18n';
@@ -7,6 +7,7 @@ import {
   buildAllProductPhotoFiles,
   buildProductCardFile,
   buildShareText,
+  isVideoMedia,
   renderProductShareCardBlob,
 } from '../utils/image';
 import {
@@ -70,6 +71,7 @@ export function ShareModal({ product, lang, currency, onClose }: ShareModalProps
   const photos = [...(product.photos || [])].sort(
     (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)
   );
+  const videoItems = photos.filter((p) => isVideoMedia(p.imageData));
   const primaryPhoto = photos[0];
   const shareText = buildShareText(product, currency, lang);
   const shareTitle = `${product.code} — ${product.name}`;
@@ -156,6 +158,34 @@ export function ShareModal({ product, lang, currency, onClose }: ShareModalProps
     }
   };
 
+  const handleShareVideos = async () => {
+    if (videoItems.length === 0) return;
+    setPublishing(true);
+    setFeedback(null);
+    try {
+      const allFiles = await buildAllProductPhotoFiles(product);
+      const videoFiles = allFiles.filter((f) => f.mimeType.startsWith('video/'));
+      if (videoFiles.length === 0) return;
+      const result = await shareProductMediaAndText({
+        files: videoFiles,
+        title: shareTitle,
+        text: shareText,
+        dialogTitle: shareTitle,
+      });
+      if (result.copiedText) {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2500);
+      }
+      if (result.outcome === 'shared') {
+        setFeedback({ message: t.shareCaptionCopiedHint });
+      } else if (result.outcome === 'downloaded') {
+        setFeedback({ message: t.desktopShareFallbackHint });
+      }
+    } finally {
+      setPublishing(false);
+    }
+  };
+
   const handleDownloadCard = async () => {
     setDownloadingCard(true);
     try {
@@ -224,13 +254,28 @@ export function ShareModal({ product, lang, currency, onClose }: ShareModalProps
 
             {primaryPhoto ? (
               <div className="space-y-2 bg-[#E8F2EC] p-2 dark:bg-[#102119]">
-                <div className="relative aspect-[16/10] w-full overflow-hidden rounded-xl">
-                  <img
-                    src={primaryPhoto.imageData}
-                    alt={primaryPhoto.photoCode || product.name}
-                    referrerPolicy="no-referrer"
-                    className="h-full w-full object-cover"
-                  />
+                <div className="relative aspect-[16/10] w-full overflow-hidden rounded-xl bg-black">
+                  {isVideoMedia(primaryPhoto.imageData) ? (
+                    <>
+                      <video
+                        src={primaryPhoto.imageData}
+                        muted
+                        playsInline
+                        preload="metadata"
+                        className="h-full w-full object-cover"
+                      />
+                      <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/25">
+                        <Play className="h-10 w-10 fill-white text-white" />
+                      </span>
+                    </>
+                  ) : (
+                    <img
+                      src={primaryPhoto.imageData}
+                      alt={primaryPhoto.photoCode || product.name}
+                      referrerPolicy="no-referrer"
+                      className="h-full w-full object-cover"
+                    />
+                  )}
                   {primaryPhoto.photoCode && (
                     <span className="font-mono-code absolute left-2 top-2 rounded-md bg-black/65 px-2 py-0.5 text-[11px] font-semibold text-white backdrop-blur-xs">
                       {primaryPhoto.photoCode}
@@ -248,12 +293,29 @@ export function ShareModal({ product, lang, currency, onClose }: ShareModalProps
                         <span className="font-mono-code mb-0.5 text-[10px] font-semibold text-[#115E3B] dark:text-[#34D399]">
                           {photo.photoCode}
                         </span>
-                        <img
-                          src={photo.imageData}
-                          alt={photo.photoCode}
-                          referrerPolicy="no-referrer"
-                          className="h-12 w-16 rounded-md object-cover"
-                        />
+                        <div className="relative h-12 w-16 overflow-hidden rounded-md bg-black">
+                          {isVideoMedia(photo.imageData) ? (
+                            <>
+                              <video
+                                src={photo.imageData}
+                                muted
+                                playsInline
+                                preload="metadata"
+                                className="h-full w-full object-cover"
+                              />
+                              <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/25">
+                                <Play className="h-3.5 w-3.5 fill-white text-white" />
+                              </span>
+                            </>
+                          ) : (
+                            <img
+                              src={photo.imageData}
+                              alt={photo.photoCode}
+                              referrerPolicy="no-referrer"
+                              className="h-full w-full object-cover"
+                            />
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -367,6 +429,20 @@ export function ShareModal({ product, lang, currency, onClose }: ShareModalProps
             <Download className="h-4 w-4" />
             <span>{t.downloadCardImage}</span>
           </button>
+
+          {videoItems.length > 0 && (
+            <button
+              type="button"
+              onClick={handleShareVideos}
+              disabled={publishing}
+              className="col-span-2 flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-[#DCE7E0] bg-[#ECF7F1] px-4 text-xs font-semibold text-[#115E3B] hover:bg-[#DCF0E4] disabled:opacity-50 dark:border-[#1E3A2D] dark:bg-[#132B20] dark:text-[#34D399]"
+            >
+              <Video className="h-4 w-4" />
+              <span>
+                {t.shareVideos} ({videoItems.length})
+              </span>
+            </button>
+          )}
 
           {photos.length > 0 && (
             <button

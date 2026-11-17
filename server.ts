@@ -336,7 +336,7 @@ function toInt(value: unknown, fallback = 1): number {
 
 async function startServer() {
   const app = express();
-  app.use(express.json({ limit: '25mb' }));
+  app.use(express.json({ limit: '100mb' }));
 
   app.get('/api/health', (_req: Request, res: Response) => {
     res.json({ ok: true });
