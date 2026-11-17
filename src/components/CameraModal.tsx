@@ -15,17 +15,29 @@ interface CameraModalProps {
 
 const MAX_VIDEO_BYTES = 60 * 1024 * 1024;
 
-function pickRecorderMimeType(): string {
+function pickRecorderMimeType(hasAudio: boolean): string {
   if (typeof MediaRecorder === 'undefined') return '';
-  const candidates = [
-    'video/mp4;codecs=avc1,mp4a.40.2',
-    'video/mp4',
-    'video/webm;codecs=vp9,opus',
-    'video/webm;codecs=vp8,opus',
-    'video/webm',
-  ];
+  const candidates = hasAudio
+    ? [
+        'video/webm;codecs=vp8,opus',
+        'video/webm;codecs=vp9,opus',
+        'video/webm',
+        'video/mp4;codecs=avc1,mp4a.40.2',
+        'video/mp4',
+      ]
+    : [
+        'video/webm;codecs=vp8',
+        'video/webm;codecs=vp9',
+        'video/webm',
+        'video/mp4;codecs=avc1',
+        'video/mp4',
+      ];
   for (const type of candidates) {
-    if (MediaRecorder.isTypeSupported(type)) return type;
+    try {
+      if (MediaRecorder.isTypeSupported(type)) return type;
+    } catch {
+      // ignore unsupported check
+    }
   }
   return '';
 }
@@ -51,6 +63,9 @@ export function CameraModal({
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const discardOnStopRef = useRef(false);
+  const finishAfterStopRef = useRef(false);
+  const pendingPosterRef = useRef<string>('');
+  const capturedRef = useRef<string[]>([]);
   const nativeInputRef = useRef<HTMLInputElement | null>(null);
   const nativeVideoInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -59,10 +74,16 @@ export function CameraModal({
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const [cameraError, setCameraError] = useState(false);
   const [captured, setCaptured] = useState<string[]>([]);
+  const [videoPosters, setVideoPosters] = useState<Record<number, string>>({});
   const [flash, setFlash] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [isProcessingVideo, setIsProcessingVideo] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [sizeError, setSizeError] = useState('');
+
+  useEffect(() => {
+    capturedRef.current = captured;
+  }, [captured]);
 
   const stopRecordingTimer = () => {
     if (timerRef.current) {
@@ -74,6 +95,8 @@ export function CameraModal({
   useEffect(() => {
     if (!isOpen) {
       discardOnStopRef.current = true;
+      finishAfterStopRef.current = false;
+      pendingPosterRef.current = '';
       if (recorderRef.current && recorderRef.current.state !== 'inactive') {
         try {
           recorderRef.current.stop();
@@ -84,6 +107,7 @@ export function CameraModal({
       recorderRef.current = null;
       stopRecordingTimer();
       setIsRecording(false);
+      setIsProcessingVideo(false);
       setRecordSeconds(0);
       setSizeError('');
       setMode('photo');
@@ -92,11 +116,13 @@ export function CameraModal({
         streamRef.current = null;
       }
       setCaptured([]);
+      setVideoPosters({});
       setCameraError(false);
       return;
     }
 
     discardOnStopRef.current = false;
+    finishAfterStopRef.current = false;
     let cancelled = false;
 
     async function startStream() {
@@ -156,6 +182,7 @@ export function CameraModal({
     return () => {
       cancelled = true;
       discardOnStopRef.current = true;
+      finishAfterStopRef.current = false;
       if (recorderRef.current && recorderRef.current.state !== 'inactive') {
         try {
           recorderRef.current.stop();
@@ -175,11 +202,10 @@ export function CameraModal({
 
   if (!isOpen) return null;
 
-  const handleCaptureFrame = () => {
+  const captureVideoFrameAsJpeg = (maxDim: number, quality: number): string => {
     const video = videoRef.current;
-    if (!video || !video.videoWidth || !video.videoHeight) return;
+    if (!video || !video.videoWidth || !video.videoHeight) return '';
 
-    const maxDim = 1280;
     let w = video.videoWidth;
     let h = video.videoHeight;
     if (w > maxDim || h > maxDim) {
@@ -196,9 +222,14 @@ export function CameraModal({
     canvas.width = w;
     canvas.height = h;
     const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    if (!ctx) return '';
     ctx.drawImage(video, 0, 0, w, h);
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.84);
+    return canvas.toDataURL('image/jpeg', quality);
+  };
+
+  const handleCaptureFrame = () => {
+    const dataUrl = captureVideoFrameAsJpeg(1280, 0.84);
+    if (!dataUrl) return;
 
     setFlash(true);
     setTimeout(() => setFlash(false), 160);
@@ -213,7 +244,8 @@ export function CameraModal({
 
   const handleStartRecording = () => {
     const stream = streamRef.current;
-    if (!stream || typeof MediaRecorder === 'undefined') {
+    const hasLiveVideo = stream?.getVideoTracks().some((track) => track.readyState === 'live');
+    if (!stream || !hasLiveVideo || typeof MediaRecorder === 'undefined') {
       nativeVideoInputRef.current?.click();
       return;
     }
@@ -221,60 +253,137 @@ export function CameraModal({
     setSizeError('');
     chunksRef.current = [];
     discardOnStopRef.current = false;
+    finishAfterStopRef.current = false;
+    pendingPosterRef.current = captureVideoFrameAsJpeg(360, 0.72);
 
-    const mimeType = pickRecorderMimeType();
-    let recorder: MediaRecorder;
-    try {
-      recorder = mimeType
-        ? new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 1_500_000 })
-        : new MediaRecorder(stream, { videoBitsPerSecond: 1_500_000 });
-    } catch {
+    const hasAudio = stream.getAudioTracks().some((track) => track.readyState === 'live');
+    const mimeType = pickRecorderMimeType(hasAudio);
+
+    let recorder: MediaRecorder | null = null;
+    let started = false;
+
+    // Try preferred codec + 250ms chunks first; fall back cleanly if options or timeslice fail
+    const attempts: Array<() => MediaRecorder> = [
+      () => {
+        const r = mimeType
+          ? new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 1_500_000 })
+          : new MediaRecorder(stream, { videoBitsPerSecond: 1_500_000 });
+        return r;
+      },
+      () => (mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)),
+      () => new MediaRecorder(stream),
+    ];
+
+    for (let i = 0; i < attempts.length; i += 1) {
       try {
-        recorder = new MediaRecorder(stream);
+        const candidate = attempts[i]();
+        candidate.ondataavailable = (event) => {
+          if (event.data && event.data.size > 0) {
+            chunksRef.current.push(event.data);
+          }
+        };
+        if (i === 0) {
+          candidate.start(250);
+        } else {
+          candidate.start();
+        }
+        recorder = candidate;
+        started = true;
+        break;
       } catch {
-        nativeVideoInputRef.current?.click();
-        return;
+        chunksRef.current = [];
       }
     }
 
-    recorder.ondataavailable = (event) => {
-      if (event.data && event.data.size > 0) {
-        chunksRef.current.push(event.data);
-      }
-    };
+    if (!started || !recorder) {
+      nativeVideoInputRef.current?.click();
+      return;
+    }
 
-    recorder.onstop = () => {
+    recorder.onerror = () => {
       stopRecordingTimer();
       setIsRecording(false);
       setRecordSeconds(0);
+      finishAfterStopRef.current = false;
+      setSizeError(t.videoRecordEmptyError);
+    };
 
-      if (discardOnStopRef.current || chunksRef.current.length === 0) {
+    recorder.onstop = async () => {
+      stopRecordingTimer();
+      setIsRecording(false);
+      setRecordSeconds(0);
+      recorderRef.current = null;
+
+      if (discardOnStopRef.current) {
         chunksRef.current = [];
+        finishAfterStopRef.current = false;
+        pendingPosterRef.current = '';
         return;
       }
 
-      const finalType = recorder.mimeType || mimeType || 'video/webm';
-      const videoBlob = new Blob(chunksRef.current, { type: finalType });
+      // Allow any late WebView ondataavailable flush tick before checking chunks
+      if (chunksRef.current.length === 0) {
+        await new Promise((resolve) => setTimeout(resolve, 80));
+      }
+
+      if (chunksRef.current.length === 0) {
+        finishAfterStopRef.current = false;
+        pendingPosterRef.current = '';
+        setSizeError(t.videoRecordEmptyError);
+        return;
+      }
+
+      const rawType = recorder?.mimeType || mimeType || 'video/webm';
+      const cleanMime = (rawType.split(';')[0] || 'video/webm').trim();
+      const videoBlob = new Blob(chunksRef.current, { type: cleanMime });
       chunksRef.current = [];
 
+      if (videoBlob.size === 0) {
+        finishAfterStopRef.current = false;
+        pendingPosterRef.current = '';
+        setSizeError(t.videoRecordEmptyError);
+        return;
+      }
+
       if (videoBlob.size > MAX_VIDEO_BYTES) {
+        finishAfterStopRef.current = false;
+        pendingPosterRef.current = '';
         setSizeError(t.videoTooLargeError);
         return;
       }
 
-      void readVideoAsDataUrl(videoBlob)
-        .then((dataUrl) => {
-          if (dataUrl) {
-            setCaptured((prev) => [...prev, dataUrl]);
-          }
-        })
-        .catch(() => {
-          // ignore read error
-        });
+      setIsProcessingVideo(true);
+      try {
+        const dataUrl = await readVideoAsDataUrl(videoBlob, cleanMime);
+        if (!dataUrl) {
+          finishAfterStopRef.current = false;
+          setSizeError(t.videoRecordEmptyError);
+          return;
+        }
+        const poster = pendingPosterRef.current;
+        pendingPosterRef.current = '';
+        const nextIndex = capturedRef.current.length;
+        const nextList = [...capturedRef.current, dataUrl];
+        capturedRef.current = nextList;
+        setCaptured(nextList);
+        if (poster) {
+          setVideoPosters((prev) => ({ ...prev, [nextIndex]: poster }));
+        }
+
+        if (finishAfterStopRef.current) {
+          finishAfterStopRef.current = false;
+          onConfirmPhotos(nextList);
+          onClose();
+        }
+      } catch {
+        finishAfterStopRef.current = false;
+        setSizeError(t.videoRecordEmptyError);
+      } finally {
+        setIsProcessingVideo(false);
+      }
     };
 
     recorderRef.current = recorder;
-    recorder.start(250);
     setIsRecording(true);
     setRecordSeconds(0);
     stopRecordingTimer();
@@ -284,24 +393,50 @@ export function CameraModal({
   };
 
   const handleStopRecording = () => {
-    if (recorderRef.current && recorderRef.current.state !== 'inactive') {
-      recorderRef.current.stop();
+    const recorder = recorderRef.current;
+    if (recorder && recorder.state !== 'inactive') {
+      try {
+        if (recorder.state === 'recording' && typeof recorder.requestData === 'function') {
+          recorder.requestData();
+        }
+      } catch {
+        // ignore requestData errors on browsers that disallow it
+      }
+      try {
+        recorder.stop();
+      } catch {
+        stopRecordingTimer();
+        setIsRecording(false);
+      }
     }
   };
 
-  const handleNativeFileCapture = async (files: FileList | null) => {
+  const handleNativeFileCapture = async (
+    files: FileList | null,
+    expectedKind: 'photo' | 'video' = 'photo'
+  ) => {
     if (!files || files.length === 0) return;
     setSizeError('');
+    let sawTooLarge = false;
     const results: string[] = [];
+
     for (const file of Array.from(files)) {
+      const isVideoFile =
+        expectedKind === 'video' ||
+        file.type.startsWith('video/') ||
+        /\.(mp4|webm|mov|m4v|3gp|mkv|avi)$/i.test(file.name);
+
       try {
-        if (file.type.startsWith('video/')) {
+        if (isVideoFile) {
           if (!canUseVideo) continue;
+          if (file.size === 0) continue;
           if (file.size > MAX_VIDEO_BYTES) {
+            sawTooLarge = true;
             setSizeError(t.videoTooLargeError);
             continue;
           }
-          const videoUrl = await readVideoAsDataUrl(file);
+          const fallbackMime = file.type.startsWith('video/') ? file.type : 'video/mp4';
+          const videoUrl = await readVideoAsDataUrl(file, fallbackMime);
           if (videoUrl) results.push(videoUrl);
         } else {
           const compressed = await compressImageBlob(file);
@@ -311,6 +446,7 @@ export function CameraModal({
         // skip unreadable file
       }
     }
+
     if (results.length > 0) {
       if (singleShot) {
         onConfirmPhotos([results[0]]);
@@ -318,14 +454,18 @@ export function CameraModal({
       } else {
         setCaptured((prev) => [...prev, ...results]);
       }
+    } else if (expectedKind === 'video' && !sawTooLarge) {
+      setSizeError(t.videoRecordEmptyError);
     }
   };
 
   const handleFinish = () => {
     if (isRecording) {
+      finishAfterStopRef.current = true;
       handleStopRecording();
       return;
     }
+    if (isProcessingVideo) return;
     if (captured.length > 0) {
       onConfirmPhotos(captured);
     }
@@ -363,7 +503,7 @@ export function CameraModal({
 
         <button
           type="button"
-          disabled={isRecording}
+          disabled={isRecording || isProcessingVideo}
           onClick={() => setFacingMode((prev) => (prev === 'environment' ? 'user' : 'environment'))}
           className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl bg-white/10 text-white hover:bg-white/20 disabled:opacity-40"
           aria-label={t.switchCamera}
@@ -379,7 +519,7 @@ export function CameraModal({
           <div className="inline-flex rounded-xl bg-white/10 p-1">
             <button
               type="button"
-              disabled={isRecording}
+              disabled={isRecording || isProcessingVideo}
               onClick={() => setMode('photo')}
               className={`flex min-h-[36px] items-center gap-1.5 rounded-lg px-4 text-xs font-semibold transition-colors disabled:opacity-50 ${
                 mode === 'photo' ? 'bg-[#10B981] text-[#052E1C]' : 'text-white/80 hover:text-white'
@@ -390,7 +530,7 @@ export function CameraModal({
             </button>
             <button
               type="button"
-              disabled={isRecording}
+              disabled={isRecording || isProcessingVideo}
               onClick={() => setMode('video')}
               className={`flex min-h-[36px] items-center gap-1.5 rounded-lg px-4 text-xs font-semibold transition-colors disabled:opacity-50 ${
                 mode === 'video' ? 'bg-red-500 text-white' : 'text-white/80 hover:text-white'
@@ -455,12 +595,12 @@ export function CameraModal({
         <input
           ref={nativeInputRef}
           type="file"
-          accept={canUseVideo ? 'image/*,video/*' : 'image/*'}
+          accept="image/*"
           capture="environment"
           multiple={!singleShot}
           className="hidden"
           onChange={(e) => {
-            void handleNativeFileCapture(e.target.files);
+            void handleNativeFileCapture(e.target.files, 'photo');
             e.target.value = '';
           }}
         />
@@ -473,7 +613,7 @@ export function CameraModal({
             capture="environment"
             className="hidden"
             onChange={(e) => {
-              void handleNativeFileCapture(e.target.files);
+              void handleNativeFileCapture(e.target.files, 'video');
               e.target.value = '';
             }}
           />
@@ -485,6 +625,7 @@ export function CameraModal({
         <div className="flex items-center gap-2.5 overflow-x-auto border-t border-white/10 bg-[#0A1812] px-4 py-2.5">
           {captured.map((media, index) => {
             const isVid = isVideoMedia(media);
+            const poster = videoPosters[index];
             return (
               <div
                 key={index}
@@ -494,9 +635,20 @@ export function CameraModal({
                   <>
                     <video
                       src={media}
+                      poster={poster || undefined}
                       muted
                       playsInline
-                      preload="metadata"
+                      preload="auto"
+                      onLoadedData={(e) => {
+                        const v = e.currentTarget;
+                        if (v.currentTime === 0) {
+                          try {
+                            v.currentTime = 0.05;
+                          } catch {
+                            // ignore seek errors
+                          }
+                        }
+                      }}
                       className="h-full w-full object-cover"
                     />
                     <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/25">
@@ -508,7 +660,18 @@ export function CameraModal({
                 )}
                 <button
                   type="button"
-                  onClick={() => setCaptured((prev) => prev.filter((_, i) => i !== index))}
+                  onClick={() => {
+                    setCaptured((prev) => prev.filter((_, i) => i !== index));
+                    setVideoPosters((prev) => {
+                      const next: Record<number, string> = {};
+                      Object.entries(prev).forEach(([k, val]) => {
+                        const num = Number(k);
+                        if (num < index) next[num] = val;
+                        else if (num > index) next[num - 1] = val;
+                      });
+                      return next;
+                    });
+                  }}
                   className="absolute right-0.5 top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/75 text-white"
                   aria-label={t.removePhoto}
                 >
@@ -524,7 +687,7 @@ export function CameraModal({
       <div className="pb-safe flex items-center justify-between gap-4 border-t border-white/10 bg-[#0A1812] px-6 py-4">
         <button
           type="button"
-          disabled={isRecording}
+          disabled={isRecording || isProcessingVideo}
           onClick={() =>
             mode === 'video' && canUseVideo
               ? nativeVideoInputRef.current?.click()
@@ -542,9 +705,10 @@ export function CameraModal({
           (mode === 'video' && canUseVideo ? (
             <button
               type="button"
+              disabled={isProcessingVideo}
               onClick={isRecording ? handleStopRecording : handleStartRecording}
               aria-label={isRecording ? t.cameraRecordStop : t.cameraRecordStart}
-              className={`flex h-16 w-16 items-center justify-center rounded-full border-4 border-white shadow-lg transition-transform active:scale-90 ${
+              className={`flex h-16 w-16 items-center justify-center rounded-full border-4 border-white shadow-lg transition-transform active:scale-90 disabled:opacity-50 ${
                 isRecording ? 'bg-red-600 text-white' : 'bg-red-500 text-white'
               }`}
             >
@@ -568,7 +732,7 @@ export function CameraModal({
         <button
           type="button"
           onClick={handleFinish}
-          disabled={!isRecording && captured.length === 0}
+          disabled={isProcessingVideo || (!isRecording && captured.length === 0)}
           className="flex min-h-[44px] items-center gap-1.5 rounded-xl bg-[#115E3B] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#0D4A2E] disabled:opacity-40"
         >
           <Check className="h-4 w-4" />

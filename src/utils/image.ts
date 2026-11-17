@@ -104,15 +104,36 @@ export function isVideoMedia(mediaData: string): boolean {
   if (!mediaData) return false;
   return (
     mediaData.startsWith('data:video/') ||
-    /\.(mp4|webm|mov|m4v|3gp)(\?|$)/i.test(mediaData)
+    /\.(mp4|webm|mov|m4v|3gp|mkv|avi)(\?|$)/i.test(mediaData)
   );
 }
 
-export function readVideoAsDataUrl(fileOrBlob: Blob): Promise<string> {
+export function readVideoAsDataUrl(fileOrBlob: Blob, fallbackMime = 'video/mp4'): Promise<string> {
   return new Promise((resolve, reject) => {
+    const cleanFallback = (fallbackMime.split(';')[0] || 'video/mp4').trim();
+    const rawType = (fileOrBlob.type || '').split(';')[0].trim();
+    const safeMime = rawType.startsWith('video/') ? rawType : cleanFallback;
+
     const reader = new FileReader();
     reader.onerror = () => reject(new Error('Failed to read video file'));
-    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      if (!result) {
+        resolve('');
+        return;
+      }
+      const base64Marker = ';base64,';
+      const markerIdx = result.indexOf(base64Marker);
+      if (markerIdx !== -1) {
+        const prefix = result.slice(0, markerIdx);
+        // Ensure clean data:video/... prefix without commas inside codecs or octet-stream MIME
+        if (!prefix.startsWith('data:video/') || prefix.includes(',')) {
+          resolve(`data:${safeMime}${result.slice(markerIdx)}`);
+          return;
+        }
+      }
+      resolve(result);
+    };
     reader.readAsDataURL(fileOrBlob);
   });
 }

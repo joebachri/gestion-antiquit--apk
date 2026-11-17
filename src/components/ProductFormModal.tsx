@@ -138,13 +138,18 @@ export function ProductFormModal({
     const maxVideoBytes = 60 * 1024 * 1024;
     const added: DraftPhoto[] = [];
     for (const file of Array.from(files)) {
+      const isVideoFile =
+        file.type.startsWith('video/') ||
+        /\.(mp4|webm|mov|m4v|3gp|mkv|avi)$/i.test(file.name);
       try {
-        if (file.type.startsWith('video/')) {
+        if (isVideoFile) {
+          if (file.size === 0) continue;
           if (file.size > maxVideoBytes) {
             setErrorMsg(t.videoTooLargeError);
             continue;
           }
-          const videoData = await readVideoAsDataUrl(file);
+          const fallbackMime = file.type.startsWith('video/') ? file.type : 'video/mp4';
+          const videoData = await readVideoAsDataUrl(file, fallbackMime);
           if (videoData) added.push({ imageData: videoData });
         } else {
           const compressed = await compressImageBlob(file);
@@ -359,7 +364,17 @@ export function ProductFormModal({
                                 controls
                                 playsInline
                                 muted
-                                preload="metadata"
+                                preload="auto"
+                                onLoadedData={(e) => {
+                                  const v = e.currentTarget;
+                                  if (v.paused && v.currentTime === 0) {
+                                    try {
+                                      v.currentTime = 0.05;
+                                    } catch {
+                                      // ignore
+                                    }
+                                  }
+                                }}
                                 className="h-full w-full object-cover"
                               />
                               <span className="pointer-events-none absolute left-2 top-2 inline-flex items-center gap-1 rounded-md bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold text-white">

@@ -115,7 +115,17 @@ export function ProductDetailSheet({
                     src={activePhoto.imageData}
                     controls
                     playsInline
-                    preload="metadata"
+                    preload="auto"
+                    onLoadedData={(e) => {
+                      const v = e.currentTarget;
+                      if (v.paused && v.currentTime === 0) {
+                        try {
+                          v.currentTime = 0.05;
+                        } catch {
+                          // ignore
+                        }
+                      }
+                    }}
                     className="h-full w-full bg-black object-contain"
                   />
                 ) : (
@@ -182,7 +192,17 @@ export function ProductDetailSheet({
                               src={photo.imageData}
                               muted
                               playsInline
-                              preload="metadata"
+                              preload="auto"
+                              onLoadedData={(e) => {
+                                const v = e.currentTarget;
+                                if (v.currentTime === 0) {
+                                  try {
+                                    v.currentTime = 0.05;
+                                  } catch {
+                                    // ignore
+                                  }
+                                }
+                              }}
                               className="h-full w-full object-cover"
                             />
                             <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/25">

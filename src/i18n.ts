@@ -101,6 +101,8 @@ export const translations = {
     videoLabel: 'Vidéo',
     mediaLabel: 'Média',
     videoTooLargeError: 'La vidéo dépasse 60 Mo. Veuillez enregistrer un clip plus court.',
+    videoRecordEmptyError:
+      "Aucune séquence vidéo n'a été enregistrée. Réessayez ou utilisez l'importation vidéo.",
     saveSettings: 'Enregistrer les préférences',
     validationNameRequired: 'Veuillez saisir le nom du produit.',
     errorLoad: 'Impossible de charger les données.',
@@ -204,6 +206,8 @@ export const translations = {
     videoLabel: 'فيديو',
     mediaLabel: 'وسائط',
     videoTooLargeError: 'حجم الفيديو يتجاوز 60 ميغابايت. يرجى تسجيل مقطع أقصر.',
+    videoRecordEmptyError:
+      'لم يتم حفظ أي مقطع فيديو. أعد المحاولة أو استخدم زر الفيديو المباشر.',
     saveSettings: 'حفظ الإعدادات',
     validationNameRequired: 'يرجى إدخال اسم المنتج.',
     errorLoad: 'تعذر تحميل البيانات.',

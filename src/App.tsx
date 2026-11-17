@@ -378,7 +378,17 @@ export default function App() {
                             src={primaryPhoto}
                             muted
                             playsInline
-                            preload="metadata"
+                            preload="auto"
+                            onLoadedData={(e) => {
+                              const v = e.currentTarget;
+                              if (v.currentTime === 0) {
+                                try {
+                                  v.currentTime = 0.05;
+                                } catch {
+                                  // ignore
+                                }
+                              }
+                            }}
                             className="h-full w-full object-cover"
                           />
                           <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/25">
