@@ -1,5 +1,13 @@
 import { Capacitor } from '@capacitor/core';
-import type { InventorySummary, Product, ProductPayload, ShopSettings } from '../types';
+import type {
+  FacebookPublishPayload,
+  InstagramPublishPayload,
+  InventorySummary,
+  MetaAuthStatus,
+  Product,
+  ProductPayload,
+  ShopSettings,
+} from '../types';
 import {
   localCreateProduct,
   localDeleteProduct,
@@ -99,4 +107,142 @@ export async function saveSettingsApi(settings: ShopSettings): Promise<ShopSetti
   });
   if (!res.ok) throw new Error('Settings save failed');
   return (await res.json()) as ShopSettings;
+}
+
+export async function fetchMetaAuthStatusApi(): Promise<MetaAuthStatus> {
+  const fallback: MetaAuthStatus = {
+    configured: false,
+    callbackUrl: `${window.location.origin}/auth/meta/callback`,
+    connected: false,
+    pages: [],
+  };
+  if (isNative()) return fallback;
+  try {
+    const res = await fetch('/api/auth/meta/status', { credentials: 'same-origin' });
+    if (!res.ok) return fallback;
+    return (await res.json()) as MetaAuthStatus;
+  } catch {
+    return fallback;
+  }
+}
+
+export async function startMetaOAuthPopup(): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch('/api/auth/meta/url', { credentials: 'same-origin' });
+  const data = (await res.json()) as { url?: string; error?: string; callbackUrl?: string };
+  if (!res.ok || !data.url) {
+    return { ok: false, error: data.error || 'META_OAUTH_NOT_CONFIGURED' };
+  }
+
+  return new Promise((resolve) => {
+    const authWindow = window.open(data.url, 'meta_oauth_popup', 'width=600,height=720');
+    if (!authWindow) {
+      resolve({ ok: false, error: 'POPUP_BLOCKED' });
+      return;
+    }
+
+    let settled = false;
+    const cleanup = () => {
+      window.removeEventListener('message', onMessage);
+      clearInterval(closePoll);
+      clearTimeout(timeoutId);
+    };
+
+    const finish = (result: { ok: boolean; error?: string }) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(result);
+    };
+
+    const onMessage = (event: MessageEvent) => {
+      const origin = event.origin || '';
+      if (
+        origin !== window.location.origin &&
+        !origin.endsWith('.run.app') &&
+        !origin.includes('localhost')
+      ) {
+        return;
+      }
+      if (event.data?.type === 'META_OAUTH_SUCCESS') {
+        finish({ ok: true });
+      } else if (event.data?.type === 'META_OAUTH_ERROR') {
+        finish({ ok: false, error: String(event.data.error || 'OAuth failed') });
+      }
+    };
+
+    window.addEventListener('message', onMessage);
+
+    const closePoll = setInterval(() => {
+      if (authWindow.closed) {
+        finish({ ok: false, error: 'CANCELED' });
+      }
+    }, 500);
+
+    const timeoutId = setTimeout(() => {
+      finish({ ok: false, error: 'TIMEOUT' });
+    }, 180_000);
+  });
+}
+
+export async function selectMetaTargetsApi(
+  selectedPageId?: string,
+  selectedIgId?: string
+): Promise<void> {
+  if (isNative()) return;
+  await fetch('/api/auth/meta/select', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    body: JSON.stringify({ selectedPageId, selectedIgId }),
+  });
+}
+
+export async function disconnectMetaAuthApi(): Promise<void> {
+  if (isNative()) return;
+  await fetch('/api/auth/meta/disconnect', {
+    method: 'POST',
+    credentials: 'same-origin',
+  });
+}
+
+export async function publishFacebookApi(
+  payload: FacebookPublishPayload
+): Promise<{ ok: boolean; postId?: string; postUrl?: string; error?: string }> {
+  const res = await fetch('/api/social/publish/facebook', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    body: JSON.stringify(payload),
+  });
+  const data = (await res.json()) as {
+    ok?: boolean;
+    postId?: string;
+    postUrl?: string;
+    error?: string;
+  };
+  if (!res.ok || !data.ok) {
+    return { ok: false, error: data.error || 'Publish failed' };
+  }
+  return { ok: true, postId: data.postId, postUrl: data.postUrl };
+}
+
+export async function publishInstagramApi(
+  payload: InstagramPublishPayload
+): Promise<{ ok: boolean; mediaId?: string; permalink?: string; error?: string }> {
+  const res = await fetch('/api/social/publish/instagram', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    body: JSON.stringify(payload),
+  });
+  const data = (await res.json()) as {
+    ok?: boolean;
+    mediaId?: string;
+    permalink?: string;
+    error?: string;
+  };
+  if (!res.ok || !data.ok) {
+    return { ok: false, error: data.error || 'Publish failed' };
+  }
+  return { ok: true, mediaId: data.mediaId, permalink: data.permalink };
 }

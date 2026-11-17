@@ -98,7 +98,83 @@ db.exec(`
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS oauth_states (
+    state TEXT PRIMARY KEY,
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS meta_connections (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    user_name TEXT NOT NULL DEFAULT '',
+    user_picture TEXT NOT NULL DEFAULT '',
+    user_access_token TEXT NOT NULL,
+    pages_json TEXT NOT NULL DEFAULT '[]',
+    selected_page_id TEXT NOT NULL DEFAULT '',
+    selected_ig_id TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL
+  );
 `);
+
+interface StoredMetaPage {
+  id: string;
+  name: string;
+  accessToken: string;
+  pictureUrl?: string;
+  igAccount?: {
+    id: string;
+    username: string;
+    name?: string;
+    profilePictureUrl?: string;
+  };
+}
+
+interface MetaConnectionRow {
+  id: string;
+  user_id: string;
+  user_name: string;
+  user_picture: string;
+  user_access_token: string;
+  pages_json: string;
+  selected_page_id: string;
+  selected_ig_id: string;
+  updated_at: string;
+}
+
+const tempMediaStore = new Map<
+  string,
+  { buffer: Buffer; mimeType: string; expiresAt: number }
+>();
+
+function pruneTempMedia(): void {
+  const now = Date.now();
+  for (const [token, entry] of tempMediaStore.entries()) {
+    if (entry.expiresAt <= now) {
+      tempMediaStore.delete(token);
+    }
+  }
+}
+
+function getBaseAppUrl(req?: Request): string {
+  const envUrl = (process.env.APP_URL || '').trim().replace(/\/+$/, '');
+  if (envUrl) return envUrl;
+  if (req) {
+    const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+    const host = req.get('host') || 'localhost:3000';
+    return `${String(proto).split(',')[0].trim()}://${host}`;
+  }
+  return 'http://localhost:3000';
+}
+
+function decodeDataUrlToBuffer(dataUrl: string): { buffer: Buffer; mimeType: string } | null {
+  const match = /^data:([^;,]+)(?:;[^,]*)?;base64,(.+)$/s.exec(dataUrl.trim());
+  if (!match) return null;
+  return {
+    mimeType: match[1].trim(),
+    buffer: Buffer.from(match[2], 'base64'),
+  };
+}
 
 function extractPrefixLetter(name: string): string {
   const normalized = name.trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -552,11 +628,18 @@ async function startServer() {
     res.json({
       customLogo: map.get('custom_logo') ?? '',
       currency: map.get('currency') || 'MAD',
+      facebookHandle: map.get('facebook_handle') ?? '',
+      instagramHandle: map.get('instagram_handle') ?? '',
     });
   });
 
   app.put('/api/settings', (req: Request, res: Response) => {
-    const body = req.body as { customLogo?: string; currency?: string };
+    const body = req.body as {
+      customLogo?: string;
+      currency?: string;
+      facebookHandle?: string;
+      instagramHandle?: string;
+    };
     if (typeof body.customLogo === 'string') {
       db.prepare("INSERT OR REPLACE INTO shop_settings (key, value) VALUES ('custom_logo', ?)").run(body.customLogo);
     }
@@ -565,12 +648,616 @@ async function startServer() {
         body.currency.trim().slice(0, 8)
       );
     }
+    if (typeof body.facebookHandle === 'string') {
+      db.prepare("INSERT OR REPLACE INTO shop_settings (key, value) VALUES ('facebook_handle', ?)").run(
+        body.facebookHandle.trim().slice(0, 120)
+      );
+    }
+    if (typeof body.instagramHandle === 'string') {
+      db.prepare("INSERT OR REPLACE INTO shop_settings (key, value) VALUES ('instagram_handle', ?)").run(
+        body.instagramHandle.trim().slice(0, 120)
+      );
+    }
     const rows = db.prepare('SELECT key, value FROM shop_settings').all() as Array<{ key: string; value: string }>;
     const map = new Map(rows.map((r) => [r.key, r.value]));
     res.json({
       customLogo: map.get('custom_logo') ?? '',
       currency: map.get('currency') || 'MAD',
+      facebookHandle: map.get('facebook_handle') ?? '',
+      instagramHandle: map.get('instagram_handle') ?? '',
     });
+  });
+
+  // Meta (Facebook & Instagram) OAuth + Graph API Publishing
+  app.get('/api/auth/meta/status', (req: Request, res: Response) => {
+    const configured = Boolean(process.env.META_APP_ID && process.env.META_APP_SECRET);
+    const callbackUrl = `${getBaseAppUrl(req)}/auth/meta/callback`;
+    const row = db
+      .prepare("SELECT * FROM meta_connections WHERE id = 'primary'")
+      .get() as MetaConnectionRow | undefined;
+
+    if (!row) {
+      res.json({
+        configured,
+        callbackUrl,
+        connected: false,
+        pages: [],
+      });
+      return;
+    }
+
+    let pages: StoredMetaPage[] = [];
+    try {
+      pages = JSON.parse(row.pages_json) as StoredMetaPage[];
+    } catch {
+      pages = [];
+    }
+
+    res.json({
+      configured,
+      callbackUrl,
+      connected: true,
+      userName: row.user_name,
+      userPicture: row.user_picture,
+      pages: pages.map((p) => ({
+        id: p.id,
+        name: p.name,
+        pictureUrl: p.pictureUrl,
+        igAccount: p.igAccount,
+      })),
+      selectedPageId: row.selected_page_id,
+      selectedIgId: row.selected_ig_id,
+    });
+  });
+
+  app.get('/api/auth/meta/url', (req: Request, res: Response) => {
+    const clientId = (process.env.META_APP_ID || '').trim();
+    const clientSecret = (process.env.META_APP_SECRET || '').trim();
+    const callbackUrl = `${getBaseAppUrl(req)}/auth/meta/callback`;
+
+    if (!clientId || !clientSecret) {
+      res.status(400).json({
+        error: 'META_OAUTH_NOT_CONFIGURED',
+        callbackUrl,
+      });
+      return;
+    }
+
+    // Prune stale states older than 15 minutes
+    db.prepare('DELETE FROM oauth_states WHERE created_at < ?').run(Date.now() - 15 * 60 * 1000);
+    const state = crypto.randomBytes(24).toString('hex');
+    db.prepare('INSERT INTO oauth_states (state, created_at) VALUES (?, ?)').run(state, Date.now());
+
+    res.cookie('meta_oauth_state', state, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'none',
+      maxAge: 15 * 60 * 1000,
+    });
+
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: callbackUrl,
+      state,
+      response_type: 'code',
+      scope:
+        'public_profile,pages_show_list,pages_read_engagement,pages_manage_posts,instagram_basic,instagram_content_publish',
+    });
+
+    res.json({
+      url: `https://www.facebook.com/v21.0/dialog/oauth?${params.toString()}`,
+      callbackUrl,
+    });
+  });
+
+  const handleMetaOAuthCallback = async (req: Request, res: Response) => {
+    const sendPopupResult = (payload: { type: 'META_OAUTH_SUCCESS' | 'META_OAUTH_ERROR'; error?: string }) => {
+      const safeJson = JSON.stringify(payload);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(`<!doctype html>
+<html>
+  <body style="font-family:sans-serif;padding:24px;text-align:center;background:#F7FAF8;color:#0B1F16;">
+    <script>
+      if (window.opener) {
+        window.opener.postMessage(${safeJson}, '*');
+        window.close();
+      } else {
+        window.location.href = '/';
+      }
+    </script>
+    <p>${payload.type === 'META_OAUTH_SUCCESS' ? 'Connexion réussie. Vous pouvez fermer cette fenêtre.' : 'Erreur de connexion Meta.'}</p>
+  </body>
+</html>`);
+    };
+
+    const oauthError = typeof req.query.error_description === 'string'
+      ? req.query.error_description
+      : typeof req.query.error === 'string'
+        ? req.query.error
+        : '';
+    if (oauthError) {
+      sendPopupResult({ type: 'META_OAUTH_ERROR', error: oauthError });
+      return;
+    }
+
+    const code = typeof req.query.code === 'string' ? req.query.code : '';
+    const state = typeof req.query.state === 'string' ? req.query.state : '';
+
+    if (!code || !state) {
+      sendPopupResult({ type: 'META_OAUTH_ERROR', error: 'Missing OAuth code or state' });
+      return;
+    }
+
+    const stateRow = db
+      .prepare('SELECT state FROM oauth_states WHERE state = ?')
+      .get(state) as { state: string } | undefined;
+    db.prepare('DELETE FROM oauth_states WHERE state = ?').run(state);
+
+    if (!stateRow) {
+      sendPopupResult({ type: 'META_OAUTH_ERROR', error: 'Invalid or expired OAuth state' });
+      return;
+    }
+
+    const clientId = (process.env.META_APP_ID || '').trim();
+    const clientSecret = (process.env.META_APP_SECRET || '').trim();
+    const redirectUri = `${getBaseAppUrl(req)}/auth/meta/callback`;
+
+    if (!clientId || !clientSecret) {
+      sendPopupResult({ type: 'META_OAUTH_ERROR', error: 'META_OAUTH_NOT_CONFIGURED' });
+      return;
+    }
+
+    try {
+      const tokenParams = new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uri: redirectUri,
+        code,
+      });
+      const tokenRes = await fetch(
+        `https://graph.facebook.com/v21.0/oauth/access_token?${tokenParams.toString()}`
+      );
+      const tokenJson = (await tokenRes.json()) as {
+        access_token?: string;
+        error?: { message?: string };
+      };
+      if (!tokenRes.ok || !tokenJson.access_token) {
+        sendPopupResult({
+          type: 'META_OAUTH_ERROR',
+          error: tokenJson.error?.message || 'Failed to exchange OAuth token',
+        });
+        return;
+      }
+
+      let accessToken = tokenJson.access_token;
+
+      // Exchange for a 60-day long-lived user token when supported
+      try {
+        const longParams = new URLSearchParams({
+          grant_type: 'fb_exchange_token',
+          client_id: clientId,
+          client_secret: clientSecret,
+          fb_exchange_token: accessToken,
+        });
+        const longRes = await fetch(
+          `https://graph.facebook.com/v21.0/oauth/access_token?${longParams.toString()}`
+        );
+        if (longRes.ok) {
+          const longJson = (await longRes.json()) as { access_token?: string };
+          if (longJson.access_token) accessToken = longJson.access_token;
+        }
+      } catch {
+        // Keep short-lived token if exchange fails
+      }
+
+      const meRes = await fetch(
+        `https://graph.facebook.com/v21.0/me?fields=id,name,picture.type(normal)&access_token=${encodeURIComponent(
+          accessToken
+        )}`
+      );
+      const meJson = (await meRes.json()) as {
+        id?: string;
+        name?: string;
+        picture?: { data?: { url?: string } };
+      };
+
+      const pagesRes = await fetch(
+        `https://graph.facebook.com/v21.0/me/accounts?fields=id,name,access_token,picture{url},instagram_business_account{id,username,name,profile_picture_url}&access_token=${encodeURIComponent(
+          accessToken
+        )}`
+      );
+      const pagesJson = (await pagesRes.json()) as {
+        data?: Array<{
+          id: string;
+          name: string;
+          access_token: string;
+          picture?: { data?: { url?: string } };
+          instagram_business_account?: {
+            id: string;
+            username?: string;
+            name?: string;
+            profile_picture_url?: string;
+          };
+        }>;
+      };
+
+      const pages: StoredMetaPage[] = (pagesJson.data || []).map((p) => ({
+        id: p.id,
+        name: p.name,
+        accessToken: p.access_token,
+        pictureUrl: p.picture?.data?.url,
+        igAccount: p.instagram_business_account
+          ? {
+              id: p.instagram_business_account.id,
+              username:
+                p.instagram_business_account.username ||
+                p.instagram_business_account.name ||
+                p.name,
+              name: p.instagram_business_account.name,
+              profilePictureUrl: p.instagram_business_account.profile_picture_url,
+            }
+          : undefined,
+      }));
+
+      const firstPageId = pages[0]?.id || '';
+      const firstIgId = pages.find((p) => p.igAccount)?.igAccount?.id || '';
+      const now = new Date().toISOString();
+
+      db.prepare(
+        `INSERT OR REPLACE INTO meta_connections (
+          id, user_id, user_name, user_picture, user_access_token,
+          pages_json, selected_page_id, selected_ig_id, updated_at
+        ) VALUES ('primary', ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        meJson.id || 'meta-user',
+        meJson.name || 'Meta Account',
+        meJson.picture?.data?.url || '',
+        accessToken,
+        JSON.stringify(pages),
+        firstPageId,
+        firstIgId,
+        now
+      );
+
+      res.cookie('meta_linked', '1', {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'none',
+        maxAge: 60 * 24 * 60 * 60 * 1000,
+      });
+
+      sendPopupResult({ type: 'META_OAUTH_SUCCESS' });
+    } catch (err) {
+      sendPopupResult({
+        type: 'META_OAUTH_ERROR',
+        error: err instanceof Error ? err.message : 'Meta OAuth failed',
+      });
+    }
+  };
+
+  app.get(['/auth/meta/callback', '/auth/meta/callback/'], (req: Request, res: Response) => {
+    void handleMetaOAuthCallback(req, res);
+  });
+
+  app.post('/api/auth/meta/select', (req: Request, res: Response) => {
+    const body = req.body as { selectedPageId?: string; selectedIgId?: string };
+    const existing = db
+      .prepare("SELECT * FROM meta_connections WHERE id = 'primary'")
+      .get() as MetaConnectionRow | undefined;
+    if (!existing) {
+      res.status(404).json({ error: 'Not connected' });
+      return;
+    }
+
+    const nextPageId =
+      typeof body.selectedPageId === 'string' ? body.selectedPageId : existing.selected_page_id;
+    const nextIgId =
+      typeof body.selectedIgId === 'string' ? body.selectedIgId : existing.selected_ig_id;
+
+    db.prepare(
+      "UPDATE meta_connections SET selected_page_id = ?, selected_ig_id = ?, updated_at = ? WHERE id = 'primary'"
+    ).run(nextPageId, nextIgId, new Date().toISOString());
+
+    res.json({ ok: true, selectedPageId: nextPageId, selectedIgId: nextIgId });
+  });
+
+  app.post('/api/auth/meta/disconnect', (_req: Request, res: Response) => {
+    db.prepare("DELETE FROM meta_connections WHERE id = 'primary'").run();
+    res.clearCookie('meta_linked', { httpOnly: true, secure: true, sameSite: 'none' });
+    res.json({ ok: true });
+  });
+
+  app.get('/api/media/temp/:token', (req: Request, res: Response) => {
+    pruneTempMedia();
+    const entry = tempMediaStore.get(req.params.token);
+    if (!entry) {
+      res.status(404).end();
+      return;
+    }
+    const total = entry.buffer.length;
+    res.setHeader('Content-Type', entry.mimeType);
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Cache-Control', 'no-store');
+
+    const range = req.headers.range;
+    if (range) {
+      const parts = range.replace(/bytes=/, '').split('-');
+      const start = Number.parseInt(parts[0], 10);
+      const end = parts[1] ? Number.parseInt(parts[1], 10) : total - 1;
+      if (!Number.isNaN(start) && !Number.isNaN(end) && start <= end && end < total) {
+        res.status(206);
+        res.setHeader('Content-Range', `bytes ${start}-${end}/${total}`);
+        res.setHeader('Content-Length', String(end - start + 1));
+        res.end(entry.buffer.subarray(start, end + 1));
+        return;
+      }
+    }
+
+    res.setHeader('Content-Length', String(total));
+    res.end(entry.buffer);
+  });
+
+  app.post('/api/social/publish/facebook', async (req: Request, res: Response) => {
+    const row = db
+      .prepare("SELECT * FROM meta_connections WHERE id = 'primary'")
+      .get() as MetaConnectionRow | undefined;
+    if (!row) {
+      res.status(401).json({ error: 'Facebook account not linked' });
+      return;
+    }
+
+    let pages: StoredMetaPage[] = [];
+    try {
+      pages = JSON.parse(row.pages_json) as StoredMetaPage[];
+    } catch {
+      pages = [];
+    }
+
+    const body = req.body as {
+      message?: string;
+      mediaDataUrl?: string;
+      mediaType?: 'image' | 'video' | 'none';
+      pageId?: string;
+    };
+    const targetPageId = body.pageId || row.selected_page_id || pages[0]?.id;
+    const targetPage = pages.find((p) => p.id === targetPageId);
+    if (!targetPage || !targetPage.accessToken) {
+      res.status(400).json({
+        error: 'No Facebook Page found on your linked Meta account.',
+      });
+      return;
+    }
+
+    const message = (body.message || '').trim();
+    const decoded =
+      body.mediaType !== 'none' && typeof body.mediaDataUrl === 'string' && body.mediaDataUrl
+        ? decodeDataUrlToBuffer(body.mediaDataUrl)
+        : null;
+
+    try {
+      let graphRes: globalThis.Response;
+      if (decoded && (body.mediaType === 'video' || decoded.mimeType.startsWith('video/'))) {
+        const form = new FormData();
+        form.append('access_token', targetPage.accessToken);
+        if (message) form.append('description', message);
+        const ext = decoded.mimeType.includes('webm') ? 'webm' : 'mp4';
+        form.append(
+          'source',
+          new Blob([new Uint8Array(decoded.buffer)], { type: decoded.mimeType }),
+          `product.${ext}`
+        );
+        graphRes = await fetch(
+          `https://graph.facebook.com/v21.0/${encodeURIComponent(targetPage.id)}/videos`,
+          { method: 'POST', body: form }
+        );
+      } else if (decoded) {
+        const form = new FormData();
+        form.append('access_token', targetPage.accessToken);
+        if (message) form.append('caption', message);
+        const ext = decoded.mimeType === 'image/png' ? 'png' : 'jpg';
+        form.append(
+          'source',
+          new Blob([new Uint8Array(decoded.buffer)], { type: decoded.mimeType }),
+          `product.${ext}`
+        );
+        graphRes = await fetch(
+          `https://graph.facebook.com/v21.0/${encodeURIComponent(targetPage.id)}/photos`,
+          { method: 'POST', body: form }
+        );
+      } else {
+        const params = new URLSearchParams({
+          access_token: targetPage.accessToken,
+          message,
+        });
+        graphRes = await fetch(
+          `https://graph.facebook.com/v21.0/${encodeURIComponent(targetPage.id)}/feed`,
+          { method: 'POST', body: params }
+        );
+      }
+
+      const graphJson = (await graphRes.json()) as {
+        id?: string;
+        post_id?: string;
+        error?: { message?: string };
+      };
+      if (!graphRes.ok || (!graphJson.id && !graphJson.post_id)) {
+        res.status(400).json({
+          error: graphJson.error?.message || 'Facebook Graph API publish failed',
+        });
+        return;
+      }
+
+      const postId = graphJson.post_id || graphJson.id || '';
+      res.json({
+        ok: true,
+        postId,
+        postUrl: postId ? `https://www.facebook.com/${postId}` : 'https://www.facebook.com/',
+      });
+    } catch (err) {
+      res.status(500).json({
+        error: err instanceof Error ? err.message : 'Facebook publish error',
+      });
+    }
+  });
+
+  app.post('/api/social/publish/instagram', async (req: Request, res: Response) => {
+    const row = db
+      .prepare("SELECT * FROM meta_connections WHERE id = 'primary'")
+      .get() as MetaConnectionRow | undefined;
+    if (!row) {
+      res.status(401).json({ error: 'Instagram account not linked' });
+      return;
+    }
+
+    let pages: StoredMetaPage[] = [];
+    try {
+      pages = JSON.parse(row.pages_json) as StoredMetaPage[];
+    } catch {
+      pages = [];
+    }
+
+    const body = req.body as {
+      caption?: string;
+      mediaDataUrl?: string;
+      publishMode?: 'post' | 'reel';
+      shareToFeed?: boolean;
+      igAccountId?: string;
+    };
+
+    const targetIgId =
+      body.igAccountId || row.selected_ig_id || pages.find((p) => p.igAccount)?.igAccount?.id;
+    const owningPage = pages.find((p) => p.igAccount?.id === targetIgId);
+    const accessToken = owningPage?.accessToken || row.user_access_token;
+
+    if (!targetIgId || !accessToken) {
+      res.status(400).json({
+        error:
+          'No Instagram Business/Creator account linked to your Facebook Pages was found.',
+      });
+      return;
+    }
+
+    const decoded =
+      typeof body.mediaDataUrl === 'string' ? decodeDataUrlToBuffer(body.mediaDataUrl) : null;
+    if (!decoded) {
+      res.status(400).json({ error: 'Missing or invalid media payload' });
+      return;
+    }
+
+    pruneTempMedia();
+    const token = crypto.randomUUID();
+    tempMediaStore.set(token, {
+      buffer: decoded.buffer,
+      mimeType: decoded.mimeType,
+      expiresAt: Date.now() + 10 * 60 * 1000,
+    });
+
+    const publicMediaUrl = `${getBaseAppUrl(req)}/api/media/temp/${token}`;
+    const caption = (body.caption || '').trim();
+    const isReel = body.publishMode === 'reel';
+
+    try {
+      const containerParams = new URLSearchParams({
+        access_token: accessToken,
+        caption,
+      });
+
+      if (isReel) {
+        containerParams.set('media_type', 'REELS');
+        containerParams.set('video_url', publicMediaUrl);
+        containerParams.set('share_to_feed', body.shareToFeed === false ? 'false' : 'true');
+      } else {
+        containerParams.set('image_url', publicMediaUrl);
+      }
+
+      const containerRes = await fetch(
+        `https://graph.facebook.com/v21.0/${encodeURIComponent(targetIgId)}/media`,
+        { method: 'POST', body: containerParams }
+      );
+      const containerJson = (await containerRes.json()) as {
+        id?: string;
+        error?: { message?: string };
+      };
+
+      if (!containerRes.ok || !containerJson.id) {
+        tempMediaStore.delete(token);
+        res.status(400).json({
+          error: containerJson.error?.message || 'Instagram media container creation failed',
+        });
+        return;
+      }
+
+      const creationId = containerJson.id;
+      const maxAttempts = isReel ? 15 : 5;
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        await new Promise((r) => setTimeout(r, isReel ? 1800 : 800));
+        const statusRes = await fetch(
+          `https://graph.facebook.com/v21.0/${encodeURIComponent(
+            creationId
+          )}?fields=status_code,status&access_token=${encodeURIComponent(accessToken)}`
+        );
+        if (statusRes.ok) {
+          const statusJson = (await statusRes.json()) as {
+            status_code?: string;
+            status?: string;
+          };
+          if (statusJson.status_code === 'FINISHED' || statusJson.status_code === 'PUBLISHED') {
+            break;
+          }
+          if (statusJson.status_code === 'ERROR' || statusJson.status_code === 'EXPIRED') {
+            tempMediaStore.delete(token);
+            res.status(400).json({
+              error: `Instagram processing failed (${statusJson.status || statusJson.status_code})`,
+            });
+            return;
+          }
+        }
+      }
+
+      const publishParams = new URLSearchParams({
+        creation_id: creationId,
+        access_token: accessToken,
+      });
+      const publishRes = await fetch(
+        `https://graph.facebook.com/v21.0/${encodeURIComponent(targetIgId)}/media_publish`,
+        { method: 'POST', body: publishParams }
+      );
+      const publishJson = (await publishRes.json()) as {
+        id?: string;
+        error?: { message?: string };
+      };
+
+      tempMediaStore.delete(token);
+
+      if (!publishRes.ok || !publishJson.id) {
+        res.status(400).json({
+          error: publishJson.error?.message || 'Instagram publish failed',
+        });
+        return;
+      }
+
+      let permalink = 'https://www.instagram.com/';
+      try {
+        const linkRes = await fetch(
+          `https://graph.facebook.com/v21.0/${encodeURIComponent(
+            publishJson.id
+          )}?fields=permalink&access_token=${encodeURIComponent(accessToken)}`
+        );
+        if (linkRes.ok) {
+          const linkJson = (await linkRes.json()) as { permalink?: string };
+          if (linkJson.permalink) permalink = linkJson.permalink;
+        }
+      } catch {
+        // fallback to instagram.com
+      }
+
+      res.json({ ok: true, mediaId: publishJson.id, permalink });
+    } catch (err) {
+      tempMediaStore.delete(token);
+      res.status(500).json({
+        error: err instanceof Error ? err.message : 'Instagram publish error',
+      });
+    }
   });
 
   app.get('/api/export/excel', (req: Request, res: Response) => {

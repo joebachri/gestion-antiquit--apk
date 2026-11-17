@@ -371,9 +371,21 @@ export async function localGetSettings(): Promise<ShopSettings> {
     STORE_SETTINGS,
     'currency'
   );
+  const facebookHandle = await getFromStore<{ key: string; value: string }>(
+    db,
+    STORE_SETTINGS,
+    'facebookHandle'
+  );
+  const instagramHandle = await getFromStore<{ key: string; value: string }>(
+    db,
+    STORE_SETTINGS,
+    'instagramHandle'
+  );
   return {
     customLogo: logo?.value ?? '',
     currency: currency?.value || 'MAD',
+    facebookHandle: facebookHandle?.value ?? '',
+    instagramHandle: instagramHandle?.value ?? '',
   };
 }
 
@@ -381,5 +393,17 @@ export async function localSaveSettings(settings: ShopSettings): Promise<ShopSet
   const db = await openDb();
   await putInStore(db, STORE_SETTINGS, { key: 'customLogo', value: settings.customLogo ?? '' });
   await putInStore(db, STORE_SETTINGS, { key: 'currency', value: settings.currency || 'MAD' });
+  if (typeof settings.facebookHandle === 'string') {
+    await putInStore(db, STORE_SETTINGS, {
+      key: 'facebookHandle',
+      value: settings.facebookHandle.trim(),
+    });
+  }
+  if (typeof settings.instagramHandle === 'string') {
+    await putInStore(db, STORE_SETTINGS, {
+      key: 'instagramHandle',
+      value: settings.instagramHandle.trim(),
+    });
+  }
   return settings;
 }

@@ -14,6 +14,7 @@ import {
 import type {
   InventorySummary,
   Language,
+  MetaAuthStatus,
   Product,
   ProductPayload,
   ShopSettings,
@@ -22,6 +23,7 @@ import { formatCurrency, formatNumber, translations } from './i18n';
 import { buildExcelBlob } from './utils/excel';
 import {
   deleteProductApi,
+  fetchMetaAuthStatusApi,
   fetchProductsApi,
   fetchSettingsApi,
   saveProductApi,
@@ -34,6 +36,7 @@ import { ProductFormModal } from './components/ProductFormModal';
 import { ProductDetailSheet } from './components/ProductDetailSheet';
 import { ShareModal } from './components/ShareModal';
 import { LogoModal } from './components/LogoModal';
+import { InitialSetupModal } from './components/InitialSetupModal';
 
 export default function App() {
   const [lang, setLang] = useState<Language>(() => {
@@ -56,6 +59,14 @@ export default function App() {
   const [settings, setSettings] = useState<ShopSettings>({
     customLogo: '',
     currency: 'MAD',
+    facebookHandle: '',
+    instagramHandle: '',
+  });
+  const [metaStatus, setMetaStatus] = useState<MetaAuthStatus>({
+    configured: false,
+    callbackUrl: `${typeof window !== 'undefined' ? window.location.origin : ''}/auth/meta/callback`,
+    connected: false,
+    pages: [],
   });
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -67,6 +78,9 @@ export default function App() {
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
   const [shareProduct, setShareProduct] = useState<Product | null>(null);
   const [logoModalOpen, setLogoModalOpen] = useState(false);
+  const [setupOpen, setSetupOpen] = useState<boolean>(() => {
+    return localStorage.getItem('babsaida_onboarding_done') !== '1';
+  });
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
 
@@ -96,6 +110,15 @@ export default function App() {
     }
   }, []);
 
+  const refreshMetaStatus = useCallback(async () => {
+    try {
+      const status = await fetchMetaAuthStatusApi();
+      setMetaStatus(status);
+    } catch {
+      // keep default unlinked state
+    }
+  }, []);
+
   const fetchProducts = useCallback(
     async (query: string) => {
       try {
@@ -114,7 +137,8 @@ export default function App() {
 
   useEffect(() => {
     void fetchSettings();
-  }, [fetchSettings]);
+    void refreshMetaStatus();
+  }, [fetchSettings, refreshMetaStatus]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -599,6 +623,8 @@ export default function App() {
         product={shareProduct}
         lang={lang}
         currency={settings.currency}
+        metaStatus={metaStatus}
+        onRefreshMetaStatus={refreshMetaStatus}
         onClose={() => setShareProduct(null)}
       />
 
@@ -607,8 +633,23 @@ export default function App() {
         lang={lang}
         customLogo={settings.customLogo}
         currency={settings.currency}
+        facebookHandle={settings.facebookHandle}
+        instagramHandle={settings.instagramHandle}
+        metaStatus={metaStatus}
+        onRefreshMetaStatus={refreshMetaStatus}
         onClose={() => setLogoModalOpen(false)}
         onSave={handleSaveSettings}
+      />
+
+      <InitialSetupModal
+        isOpen={setupOpen}
+        lang={lang}
+        onChangeLang={setLang}
+        settings={settings}
+        metaStatus={metaStatus}
+        onRefreshMetaStatus={refreshMetaStatus}
+        onSaveSettings={handleSaveSettings}
+        onClose={() => setSetupOpen(false)}
       />
     </div>
   );

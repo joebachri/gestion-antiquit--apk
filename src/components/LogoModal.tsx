@@ -1,18 +1,23 @@
 import { useEffect, useRef, useState } from 'react';
 import { Camera, RotateCcw, Upload, X, Check } from 'lucide-react';
-import type { Language } from '../types';
+import type { Language, MetaAuthStatus, ShopSettings } from '../types';
 import { translations } from '../i18n';
 import { compressImageBlob } from '../utils/image';
 import { DefaultBabSaidaLogo } from './Header';
 import { CameraModal } from './CameraModal';
+import { MetaAccountCard } from './MetaAccountCard';
 
 interface LogoModalProps {
   isOpen: boolean;
   lang: Language;
   customLogo: string;
   currency: string;
+  facebookHandle?: string;
+  instagramHandle?: string;
+  metaStatus: MetaAuthStatus;
+  onRefreshMetaStatus: () => Promise<void>;
   onClose: () => void;
-  onSave: (settings: { customLogo: string; currency: string }) => Promise<void>;
+  onSave: (settings: ShopSettings) => Promise<void>;
 }
 
 const CURRENCIES = ['MAD', 'DH', 'EUR', 'USD', 'TND', 'DZD'];
@@ -22,6 +27,10 @@ export function LogoModal({
   lang,
   customLogo,
   currency,
+  facebookHandle = '',
+  instagramHandle = '',
+  metaStatus,
+  onRefreshMetaStatus,
   onClose,
   onSave,
 }: LogoModalProps) {
@@ -29,6 +38,8 @@ export function LogoModal({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [draftLogo, setDraftLogo] = useState(customLogo);
   const [draftCurrency, setDraftCurrency] = useState(currency);
+  const [draftFacebookHandle, setDraftFacebookHandle] = useState(facebookHandle);
+  const [draftInstagramHandle, setDraftInstagramHandle] = useState(instagramHandle);
   const [saving, setSaving] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
 
@@ -36,8 +47,10 @@ export function LogoModal({
     if (isOpen) {
       setDraftLogo(customLogo);
       setDraftCurrency(currency);
+      setDraftFacebookHandle(facebookHandle);
+      setDraftInstagramHandle(instagramHandle);
     }
-  }, [isOpen, customLogo, currency]);
+  }, [isOpen, customLogo, currency, facebookHandle, instagramHandle]);
 
   if (!isOpen) return null;
 
@@ -55,7 +68,12 @@ export function LogoModal({
   const handleConfirm = async () => {
     setSaving(true);
     try {
-      await onSave({ customLogo: draftLogo, currency: draftCurrency });
+      await onSave({
+        customLogo: draftLogo,
+        currency: draftCurrency,
+        facebookHandle: draftFacebookHandle,
+        instagramHandle: draftInstagramHandle,
+      });
       onClose();
     } finally {
       setSaving(false);
@@ -70,7 +88,7 @@ export function LogoModal({
         onClick={onClose}
       >
         <div
-          className="w-full max-w-md rounded-t-3xl border border-[#DCE7E0] bg-white p-6 shadow-xl sm:rounded-3xl dark:border-[#1E3A2D] dark:bg-[#0F2119]"
+          className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-3xl border border-[#DCE7E0] bg-white p-6 shadow-xl sm:rounded-3xl dark:border-[#1E3A2D] dark:bg-[#0F2119]"
           onClick={(e) => e.stopPropagation()}
         >
           <div className="mx-auto mb-4 h-1.5 w-10 rounded-full bg-[#DCE7E0] sm:hidden dark:bg-[#1E3A2D]" />
@@ -89,7 +107,7 @@ export function LogoModal({
             </button>
           </div>
 
-          <div className="mb-6 flex flex-col items-center rounded-2xl border border-[#DCE7E0] bg-[#F7FAF8] p-5 dark:border-[#1E3A2D] dark:bg-[#091611]">
+          <div className="mb-5 flex flex-col items-center rounded-2xl border border-[#DCE7E0] bg-[#F7FAF8] p-5 dark:border-[#1E3A2D] dark:bg-[#091611]">
             <div className="mb-4 flex h-24 w-24 items-center justify-center overflow-hidden rounded-2xl border border-[#DCE7E0] bg-white p-2 dark:border-[#1E3A2D] dark:bg-[#102119]">
               {draftLogo ? (
                 <img
@@ -148,7 +166,7 @@ export function LogoModal({
           </div>
 
           {/* Currency Selection */}
-          <div className="mb-6">
+          <div className="mb-5">
             <label className="mb-2 block text-xs font-semibold text-[#335947] dark:text-[#9EC0AE]">
               {t.currencyLabel}
             </label>
@@ -168,6 +186,21 @@ export function LogoModal({
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* Facebook & Instagram Linking */}
+          <div className="mb-6">
+            <MetaAccountCard
+              lang={lang}
+              metaStatus={metaStatus}
+              onRefreshMetaStatus={onRefreshMetaStatus}
+              facebookHandle={draftFacebookHandle}
+              instagramHandle={draftInstagramHandle}
+              onChangeHandles={(next) => {
+                setDraftFacebookHandle(next.facebookHandle);
+                setDraftInstagramHandle(next.instagramHandle);
+              }}
+            />
           </div>
 
           <div className="flex items-center gap-3">

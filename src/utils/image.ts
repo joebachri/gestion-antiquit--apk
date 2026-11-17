@@ -757,3 +757,211 @@ export async function buildProductCardFile(
     mimeType: 'image/png',
   };
 }
+
+export function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Failed to encode blob'));
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.readAsDataURL(blob);
+  });
+}
+
+export function buildDefaultHashtags(product: Product, lang: Language): string {
+  const codeTag = `#${sanitizeAsciiFilenamePart(product.code || 'Antiquite', 'Antiquite')}`;
+  if (lang === 'ar') {
+    return `#تحف #أنتيكات #تراث_مغربي #صناعة_تقليدية #ديكور_تراثي ${codeTag}`;
+  }
+  return `#Antiquités #ArtisanatMarocain #Patrimoine #DécorationAncienne #ObjetDArt ${codeTag}`;
+}
+
+export async function generateProductReelVideo(
+  product: Product,
+  currency: string,
+  lang: Language
+): Promise<{ blob: Blob; dataUrl: string; filename: string; mimeType: string } | null> {
+  if (typeof MediaRecorder === 'undefined') return null;
+
+  const isRtl = lang === 'ar';
+  const orderedPhotos = [...(product.photos || [])].sort(
+    (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)
+  );
+  const loaded = await Promise.all(orderedPhotos.map((p) => loadMediaCardImage(p.imageData)));
+  const imgs = loaded.map((item) => item.img).filter((img): img is HTMLImageElement => Boolean(img));
+
+  const W = 720;
+  const H = 1280;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  if (!ctx || typeof canvas.captureStream !== 'function') return null;
+
+  const mimeCandidates = ['video/mp4', 'video/webm;codecs=vp8', 'video/webm'];
+  let chosenMime = '';
+  for (const m of mimeCandidates) {
+    try {
+      if (MediaRecorder.isTypeSupported(m)) {
+        chosenMime = m;
+        break;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  const stream = canvas.captureStream(24);
+  const cleanMime = (chosenMime.split(';')[0] || 'video/webm').trim();
+  let recorder: MediaRecorder;
+  try {
+    recorder = chosenMime
+      ? new MediaRecorder(stream, { mimeType: chosenMime, videoBitsPerSecond: 2_200_000 })
+      : new MediaRecorder(stream);
+  } catch {
+    recorder = new MediaRecorder(stream);
+  }
+
+  const chunks: Blob[] = [];
+  recorder.ondataavailable = (e) => {
+    if (e.data && e.data.size > 0) chunks.push(e.data);
+  };
+
+  const durationMs = Math.max(3600, Math.min(6000, Math.max(1, imgs.length) * 1500));
+  const priceText = formatCurrency(product.sellingPrice, currency, lang);
+
+  const drawFrame = (progress: number) => {
+    ctx.fillStyle = '#0B1F16';
+    ctx.fillRect(0, 0, W, H);
+
+    // Top heritage emerald banner
+    ctx.fillStyle = '#115E3B';
+    ctx.fillRect(0, 0, W, 150);
+
+    ctx.save();
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 34px Georgia, serif';
+    ctx.textAlign = isRtl ? 'right' : 'left';
+    ctx.direction = isRtl ? 'rtl' : 'ltr';
+    const anchorX = isRtl ? W - 44 : 44;
+    ctx.fillText(isRtl ? 'إدارة التحف' : 'Gestion Antiquités', anchorX, 74);
+
+    ctx.fillStyle = '#A7F3D0';
+    ctx.font = '600 24px monospace';
+    ctx.direction = 'ltr';
+    ctx.fillText(product.code, anchorX, 116);
+    ctx.restore();
+
+    // Central showcase stage with subtle zoom transition across product images
+    const stageX = 36;
+    const stageY = 185;
+    const stageW = W - 72;
+    const stageH = 740;
+
+    ctx.save();
+    drawRoundedRectPath(ctx, stageX, stageY, stageW, stageH, 28);
+    ctx.fillStyle = '#132B20';
+    ctx.fill();
+    ctx.clip();
+
+    if (imgs.length > 0) {
+      const floatIdx = progress * imgs.length;
+      const idx = Math.min(imgs.length - 1, Math.floor(floatIdx));
+      const localProgress = floatIdx - idx;
+      const img = imgs[idx];
+      const baseScale = Math.max(stageW / img.width, stageH / img.height);
+      const zoom = 1 + localProgress * 0.06;
+      const drawW = img.width * baseScale * zoom;
+      const drawH = img.height * baseScale * zoom;
+      const dx = stageX + (stageW - drawW) / 2;
+      const dy = stageY + (stageH - drawH) / 2;
+      ctx.drawImage(img, dx, dy, drawW, drawH);
+    }
+    ctx.restore();
+
+    ctx.save();
+    drawRoundedRectPath(ctx, stageX, stageY, stageW, stageH, 28);
+    ctx.strokeStyle = '#34D399';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.restore();
+
+    // Bottom info card
+    ctx.save();
+    ctx.fillStyle = '#ECF7F1';
+    drawRoundedRectPath(ctx, 36, 955, W - 72, 275, 28);
+    ctx.fill();
+
+    ctx.fillStyle = '#0B1F16';
+    ctx.font = 'bold 34px Georgia, serif';
+    ctx.textAlign = isRtl ? 'right' : 'left';
+    ctx.direction = isRtl ? 'rtl' : 'ltr';
+    const cardAnchor = isRtl ? W - 68 : 68;
+    const titleLines = wrapCanvasText(ctx, product.name, W - 140, 2);
+    let textY = 1020;
+    for (const line of titleLines) {
+      ctx.fillText(line, cardAnchor, textY);
+      textY += 44;
+    }
+
+    ctx.fillStyle = '#115E3B';
+    ctx.font = 'bold 42px sans-serif';
+    ctx.fillText(priceText, cardAnchor, 1135);
+
+    ctx.fillStyle = '#335947';
+    ctx.font = '600 22px sans-serif';
+    const dims = isRtl
+      ? `${product.lengthCm} × ${product.widthCm} × ${product.heightCm} سم`
+      : `L ${product.lengthCm} × l ${product.widthCm} × H ${product.heightCm} cm`;
+    ctx.fillText(dims, cardAnchor, 1190);
+    ctx.restore();
+  };
+
+  drawFrame(0);
+
+  return new Promise((resolve) => {
+    recorder.onstop = async () => {
+      stream.getTracks().forEach((track) => track.stop());
+      const videoBlob = new Blob(chunks, { type: cleanMime });
+      if (videoBlob.size === 0) {
+        resolve(null);
+        return;
+      }
+      const dataUrl = await readVideoAsDataUrl(videoBlob, cleanMime);
+      const safeCode = sanitizeAsciiFilenamePart(product.code || 'reel', 'reel');
+      const ext = cleanMime.includes('mp4') ? 'mp4' : 'webm';
+      resolve({
+        blob: videoBlob,
+        dataUrl,
+        filename: `${safeCode}-reel.${ext}`,
+        mimeType: cleanMime,
+      });
+    };
+
+    try {
+      recorder.start(250);
+    } catch {
+      recorder.start();
+    }
+
+    const startTime = performance.now();
+    const tick = () => {
+      const elapsed = performance.now() - startTime;
+      const progress = Math.min(1, elapsed / durationMs);
+      drawFrame(progress);
+      if (progress < 1) {
+        requestAnimationFrame(tick);
+      } else {
+        setTimeout(() => {
+          if (recorder.state !== 'inactive') {
+            try {
+              recorder.stop();
+            } catch {
+              resolve(null);
+            }
+          }
+        }, 120);
+      }
+    };
+    requestAnimationFrame(tick);
+  });
+}
