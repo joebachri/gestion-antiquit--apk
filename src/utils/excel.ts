@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import type { InventorySummary, Language, Product } from '../types';
+import { convertFromMad } from './currency';
 
 export function buildExcelBlob(
   products: Product[],
@@ -59,10 +60,10 @@ export function buildExcelBlob(
       item.thicknessCm,
       item.piecesCount,
       item.quantity,
-      item.referencePrice,
-      item.expenses,
-      item.sellingPrice,
-      item.sellingPrice * item.quantity,
+      convertFromMad(item.referencePrice, currency),
+      convertFromMad(item.expenses, currency),
+      convertFromMad(item.sellingPrice, currency),
+      convertFromMad(item.sellingPrice * item.quantity, currency),
       item.photos.length,
       item.addedDate,
     ]);
@@ -78,10 +79,10 @@ export function buildExcelBlob(
     '',
     '',
     summary.totalUnits,
-    summary.totalReferenceCost,
+    convertFromMad(summary.totalReferenceCost, currency),
     '',
     '',
-    summary.totalSellingValue,
+    convertFromMad(summary.totalSellingValue, currency),
     totalPhotos,
     '',
   ]);

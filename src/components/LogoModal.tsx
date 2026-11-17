@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { Camera, RotateCcw, Upload, X, Check } from 'lucide-react';
+import { BookOpen, Camera, RotateCcw, Upload, X, Check } from 'lucide-react';
 import type { Language, MetaAuthStatus, ShopSettings } from '../types';
-import { translations } from '../i18n';
+import { formatNumber, translations } from '../i18n';
 import { compressImageBlob } from '../utils/image';
+import { convertFromMad, SUPPORTED_CURRENCIES } from '../utils/currency';
 import { DefaultBabSaidaLogo } from './Header';
 import { CameraModal } from './CameraModal';
 import { MetaAccountCard } from './MetaAccountCard';
@@ -16,11 +17,12 @@ interface LogoModalProps {
   instagramHandle?: string;
   metaStatus: MetaAuthStatus;
   onRefreshMetaStatus: () => Promise<void>;
+  onOpenGuide?: () => void;
   onClose: () => void;
   onSave: (settings: ShopSettings) => Promise<void>;
 }
 
-const CURRENCIES = ['MAD', 'DH', 'EUR', 'USD', 'TND', 'DZD'];
+const CURRENCIES = SUPPORTED_CURRENCIES;
 
 export function LogoModal({
   isOpen,
@@ -31,6 +33,7 @@ export function LogoModal({
   instagramHandle = '',
   metaStatus,
   onRefreshMetaStatus,
+  onOpenGuide,
   onClose,
   onSave,
 }: LogoModalProps) {
@@ -93,18 +96,35 @@ export function LogoModal({
         >
           <div className="mx-auto mb-4 h-1.5 w-10 rounded-full bg-[#DCE7E0] sm:hidden dark:bg-[#1E3A2D]" />
 
-          <div className="mb-5 flex items-center justify-between">
+          <div className="mb-5 flex items-center justify-between gap-2">
             <h2 className="font-display text-xl font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
               {t.logoModalTitle}
             </h2>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label={t.close}
-              className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]"
-            >
-              <X className="h-5 w-5" />
-            </button>
+            <div className="flex items-center gap-1.5">
+              {onOpenGuide && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    onOpenGuide();
+                  }}
+                  aria-label={t.guideTitle}
+                  title={t.guideTitle}
+                  className="flex min-h-[44px] items-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-[#ECF7F1] px-2.5 text-xs font-semibold text-[#115E3B] hover:bg-[#DCF0E4] dark:border-[#1E3A2D] dark:bg-[#132B20] dark:text-[#34D399]"
+                >
+                  <BookOpen className="h-4 w-4" />
+                  <span>{t.guideButtonLabel}</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label={t.close}
+                className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
           </div>
 
           <div className="mb-5 flex flex-col items-center rounded-2xl border border-[#DCE7E0] bg-[#F7FAF8] p-5 dark:border-[#1E3A2D] dark:bg-[#091611]">
@@ -186,6 +206,12 @@ export function LogoModal({
                 </button>
               ))}
             </div>
+            {draftCurrency !== 'MAD' && draftCurrency !== 'DH' && (
+              <p className="tabular-nums mt-2 text-xs font-medium text-[#115E3B] dark:text-[#34D399]">
+                {formatNumber(100, lang)} MAD = {formatNumber(convertFromMad(100, draftCurrency), lang)}{' '}
+                {draftCurrency}
+              </p>
+            )}
           </div>
 
           {/* Facebook & Instagram Linking */}

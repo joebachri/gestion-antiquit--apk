@@ -8,6 +8,7 @@ import {
   isVideoMedia,
   readVideoAsDataUrl,
 } from '../utils/image';
+import { convertFromMad, convertToMad } from '../utils/currency';
 import { fetchNextCodeApi } from '../utils/api';
 import { CameraModal } from './CameraModal';
 
@@ -56,10 +57,30 @@ export function ProductFormModal({
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
+  const initialPriceStringsRef = useRef<{
+    referencePrice: string;
+    expenses: string;
+    sellingPrice: string;
+  }>({ referencePrice: '', expenses: '', sellingPrice: '' });
+
   useEffect(() => {
     if (!isOpen) return;
     setErrorMsg('');
     if (editingProduct) {
+      const refStr = editingProduct.referencePrice
+        ? String(convertFromMad(editingProduct.referencePrice, currency))
+        : '';
+      const expStr = editingProduct.expenses
+        ? String(convertFromMad(editingProduct.expenses, currency))
+        : '';
+      const sellStr = editingProduct.sellingPrice
+        ? String(convertFromMad(editingProduct.sellingPrice, currency))
+        : '';
+      initialPriceStringsRef.current = {
+        referencePrice: refStr,
+        expenses: expStr,
+        sellingPrice: sellStr,
+      };
       setName(editingProduct.name);
       setDescription(editingProduct.description);
       setLengthCm(String(editingProduct.lengthCm || ''));
@@ -68,9 +89,9 @@ export function ProductFormModal({
       setThicknessCm(String(editingProduct.thicknessCm || ''));
       setPiecesCount(String(editingProduct.piecesCount || 1));
       setQuantity(String(editingProduct.quantity ?? 1));
-      setReferencePrice(String(editingProduct.referencePrice || ''));
-      setExpenses(String(editingProduct.expenses || ''));
-      setSellingPrice(String(editingProduct.sellingPrice || ''));
+      setReferencePrice(refStr);
+      setExpenses(expStr);
+      setSellingPrice(sellStr);
       setAddedDate(editingProduct.addedDate || new Date().toISOString().slice(0, 10));
       setPhotos(
         editingProduct.photos.map((p) => ({
@@ -81,6 +102,11 @@ export function ProductFormModal({
       setPreviewCode(editingProduct.code);
       setRegenerateCode(false);
     } else {
+      initialPriceStringsRef.current = {
+        referencePrice: '',
+        expenses: '',
+        sellingPrice: '',
+      };
       setName('');
       setDescription('');
       setLengthCm('');
@@ -97,7 +123,7 @@ export function ProductFormModal({
       setPreviewCode('A0001');
       setRegenerateCode(false);
     }
-  }, [isOpen, editingProduct]);
+  }, [isOpen, editingProduct, currency]);
 
   // Live preview automatic code based on first letter of product name
   useEffect(() => {
@@ -185,6 +211,19 @@ export function ProductFormModal({
     setSubmitting(true);
     setErrorMsg('');
     try {
+      const nextRefMad =
+        editingProduct && referencePrice === initialPriceStringsRef.current.referencePrice
+          ? editingProduct.referencePrice
+          : convertToMad(Number(referencePrice) || 0, currency);
+      const nextExpMad =
+        editingProduct && expenses === initialPriceStringsRef.current.expenses
+          ? editingProduct.expenses
+          : convertToMad(Number(expenses) || 0, currency);
+      const nextSellMad =
+        editingProduct && sellingPrice === initialPriceStringsRef.current.sellingPrice
+          ? editingProduct.sellingPrice
+          : convertToMad(Number(sellingPrice) || 0, currency);
+
       await onSubmit(
         {
           name: trimmedName,
@@ -195,9 +234,9 @@ export function ProductFormModal({
           thicknessCm: Number(thicknessCm) || 0,
           piecesCount: Math.max(1, Math.floor(Number(piecesCount) || 1)),
           quantity: Math.max(0, Math.floor(Number(quantity) || 0)),
-          referencePrice: Number(referencePrice) || 0,
-          expenses: Number(expenses) || 0,
-          sellingPrice: Number(sellingPrice) || 0,
+          referencePrice: nextRefMad,
+          expenses: nextExpMad,
+          sellingPrice: nextSellMad,
           addedDate: addedDate || new Date().toISOString().slice(0, 10),
           photos,
           regenerateCode,

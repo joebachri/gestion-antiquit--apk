@@ -176,6 +176,29 @@ function decodeDataUrlToBuffer(dataUrl: string): { buffer: Buffer; mimeType: str
   };
 }
 
+const DEFAULT_RATES_FROM_MAD: Record<string, number> = {
+  MAD: 1,
+  DH: 1,
+  USD: 0.1,
+  EUR: 0.1,
+  TND: 0.3,
+  DZD: 13.5,
+};
+
+async function getActiveRatesFromMad(): Promise<Record<string, number>> {
+  return { ...DEFAULT_RATES_FROM_MAD };
+}
+
+function convertServerAmountFromMad(
+  amountInMad: number,
+  targetCurrency: string,
+  rates: Record<string, number>
+): number {
+  const code = (targetCurrency || 'MAD').toUpperCase();
+  const rate = rates[code] ?? DEFAULT_RATES_FROM_MAD[code] ?? 1;
+  return Math.round((Number(amountInMad) || 0) * rate * 100) / 100;
+}
+
 function extractPrefixLetter(name: string): string {
   const normalized = name.trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const match = normalized.match(/[A-Za-z0-9\u0600-\u06FF]/);
@@ -1260,12 +1283,18 @@ async function startServer() {
     }
   });
 
-  app.get('/api/export/excel', (req: Request, res: Response) => {
+  app.get('/api/exchange-rates', async (_req: Request, res: Response) => {
+    const rates = await getActiveRatesFromMad();
+    res.json({ base: 'MAD', rates });
+  });
+
+  app.get('/api/export/excel', async (req: Request, res: Response) => {
     const lang = req.query.lang === 'ar' ? 'ar' : 'fr';
     const settingsRow = db.prepare("SELECT value FROM shop_settings WHERE key = 'currency'").get() as
       | { value: string }
       | undefined;
     const currency = settingsRow?.value || 'MAD';
+    const rates = await getActiveRatesFromMad();
 
     const rows = db.prepare('SELECT * FROM products ORDER BY code ASC').all() as ProductRow[];
     const products = mapProductsWithPhotos(rows);
@@ -1323,10 +1352,10 @@ async function startServer() {
         item.thicknessCm,
         item.piecesCount,
         item.quantity,
-        item.referencePrice,
-        item.expenses,
-        item.sellingPrice,
-        item.sellingPrice * item.quantity,
+        convertServerAmountFromMad(item.referencePrice, currency, rates),
+        convertServerAmountFromMad(item.expenses, currency, rates),
+        convertServerAmountFromMad(item.sellingPrice, currency, rates),
+        convertServerAmountFromMad(item.sellingPrice * item.quantity, currency, rates),
         item.photos.length,
         item.addedDate,
       ]);
@@ -1342,10 +1371,10 @@ async function startServer() {
       '',
       '',
       summary.totalUnits,
-      summary.totalReferenceCost,
+      convertServerAmountFromMad(summary.totalReferenceCost, currency, rates),
       '',
       '',
-      summary.totalSellingValue,
+      convertServerAmountFromMad(summary.totalSellingValue, currency, rates),
       totalPhotos,
       '',
     ]);

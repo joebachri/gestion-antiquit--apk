@@ -17,6 +17,7 @@ import {
   localSaveSettings,
   localUpdateProduct,
 } from './storage';
+import { getExchangeRates, setExchangeRates } from './currency';
 
 const isNative = () => Capacitor.isNativePlatform();
 
@@ -245,4 +246,21 @@ export async function publishInstagramApi(
     return { ok: false, error: data.error || 'Publish failed' };
   }
   return { ok: true, mediaId: data.mediaId, permalink: data.permalink };
+}
+
+export async function fetchExchangeRatesApi(): Promise<Record<string, number>> {
+  if (isNative()) {
+    return getExchangeRates();
+  }
+  try {
+    const res = await fetch('/api/exchange-rates');
+    if (!res.ok) return getExchangeRates();
+    const data = (await res.json()) as { rates?: Record<string, number> };
+    if (data.rates) {
+      setExchangeRates(data.rates);
+    }
+  } catch {
+    // keep cached/default rates
+  }
+  return getExchangeRates();
 }

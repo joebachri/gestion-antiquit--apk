@@ -23,6 +23,7 @@ import { formatCurrency, formatNumber, translations } from './i18n';
 import { buildExcelBlob } from './utils/excel';
 import {
   deleteProductApi,
+  fetchExchangeRatesApi,
   fetchMetaAuthStatusApi,
   fetchProductsApi,
   fetchSettingsApi,
@@ -37,6 +38,7 @@ import { ProductDetailSheet } from './components/ProductDetailSheet';
 import { ShareModal } from './components/ShareModal';
 import { LogoModal } from './components/LogoModal';
 import { InitialSetupModal } from './components/InitialSetupModal';
+import { GuideModal } from './components/GuideModal';
 
 export default function App() {
   const [lang, setLang] = useState<Language>(() => {
@@ -78,11 +80,13 @@ export default function App() {
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
   const [shareProduct, setShareProduct] = useState<Product | null>(null);
   const [logoModalOpen, setLogoModalOpen] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState<boolean>(() => {
     return localStorage.getItem('babsaida_onboarding_done') !== '1';
   });
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [, setRatesVersion] = useState(0);
 
   const t = translations[lang];
 
@@ -138,6 +142,7 @@ export default function App() {
   useEffect(() => {
     void fetchSettings();
     void refreshMetaStatus();
+    void fetchExchangeRatesApi().then(() => setRatesVersion((v) => v + 1));
   }, [fetchSettings, refreshMetaStatus]);
 
   useEffect(() => {
@@ -222,6 +227,7 @@ export default function App() {
         onToggleTheme={() => setIsDark((d) => !d)}
         customLogo={settings.customLogo}
         onOpenLogoSettings={() => setLogoModalOpen(true)}
+        onOpenGuide={() => setGuideOpen(true)}
       />
 
       <main
@@ -637,6 +643,7 @@ export default function App() {
         instagramHandle={settings.instagramHandle}
         metaStatus={metaStatus}
         onRefreshMetaStatus={refreshMetaStatus}
+        onOpenGuide={() => setGuideOpen(true)}
         onClose={() => setLogoModalOpen(false)}
         onSave={handleSaveSettings}
       />
@@ -649,7 +656,22 @@ export default function App() {
         metaStatus={metaStatus}
         onRefreshMetaStatus={refreshMetaStatus}
         onSaveSettings={handleSaveSettings}
+        onOpenGuide={() => setGuideOpen(true)}
         onClose={() => setSetupOpen(false)}
+      />
+
+      <GuideModal
+        isOpen={guideOpen}
+        lang={lang}
+        onClose={() => setGuideOpen(false)}
+        onQuickAction={(action) => {
+          if (action === 'add-product') {
+            setEditingProduct(null);
+            setFormOpen(true);
+          } else if (action === 'open-settings') {
+            setLogoModalOpen(true);
+          }
+        }}
       />
     </div>
   );

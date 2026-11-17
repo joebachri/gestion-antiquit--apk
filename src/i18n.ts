@@ -1,4 +1,5 @@
 import type { Language } from './types';
+import { convertFromMad } from './utils/currency';
 
 export const translations = {
   fr: {
@@ -172,6 +173,16 @@ export const translations = {
     fbOpenPost: 'Voir sur Facebook',
     socialPreparedFallbackHint:
       'Média prêt et texte complet (légende + hashtags) copié ! Collez-le dans votre publication.',
+    guideButtonLabel: 'Guide',
+    guideOpenLink: "Ouvrir le guide d'utilisation",
+    guideTitle: "Guide d'utilisation",
+    guideSubtitle: 'Suivez les flèches numérotées pour maîtriser chaque fonction pas à pas.',
+    guideSectionsLabel: 'Rubriques du guide',
+    guideStepLabel: 'Étape',
+    guidePrevSection: 'Précédent',
+    guideNextSection: 'Suivant',
+    guideTryAction: 'Essayer maintenant',
+    guideHighlightHint: 'Touchez une étape pour mettre en évidence la flèche correspondante.',
   },
   ar: {
     brandName: 'إدارة التحف',
@@ -340,14 +351,25 @@ export const translations = {
     fbOpenPost: 'عرض على فيسبوك',
     socialPreparedFallbackHint:
       'تم تجهيز الملف ونسخ النص والوسوم! يمكنك لصق النص مباشرة عند النشر.',
+    guideButtonLabel: 'الدليل',
+    guideOpenLink: 'فتح دليل الاستخدام',
+    guideTitle: 'دليل الاستخدام الشامل',
+    guideSubtitle: 'اتبع الأسهم المرقمة لفهم كل ميزة في التطبيق خطوة بخطوة.',
+    guideSectionsLabel: 'أقسام الدليل',
+    guideStepLabel: 'الخطوة',
+    guidePrevSection: 'السابق',
+    guideNextSection: 'التالي',
+    guideTryAction: 'جرّب الآن',
+    guideHighlightHint: 'اضغط على أي خطوة لتمييز السهم الخاص بها في الصورة التوضيحية.',
   },
 } as const;
 
-export function formatCurrency(amount: number, currency: string, lang: Language): string {
+export function formatCurrency(amountInMad: number, currency: string, lang: Language): string {
+  const converted = convertFromMad(amountInMad || 0, currency);
   const formatted = new Intl.NumberFormat(lang === 'ar' ? 'ar-MA' : 'fr-FR', {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
-  }).format(amount || 0);
+  }).format(converted);
   return `${formatted} ${currency}`;
 }
 

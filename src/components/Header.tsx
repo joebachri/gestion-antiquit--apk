@@ -1,4 +1,4 @@
-import { Moon, Sun, Camera } from 'lucide-react';
+import { BookOpen, Moon, Sun, Camera } from 'lucide-react';
 import type { Language } from '../types';
 import { translations } from '../i18n';
 
@@ -9,6 +9,7 @@ interface HeaderProps {
   onToggleTheme: () => void;
   customLogo: string;
   onOpenLogoSettings: () => void;
+  onOpenGuide: () => void;
 }
 
 export function DefaultBabSaidaLogo() {
@@ -59,6 +60,7 @@ export function Header({
   onToggleTheme,
   customLogo,
   onOpenLogoSettings,
+  onOpenGuide,
 }: HeaderProps) {
   const t = translations[lang];
 
@@ -67,9 +69,9 @@ export function Header({
       dir="ltr"
       className="sticky top-0 z-30 border-b border-[#DCE7E0] bg-white/90 backdrop-blur-md dark:border-[#1E3A2D] dark:bg-[#0A1812]/90"
     >
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-3 px-4 sm:px-6">
-        {/* Left side ("Côté opposé"): Theme Toggle + Language Switcher right next to it */}
-        <div className="flex items-center gap-2 shrink-0">
+      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-2 px-3 sm:gap-3 sm:px-6">
+        {/* Left side ("Côté opposé"): Theme Toggle + Language Switcher + Guide */}
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           <button
             type="button"
             onClick={onToggleTheme}
@@ -88,7 +90,7 @@ export function Header({
             <button
               type="button"
               onClick={() => onChangeLang('fr')}
-              className={`min-h-[36px] rounded-lg px-2.5 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
+              className={`min-h-[36px] rounded-lg px-2 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 sm:px-2.5 ${
                 lang === 'fr'
                   ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
                   : 'text-[#335947] hover:text-[#0B1F16] dark:text-[#9EC0AE] dark:hover:text-white'
@@ -99,7 +101,7 @@ export function Header({
             <button
               type="button"
               onClick={() => onChangeLang('ar')}
-              className={`min-h-[36px] rounded-lg px-2.5 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
+              className={`min-h-[36px] rounded-lg px-2 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 sm:px-2.5 ${
                 lang === 'ar'
                   ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
                   : 'text-[#335947] hover:text-[#0B1F16] dark:text-[#9EC0AE] dark:hover:text-white'
@@ -108,6 +110,17 @@ export function Header({
               العربية
             </button>
           </div>
+
+          <button
+            type="button"
+            onClick={onOpenGuide}
+            aria-label={t.guideTitle}
+            title={t.guideTitle}
+            className="flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-[#ECF7F1] px-2.5 text-xs font-semibold text-[#115E3B] transition-colors hover:bg-[#DCF0E4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#115E3B] whitespace-nowrap shrink-0 sm:px-3 dark:border-[#1E3A2D] dark:bg-[#132B20] dark:text-[#34D399] dark:hover:bg-[#1A392B]"
+          >
+            <BookOpen className="h-4 w-4 shrink-0" />
+            <span className="hidden sm:inline">{t.guideButtonLabel}</span>
+          </button>
         </div>
 
         {/* Right side ("Côté droit"): Brand Name + Customizable Logo slot */}
@@ -116,7 +129,7 @@ export function Header({
           onClick={onOpenLogoSettings}
           title={t.customizeLogo}
           aria-label={t.customizeLogo}
-          className="group flex min-h-[44px] items-center gap-2.5 rounded-xl px-2 py-1 text-right transition-colors hover:bg-[#ECF7F1]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#115E3B] dark:hover:bg-[#162E23]"
+          className="group flex min-h-[44px] min-w-0 items-center gap-2 rounded-xl px-1.5 py-1 text-right transition-colors hover:bg-[#ECF7F1]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#115E3B] sm:gap-2.5 sm:px-2 dark:hover:bg-[#162E23]"
         >
           <div className="min-w-0 text-right">
             <span className="block truncate font-display text-base font-bold tracking-tight text-[#0B1F16] sm:text-lg dark:text-[#F2F9F5]">

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Check, Sparkles, X } from 'lucide-react';
+import { BookOpen, Check, Sparkles, X } from 'lucide-react';
 import type { Language, MetaAuthStatus, ShopSettings } from '../types';
-import { translations } from '../i18n';
+import { formatNumber, translations } from '../i18n';
+import { convertFromMad, SUPPORTED_CURRENCIES } from '../utils/currency';
 import { MetaAccountCard } from './MetaAccountCard';
 
 interface InitialSetupModalProps {
@@ -12,10 +13,11 @@ interface InitialSetupModalProps {
   metaStatus: MetaAuthStatus;
   onRefreshMetaStatus: () => Promise<void>;
   onSaveSettings: (next: ShopSettings) => Promise<void>;
+  onOpenGuide?: () => void;
   onClose: () => void;
 }
 
-const CURRENCIES = ['MAD', 'DH', 'EUR', 'USD', 'TND', 'DZD'];
+const CURRENCIES = SUPPORTED_CURRENCIES;
 
 export function InitialSetupModal({
   isOpen,
@@ -25,6 +27,7 @@ export function InitialSetupModal({
   metaStatus,
   onRefreshMetaStatus,
   onSaveSettings,
+  onOpenGuide,
   onClose,
 }: InitialSetupModalProps) {
   const t = translations[lang];
@@ -142,6 +145,12 @@ export function InitialSetupModal({
                 </button>
               ))}
             </div>
+            {currency !== 'MAD' && currency !== 'DH' && (
+              <p className="tabular-nums mt-2 text-xs font-medium text-[#115E3B] dark:text-[#34D399]">
+                {formatNumber(100, lang)} MAD = {formatNumber(convertFromMad(100, currency), lang)}{' '}
+                {currency}
+              </p>
+            )}
           </div>
 
           {/* Optional Social Accounts Link */}
@@ -156,6 +165,17 @@ export function InitialSetupModal({
               setInstagramHandle(next.instagramHandle);
             }}
           />
+
+          {onOpenGuide && (
+            <button
+              type="button"
+              onClick={onOpenGuide}
+              className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border border-[#DCE7E0] bg-[#ECF7F1] px-4 text-xs font-semibold text-[#115E3B] hover:bg-[#DCF0E4] dark:border-[#1E3A2D] dark:bg-[#132B20] dark:text-[#34D399]"
+            >
+              <BookOpen className="h-4 w-4 shrink-0" />
+              <span>{t.guideOpenLink}</span>
+            </button>
+          )}
         </div>
 
         <div className="mt-6 flex items-center gap-3">
