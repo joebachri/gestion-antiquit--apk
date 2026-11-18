@@ -188,7 +188,10 @@ export function ShareModal({
   const facebookUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(
     window.location.href
   )}&quote=${encodeURIComponent(shareText)}`;
-  const instagramUrl = 'https://www.instagram.com/';
+  const cleanIgUsername = (draftIgHandle || instagramHandle || '').trim().replace(/^@+/, '');
+  const instagramUrl = cleanIgUsername
+    ? `https://www.instagram.com/${encodeURIComponent(cleanIgUsername)}/`
+    : 'https://www.instagram.com/';
 
   const activePage =
     metaStatus.pages.find((p) => p.id === metaStatus.selectedPageId) || metaStatus.pages[0];
@@ -1103,6 +1106,12 @@ export function ShareModal({
                 onNotify={onNotify}
               />
 
+              {!(metaStatus.connected && activeIgAccount) && (
+                <p className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-[11px] leading-relaxed text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
+                  {t.socialManualPublishNotice}
+                </p>
+              )}
+
               {feedback && (
                 <div
                   className={`flex flex-col gap-2 rounded-xl border px-3.5 py-2.5 text-xs ${
@@ -1123,7 +1132,11 @@ export function ShareModal({
                       className="inline-flex w-fit items-center gap-1.5 font-semibold underline underline-offset-2"
                     >
                       <ExternalLink className="h-3.5 w-3.5" />
-                      <span>{t.igOpenInstagram}</span>
+                      <span>
+                        {cleanIgUsername
+                          ? `${t.igOpenInstagram} (@${cleanIgUsername})`
+                          : t.igOpenInstagram}
+                      </span>
                     </a>
                   )}
                 </div>
@@ -1331,6 +1344,12 @@ export function ShareModal({
                 onSaveHandles={onSaveHandles}
                 onNotify={onNotify}
               />
+
+              {!(metaStatus.connected && activePage) && (
+                <p className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-[11px] leading-relaxed text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
+                  {t.socialManualPublishNotice}
+                </p>
+              )}
 
               {feedback && (
                 <div

@@ -181,7 +181,10 @@ export const translations = {
     fbPublishedSuccess: 'Publié sur Facebook avec succès !',
     fbOpenPost: 'Voir sur Facebook',
     socialPreparedFallbackHint:
-      'Média prêt et texte complet (légende + hashtags) copié ! Collez-le dans votre publication.',
+      'Carte/Média téléchargé et légende copiée ! Instagram bloque la publication automatique sans connexion Meta OAuth : ouvrez votre compte ci-dessous et publiez le fichier téléchargé.',
+    socialManualPublishNotice:
+      'Mode manuel actif (clé API Meta / connexion OAuth requise pour la publication automatique). Le bouton ci-dessous télécharge votre carte PNG et copie la légende.',
+    socialApiConnectedBadge: 'Publication automatique Meta API active :',
     guideButtonLabel: 'Guide',
     guideOpenLink: "Ouvrir le guide d'utilisation",
     guideTitle: "Guide d'utilisation",
@@ -368,7 +371,10 @@ export const translations = {
     fbPublishedSuccess: 'تم النشر على فيسبوك بنجاح!',
     fbOpenPost: 'عرض على فيسبوك',
     socialPreparedFallbackHint:
-      'تم تجهيز الملف ونسخ النص والوسوم! يمكنك لصق النص مباشرة عند النشر.',
+      'تم تنزيل البطاقة/الملف ونسخ النص والوسوم! لا يسمح إنستغرام بالنشر التلقائي بدون ربط Meta OAuth: افتح حسابك أدناه وانشر الملف الذي تم تنزيله.',
+    socialManualPublishNotice:
+      'الوضع اليدوي مفعّل (يتطلب النشر التلقائي ربط Meta OAuth ومفاتيح API). يقوم الزر أدناه بتنزيل بطاقة المنتج ونسخ النص.',
+    socialApiConnectedBadge: 'النشر التلقائي عبر Meta API مفعّل:',
     guideButtonLabel: 'الدليل',
     guideOpenLink: 'فتح دليل الاستخدام',
     guideTitle: 'دليل الاستخدام الشامل',
