@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  CheckCircle2,
   Edit3,
   FileSpreadsheet,
   Image as ImageIcon,
@@ -87,6 +88,35 @@ export default function App() {
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [, setRatesVersion] = useState(0);
+  const [toastMessage, setToastMessage] = useState('');
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showToast = useCallback((message: string) => {
+    if (!message) return;
+    setToastMessage(message);
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current);
+    }
+    toastTimerRef.current = setTimeout(() => {
+      setToastMessage('');
+    }, 5500);
+  }, []);
+
+  const linkedAccountLabel = (() => {
+    if (metaStatus.connected) {
+      const activePage =
+        metaStatus.pages.find((p) => p.id === metaStatus.selectedPageId) || metaStatus.pages[0];
+      const igList = metaStatus.pages.filter((p) => p.igAccount).map((p) => p.igAccount!);
+      const activeIg = igList.find((ig) => ig.id === metaStatus.selectedIgId) || igList[0];
+      if (activeIg?.username) return `@${activeIg.username}`;
+      if (activePage?.name) return activePage.name;
+      if (metaStatus.userName) return metaStatus.userName;
+    }
+    const handles = [settings.instagramHandle?.trim(), settings.facebookHandle?.trim()].filter(
+      Boolean
+    );
+    return handles.join(' · ');
+  })();
 
   const t = translations[lang];
 
@@ -226,6 +256,7 @@ export default function App() {
         isDark={isDark}
         onToggleTheme={() => setIsDark((d) => !d)}
         customLogo={settings.customLogo}
+        linkedAccountLabel={linkedAccountLabel}
         onOpenLogoSettings={() => setLogoModalOpen(true)}
         onOpenGuide={() => setGuideOpen(true)}
       />
@@ -630,7 +661,17 @@ export default function App() {
         lang={lang}
         currency={settings.currency}
         metaStatus={metaStatus}
+        facebookHandle={settings.facebookHandle}
+        instagramHandle={settings.instagramHandle}
         onRefreshMetaStatus={refreshMetaStatus}
+        onSaveHandles={async (next) => {
+          await handleSaveSettings({
+            ...settings,
+            facebookHandle: next.facebookHandle,
+            instagramHandle: next.instagramHandle,
+          });
+        }}
+        onNotify={showToast}
         onClose={() => setShareProduct(null)}
       />
 
@@ -643,6 +684,7 @@ export default function App() {
         instagramHandle={settings.instagramHandle}
         metaStatus={metaStatus}
         onRefreshMetaStatus={refreshMetaStatus}
+        onNotify={showToast}
         onOpenGuide={() => setGuideOpen(true)}
         onClose={() => setLogoModalOpen(false)}
         onSave={handleSaveSettings}
@@ -656,6 +698,7 @@ export default function App() {
         metaStatus={metaStatus}
         onRefreshMetaStatus={refreshMetaStatus}
         onSaveSettings={handleSaveSettings}
+        onNotify={showToast}
         onOpenGuide={() => setGuideOpen(true)}
         onClose={() => setSetupOpen(false)}
       />
@@ -673,6 +716,29 @@ export default function App() {
           }
         }}
       />
+
+      {/* Global Confirmation Toast */}
+      {toastMessage && (
+        <div
+          dir={lang === 'ar' ? 'rtl' : 'ltr'}
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-20 left-1/2 z-50 flex w-[calc(100%-2rem)] max-w-md -translate-x-1/2 items-center justify-between gap-3 rounded-2xl border border-[#10B981]/40 bg-[#115E3B] px-4 py-3 text-xs font-semibold text-white shadow-xl sm:bottom-6 dark:border-[#34D399]/40 dark:bg-[#10B981] dark:text-[#052E1C]"
+        >
+          <div className="flex min-w-0 items-center gap-2.5">
+            <CheckCircle2 className="h-4 w-4 shrink-0" />
+            <span className="leading-snug">{toastMessage}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setToastMessage('')}
+            aria-label={t.close}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg hover:bg-white/15 dark:hover:bg-black/10"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

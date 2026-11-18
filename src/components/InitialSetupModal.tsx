@@ -13,6 +13,7 @@ interface InitialSetupModalProps {
   metaStatus: MetaAuthStatus;
   onRefreshMetaStatus: () => Promise<void>;
   onSaveSettings: (next: ShopSettings) => Promise<void>;
+  onNotify?: (message: string) => void;
   onOpenGuide?: () => void;
   onClose: () => void;
 }
@@ -27,6 +28,7 @@ export function InitialSetupModal({
   metaStatus,
   onRefreshMetaStatus,
   onSaveSettings,
+  onNotify,
   onOpenGuide,
   onClose,
 }: InitialSetupModalProps) {
@@ -49,13 +51,24 @@ export function InitialSetupModal({
   const handleFinish = async (skipHandles = false) => {
     setSaving(true);
     try {
+      const cleanIg = instagramHandle.trim();
+      const normalizedIg =
+        cleanIg && !cleanIg.startsWith('@') && !cleanIg.includes(' ') ? `@${cleanIg}` : cleanIg;
+      const cleanFb = facebookHandle.trim();
+
       await onSaveSettings({
         customLogo: settings.customLogo,
         currency,
-        facebookHandle: skipHandles ? settings.facebookHandle : facebookHandle,
-        instagramHandle: skipHandles ? settings.instagramHandle : instagramHandle,
+        facebookHandle: skipHandles ? settings.facebookHandle : cleanFb,
+        instagramHandle: skipHandles ? settings.instagramHandle : normalizedIg,
       });
       localStorage.setItem('babsaida_onboarding_done', '1');
+      if (!skipHandles && (normalizedIg || cleanFb)) {
+        const linkedSummary = [normalizedIg, cleanFb].filter(Boolean).join(' · ');
+        onNotify?.(`${t.socialLinkedToast} ${linkedSummary}`);
+      } else if (!skipHandles) {
+        onNotify?.(t.settingsSavedToast);
+      }
       onClose();
     } finally {
       setSaving(false);
@@ -160,10 +173,21 @@ export function InitialSetupModal({
             onRefreshMetaStatus={onRefreshMetaStatus}
             facebookHandle={facebookHandle}
             instagramHandle={instagramHandle}
+            savedFacebookHandle={settings.facebookHandle}
+            savedInstagramHandle={settings.instagramHandle}
             onChangeHandles={(next) => {
               setFacebookHandle(next.facebookHandle);
               setInstagramHandle(next.instagramHandle);
             }}
+            onSaveHandles={async (next) => {
+              await onSaveSettings({
+                customLogo: settings.customLogo,
+                currency,
+                facebookHandle: next.facebookHandle,
+                instagramHandle: next.instagramHandle,
+              });
+            }}
+            onNotify={onNotify}
           />
 
           {onOpenGuide && (

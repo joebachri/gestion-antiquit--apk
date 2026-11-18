@@ -17,6 +17,7 @@ interface LogoModalProps {
   instagramHandle?: string;
   metaStatus: MetaAuthStatus;
   onRefreshMetaStatus: () => Promise<void>;
+  onNotify?: (message: string) => void;
   onOpenGuide?: () => void;
   onClose: () => void;
   onSave: (settings: ShopSettings) => Promise<void>;
@@ -33,6 +34,7 @@ export function LogoModal({
   instagramHandle = '',
   metaStatus,
   onRefreshMetaStatus,
+  onNotify,
   onOpenGuide,
   onClose,
   onSave,
@@ -71,12 +73,26 @@ export function LogoModal({
   const handleConfirm = async () => {
     setSaving(true);
     try {
+      const cleanIg = draftInstagramHandle.trim();
+      const normalizedIg =
+        cleanIg && !cleanIg.startsWith('@') && !cleanIg.includes(' ') ? `@${cleanIg}` : cleanIg;
+      const cleanFb = draftFacebookHandle.trim();
+      const handlesChanged =
+        normalizedIg !== (instagramHandle || '').trim() || cleanFb !== (facebookHandle || '').trim();
+
       await onSave({
         customLogo: draftLogo,
         currency: draftCurrency,
-        facebookHandle: draftFacebookHandle,
-        instagramHandle: draftInstagramHandle,
+        facebookHandle: cleanFb,
+        instagramHandle: normalizedIg,
       });
+
+      if (handlesChanged && (normalizedIg || cleanFb)) {
+        const linkedSummary = [normalizedIg, cleanFb].filter(Boolean).join(' · ');
+        onNotify?.(`${t.socialLinkedToast} ${linkedSummary}`);
+      } else {
+        onNotify?.(t.settingsSavedToast);
+      }
       onClose();
     } finally {
       setSaving(false);
@@ -222,10 +238,21 @@ export function LogoModal({
               onRefreshMetaStatus={onRefreshMetaStatus}
               facebookHandle={draftFacebookHandle}
               instagramHandle={draftInstagramHandle}
+              savedFacebookHandle={facebookHandle}
+              savedInstagramHandle={instagramHandle}
               onChangeHandles={(next) => {
                 setDraftFacebookHandle(next.facebookHandle);
                 setDraftInstagramHandle(next.instagramHandle);
               }}
+              onSaveHandles={async (next) => {
+                await onSave({
+                  customLogo: draftLogo,
+                  currency: draftCurrency,
+                  facebookHandle: next.facebookHandle,
+                  instagramHandle: next.instagramHandle,
+                });
+              }}
+              onNotify={onNotify}
             />
           </div>
 

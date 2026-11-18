@@ -1,4 +1,4 @@
-import { BookOpen, Moon, Sun, Camera } from 'lucide-react';
+import { BookOpen, CheckCircle2, Moon, Sun, Camera } from 'lucide-react';
 import type { Language } from '../types';
 import { translations } from '../i18n';
 
@@ -8,6 +8,7 @@ interface HeaderProps {
   isDark: boolean;
   onToggleTheme: () => void;
   customLogo: string;
+  linkedAccountLabel?: string;
   onOpenLogoSettings: () => void;
   onOpenGuide: () => void;
 }
@@ -59,6 +60,7 @@ export function Header({
   isDark,
   onToggleTheme,
   customLogo,
+  linkedAccountLabel,
   onOpenLogoSettings,
   onOpenGuide,
 }: HeaderProps) {
@@ -135,6 +137,12 @@ export function Header({
             <span className="block truncate font-display text-base font-bold tracking-tight text-[#0B1F16] sm:text-lg dark:text-[#F2F9F5]">
               {t.brandName}
             </span>
+            {linkedAccountLabel && (
+              <span className="flex items-center justify-end gap-1 truncate text-[11px] font-semibold text-[#115E3B] dark:text-[#34D399]">
+                <CheckCircle2 className="h-3 w-3 shrink-0" />
+                <span className="truncate">{linkedAccountLabel}</span>
+              </span>
+            )}
           </div>
 
           <div className="relative shrink-0">

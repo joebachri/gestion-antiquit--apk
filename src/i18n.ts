@@ -128,6 +128,15 @@ export const translations = {
     socialHandlesOptionalLabel: 'Identifiants personnels (optionnel)',
     socialInstagramHandlePlaceholder: 'Compte Instagram (ex. @atelier_antiquites)',
     socialFacebookHandlePlaceholder: 'Profil ou Page Facebook (ex. Atelier Bab Saida)',
+    socialHandleLinkButton: 'Lier ce compte',
+    socialHandleUnlinkButton: 'Délier',
+    socialHandleLinkedBadge: 'Compte lié',
+    socialHandleLinkedNotice:
+      'Compte enregistré et lié : vos publications et Reels utiliseront ce profil.',
+    socialMetaApiOptionalHint:
+      'Publication API Meta directe inactive (clés META_APP_ID non configurées) : le partage prépare vos médias et ouvre votre profil lié.',
+    socialLinkedToast: 'Compte lié avec succès :',
+    settingsSavedToast: 'Préférences enregistrées.',
     setupTitle: 'Configuration initiale de la boutique',
     setupSubtitle:
       'Personnalisez votre espace et reliez éventuellement vos comptes Facebook et Instagram (étape facultative).',
@@ -306,6 +315,15 @@ export const translations = {
     socialHandlesOptionalLabel: 'حساباتك الشخصية (اختياري)',
     socialInstagramHandlePlaceholder: 'حساب إنستغرام (مثال: @atelier_antiquites)',
     socialFacebookHandlePlaceholder: 'صفحة أو حساب فيسبوك',
+    socialHandleLinkButton: 'ربط هذا الحساب',
+    socialHandleUnlinkButton: 'إلغاء الربط',
+    socialHandleLinkedBadge: 'حساب مرتبط',
+    socialHandleLinkedNotice:
+      'تم حفظ الحساب وربطه بنجاح: سيتم اعتماد هذا الملف عند المشاركة.',
+    socialMetaApiOptionalHint:
+      'النشر التلقائي عبر Meta API غير مفعّل (يتطلب META_APP_ID): ستقوم المشاركة بتجهيز الملف وفتح حسابك المرتبط مباشرة.',
+    socialLinkedToast: 'تم ربط الحساب بنجاح:',
+    settingsSavedToast: 'تم حفظ الإعدادات بنجاح.',
     setupTitle: 'الإعداد الأولي للمتجر',
     setupSubtitle:
       'خصّص إعداداتك الأساسية واربط اختيارياً حسابك على فيسبوك وإنستغرام (خطوة اختيارية).',

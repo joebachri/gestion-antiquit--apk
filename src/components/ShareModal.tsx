@@ -50,7 +50,11 @@ interface ShareModalProps {
   lang: Language;
   currency: string;
   metaStatus: MetaAuthStatus;
+  facebookHandle?: string;
+  instagramHandle?: string;
   onRefreshMetaStatus: () => Promise<void>;
+  onSaveHandles?: (next: { facebookHandle: string; instagramHandle: string }) => Promise<void>;
+  onNotify?: (message: string) => void;
   onClose: () => void;
 }
 
@@ -68,11 +72,17 @@ export function ShareModal({
   lang,
   currency,
   metaStatus,
+  facebookHandle = '',
+  instagramHandle = '',
   onRefreshMetaStatus,
+  onSaveHandles,
+  onNotify,
   onClose,
 }: ShareModalProps) {
   const t = translations[lang];
   const reelFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [draftFbHandle, setDraftFbHandle] = useState(facebookHandle);
+  const [draftIgHandle, setDraftIgHandle] = useState(instagramHandle);
 
   const [view, setView] = useState<ShareView>('hub');
   const [copied, setCopied] = useState(false);
@@ -116,6 +126,8 @@ export function ShareModal({
     setDownloadingPhotos(false);
     setDownloadingCard(false);
     setFeedback(null);
+    setDraftFbHandle(facebookHandle);
+    setDraftIgHandle(instagramHandle);
     setCustomReelClip(null);
     setCreatingReel(false);
     setReelCameraOpen(false);
@@ -1075,10 +1087,20 @@ export function ShareModal({
 
               {/* Account Linking Card */}
               <MetaAccountCard
-                compact
+                compact={Boolean(metaStatus.connected || instagramHandle || facebookHandle)}
                 lang={lang}
                 metaStatus={metaStatus}
                 onRefreshMetaStatus={onRefreshMetaStatus}
+                facebookHandle={draftFbHandle}
+                instagramHandle={draftIgHandle}
+                savedFacebookHandle={facebookHandle}
+                savedInstagramHandle={instagramHandle}
+                onChangeHandles={(next) => {
+                  setDraftFbHandle(next.facebookHandle);
+                  setDraftIgHandle(next.instagramHandle);
+                }}
+                onSaveHandles={onSaveHandles}
+                onNotify={onNotify}
               />
 
               {feedback && (
@@ -1294,10 +1316,20 @@ export function ShareModal({
 
               {/* Account Linking Card */}
               <MetaAccountCard
-                compact
+                compact={Boolean(metaStatus.connected || instagramHandle || facebookHandle)}
                 lang={lang}
                 metaStatus={metaStatus}
                 onRefreshMetaStatus={onRefreshMetaStatus}
+                facebookHandle={draftFbHandle}
+                instagramHandle={draftIgHandle}
+                savedFacebookHandle={facebookHandle}
+                savedInstagramHandle={instagramHandle}
+                onChangeHandles={(next) => {
+                  setDraftFbHandle(next.facebookHandle);
+                  setDraftIgHandle(next.instagramHandle);
+                }}
+                onSaveHandles={onSaveHandles}
+                onNotify={onNotify}
               />
 
               {feedback && (
