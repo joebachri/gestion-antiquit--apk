@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { BookOpen, Camera, RotateCcw, Upload, X, Check } from 'lucide-react';
+import { BookOpen, Camera, Check, RotateCcw, Store, Upload, X } from 'lucide-react';
 import type { Language, MetaAuthStatus, ShopSettings } from '../types';
 import { formatNumber, translations } from '../i18n';
 import { compressImageBlob } from '../utils/image';
 import { convertFromMad, SUPPORTED_CURRENCIES } from '../utils/currency';
-import { DefaultBabSaidaLogo } from './Header';
 import { CameraModal } from './CameraModal';
 import { MetaAccountCard } from './MetaAccountCard';
 
@@ -12,6 +11,7 @@ interface LogoModalProps {
   isOpen: boolean;
   lang: Language;
   customLogo: string;
+  storeName?: string;
   currency: string;
   facebookHandle?: string;
   instagramHandle?: string;
@@ -29,6 +29,7 @@ export function LogoModal({
   isOpen,
   lang,
   customLogo,
+  storeName = '',
   currency,
   facebookHandle = '',
   instagramHandle = '',
@@ -42,6 +43,7 @@ export function LogoModal({
   const t = translations[lang];
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [draftLogo, setDraftLogo] = useState(customLogo);
+  const [draftStoreName, setDraftStoreName] = useState(storeName);
   const [draftCurrency, setDraftCurrency] = useState(currency);
   const [draftFacebookHandle, setDraftFacebookHandle] = useState(facebookHandle);
   const [draftInstagramHandle, setDraftInstagramHandle] = useState(instagramHandle);
@@ -51,11 +53,12 @@ export function LogoModal({
   useEffect(() => {
     if (isOpen) {
       setDraftLogo(customLogo);
+      setDraftStoreName(storeName);
       setDraftCurrency(currency);
       setDraftFacebookHandle(facebookHandle);
       setDraftInstagramHandle(instagramHandle);
     }
-  }, [isOpen, customLogo, currency, facebookHandle, instagramHandle]);
+  }, [isOpen, customLogo, storeName, currency, facebookHandle, instagramHandle]);
 
   if (!isOpen) return null;
 
@@ -82,6 +85,7 @@ export function LogoModal({
 
       await onSave({
         customLogo: draftLogo,
+        storeName: draftStoreName.trim(),
         currency: draftCurrency,
         facebookHandle: cleanFb,
         instagramHandle: normalizedIg,
@@ -148,13 +152,11 @@ export function LogoModal({
               {draftLogo ? (
                 <img
                   src={draftLogo}
-                  alt={t.brandName}
+                  alt={draftStoreName.trim() || t.yourStoreFallback}
                   className="h-full w-full rounded-xl object-cover"
                 />
               ) : (
-                <div className="scale-150">
-                  <DefaultBabSaidaLogo />
-                </div>
+                <Store className="h-10 w-10 text-[#115E3B]/60 dark:text-[#34D399]/60" />
               )}
             </div>
 
@@ -198,6 +200,21 @@ export function LogoModal({
                 void handleFileChange(e.target.files);
                 e.target.value = '';
               }}
+            />
+          </div>
+
+          {/* Optional Store Name */}
+          <div className="mb-5">
+            <label className="mb-1.5 block text-xs font-semibold text-[#335947] dark:text-[#9EC0AE]">
+              {t.storeNameLabel}
+            </label>
+            <input
+              type="text"
+              value={draftStoreName}
+              onChange={(e) => setDraftStoreName(e.target.value)}
+              placeholder={t.storeNamePlaceholder}
+              maxLength={80}
+              className="min-h-[44px] w-full rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-3.5 text-sm text-[#0B1F16] placeholder:text-[#6B8A79] focus:border-[#115E3B] focus:bg-white focus:outline-none dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#F2F9F5] dark:placeholder:text-[#5F8370] dark:focus:border-[#10B981] dark:focus:bg-[#0D1E16]"
             />
           </div>
 
@@ -247,6 +264,7 @@ export function LogoModal({
               onSaveHandles={async (next) => {
                 await onSave({
                   customLogo: draftLogo,
+                  storeName: draftStoreName.trim(),
                   currency: draftCurrency,
                   facebookHandle: next.facebookHandle,
                   instagramHandle: next.instagramHandle,

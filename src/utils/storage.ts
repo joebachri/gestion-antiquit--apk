@@ -249,6 +249,7 @@ async function ensureSeeded(db: IDBDatabase): Promise<void> {
   await putInStore(db, STORE_SETTINGS, { key: 'seeded', value: '1' });
   await putInStore(db, STORE_SETTINGS, { key: 'currency', value: 'MAD' });
   await putInStore(db, STORE_SETTINGS, { key: 'customLogo', value: '' });
+  await putInStore(db, STORE_SETTINGS, { key: 'storeName', value: '' });
 }
 
 export async function localListProducts(
@@ -377,6 +378,11 @@ export async function localGetSettings(): Promise<ShopSettings> {
   const db = await openDb();
   await ensureSeeded(db);
   const logo = await getFromStore<{ key: string; value: string }>(db, STORE_SETTINGS, 'customLogo');
+  const storeName = await getFromStore<{ key: string; value: string }>(
+    db,
+    STORE_SETTINGS,
+    'storeName'
+  );
   const currency = await getFromStore<{ key: string; value: string }>(
     db,
     STORE_SETTINGS,
@@ -394,6 +400,7 @@ export async function localGetSettings(): Promise<ShopSettings> {
   );
   return {
     customLogo: logo?.value ?? '',
+    storeName: storeName?.value ?? '',
     currency: currency?.value || 'MAD',
     facebookHandle: facebookHandle?.value ?? '',
     instagramHandle: instagramHandle?.value ?? '',
@@ -403,6 +410,12 @@ export async function localGetSettings(): Promise<ShopSettings> {
 export async function localSaveSettings(settings: ShopSettings): Promise<ShopSettings> {
   const db = await openDb();
   await putInStore(db, STORE_SETTINGS, { key: 'customLogo', value: settings.customLogo ?? '' });
+  if (typeof settings.storeName === 'string') {
+    await putInStore(db, STORE_SETTINGS, {
+      key: 'storeName',
+      value: settings.storeName.trim().slice(0, 80),
+    });
+  }
   await putInStore(db, STORE_SETTINGS, { key: 'currency', value: settings.currency || 'MAD' });
   if (typeof settings.facebookHandle === 'string') {
     await putInStore(db, STORE_SETTINGS, {

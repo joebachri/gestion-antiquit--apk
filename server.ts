@@ -411,6 +411,7 @@ function seedInitialData(): void {
     db.prepare("INSERT OR REPLACE INTO shop_settings (key, value) VALUES ('seeded', '1')").run();
     db.prepare("INSERT OR IGNORE INTO shop_settings (key, value) VALUES ('currency', 'MAD')").run();
     db.prepare("INSERT OR IGNORE INTO shop_settings (key, value) VALUES ('custom_logo', '')").run();
+    db.prepare("INSERT OR IGNORE INTO shop_settings (key, value) VALUES ('store_name', '')").run();
   });
 
   transaction();
@@ -772,6 +773,7 @@ async function startServer() {
     const map = new Map(rows.map((r) => [r.key, r.value]));
     res.json({
       customLogo: map.get('custom_logo') ?? '',
+      storeName: map.get('store_name') ?? '',
       currency: map.get('currency') || 'MAD',
       facebookHandle: map.get('facebook_handle') ?? '',
       instagramHandle: map.get('instagram_handle') ?? '',
@@ -781,12 +783,18 @@ async function startServer() {
   app.put('/api/settings', (req: Request, res: Response) => {
     const body = req.body as {
       customLogo?: string;
+      storeName?: string;
       currency?: string;
       facebookHandle?: string;
       instagramHandle?: string;
     };
     if (typeof body.customLogo === 'string') {
       db.prepare("INSERT OR REPLACE INTO shop_settings (key, value) VALUES ('custom_logo', ?)").run(body.customLogo);
+    }
+    if (typeof body.storeName === 'string') {
+      db.prepare("INSERT OR REPLACE INTO shop_settings (key, value) VALUES ('store_name', ?)").run(
+        body.storeName.trim().slice(0, 80)
+      );
     }
     if (typeof body.currency === 'string' && body.currency.trim()) {
       db.prepare("INSERT OR REPLACE INTO shop_settings (key, value) VALUES ('currency', ?)").run(
@@ -807,6 +815,7 @@ async function startServer() {
     const map = new Map(rows.map((r) => [r.key, r.value]));
     res.json({
       customLogo: map.get('custom_logo') ?? '',
+      storeName: map.get('store_name') ?? '',
       currency: map.get('currency') || 'MAD',
       facebookHandle: map.get('facebook_handle') ?? '',
       instagramHandle: map.get('instagram_handle') ?? '',

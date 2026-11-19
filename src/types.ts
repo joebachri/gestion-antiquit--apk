@@ -38,6 +38,7 @@ export interface InventorySummary {
 
 export interface ShopSettings {
   customLogo: string;
+  storeName?: string;
   currency: string;
   facebookHandle?: string;
   instagramHandle?: string;

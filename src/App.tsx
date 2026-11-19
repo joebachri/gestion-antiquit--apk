@@ -78,6 +78,7 @@ export default function App() {
   });
   const [settings, setSettings] = useState<ShopSettings>({
     customLogo: '',
+    storeName: '',
     currency: 'MAD',
     facebookHandle: '',
     instagramHandle: '',
@@ -407,6 +408,7 @@ export default function App() {
         isDark={isDark}
         onToggleTheme={() => setIsDark((d) => !d)}
         customLogo={settings.customLogo}
+        storeName={settings.storeName}
         linkedAccountLabel={linkedAccountLabel}
         onOpenLogoSettings={() => setLogoModalOpen(true)}
         onOpenGuide={() => setGuideOpen(true)}
@@ -925,6 +927,7 @@ export default function App() {
         isOpen={logoModalOpen}
         lang={lang}
         customLogo={settings.customLogo}
+        storeName={settings.storeName}
         currency={settings.currency}
         facebookHandle={settings.facebookHandle}
         instagramHandle={settings.instagramHandle}

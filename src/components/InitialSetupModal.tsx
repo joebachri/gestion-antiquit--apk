@@ -33,6 +33,7 @@ export function InitialSetupModal({
   onClose,
 }: InitialSetupModalProps) {
   const t = translations[lang];
+  const [storeName, setStoreName] = useState(settings.storeName || '');
   const [currency, setCurrency] = useState(settings.currency || 'MAD');
   const [facebookHandle, setFacebookHandle] = useState(settings.facebookHandle || '');
   const [instagramHandle, setInstagramHandle] = useState(settings.instagramHandle || '');
@@ -40,6 +41,7 @@ export function InitialSetupModal({
 
   useEffect(() => {
     if (isOpen) {
+      setStoreName(settings.storeName || '');
       setCurrency(settings.currency || 'MAD');
       setFacebookHandle(settings.facebookHandle || '');
       setInstagramHandle(settings.instagramHandle || '');
@@ -58,6 +60,7 @@ export function InitialSetupModal({
 
       await onSaveSettings({
         customLogo: settings.customLogo,
+        storeName: skipHandles ? settings.storeName : storeName.trim(),
         currency,
         facebookHandle: skipHandles ? settings.facebookHandle : cleanFb,
         instagramHandle: skipHandles ? settings.instagramHandle : normalizedIg,
@@ -166,6 +169,21 @@ export function InitialSetupModal({
             )}
           </div>
 
+          {/* Optional Store Name */}
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold text-[#335947] dark:text-[#9EC0AE]">
+              {t.storeNameLabel}
+            </label>
+            <input
+              type="text"
+              value={storeName}
+              onChange={(e) => setStoreName(e.target.value)}
+              placeholder={t.storeNamePlaceholder}
+              maxLength={80}
+              className="min-h-[44px] w-full rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-3.5 text-sm text-[#0B1F16] placeholder:text-[#6B8A79] focus:border-[#115E3B] focus:bg-white focus:outline-none dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#F2F9F5] dark:placeholder:text-[#5F8370] dark:focus:border-[#10B981] dark:focus:bg-[#0D1E16]"
+            />
+          </div>
+
           {/* Optional Social Accounts Link */}
           <MetaAccountCard
             lang={lang}
@@ -182,6 +200,7 @@ export function InitialSetupModal({
             onSaveHandles={async (next) => {
               await onSaveSettings({
                 customLogo: settings.customLogo,
+                storeName: storeName.trim(),
                 currency,
                 facebookHandle: next.facebookHandle,
                 instagramHandle: next.instagramHandle,
