@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Check, UserCheck, X } from 'lucide-react';
+import { Check, MessageCircle, UserCheck, X } from 'lucide-react';
 import type { Customer, CustomerCategory, CustomerPayload, Language } from '../types';
 import { translations } from '../i18n';
+import { getCustomerWhatsAppUrl, normalizePhoneForWhatsApp } from '../utils/phone';
 
 interface CustomerFormModalProps {
   isOpen: boolean;
@@ -186,6 +187,26 @@ export function CustomerFormModal({
                 placeholder={t.customerPhonePlaceholder}
                 className="min-h-[44px] w-full rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-3.5 text-sm text-[#0B1F16] placeholder:text-[#6B8A79] focus:border-[#115E3B] focus:bg-white focus:outline-none dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#F2F9F5] dark:placeholder:text-[#5F8370] dark:focus:border-[#10B981] dark:focus:bg-[#0D1E16]"
               />
+              {(() => {
+                const waUrl = getCustomerWhatsAppUrl(phone);
+                const normalized = normalizePhoneForWhatsApp(phone);
+                if (!waUrl || !normalized) return null;
+                return (
+                  <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-[#115E3B] dark:text-[#34D399]">
+                    <MessageCircle className="h-3.5 w-3.5 shrink-0" />
+                    <span>{t.customerWhatsAppLinkedHint}</span>
+                    <a
+                      href={waUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      dir="ltr"
+                      className="truncate font-semibold underline underline-offset-2"
+                    >
+                      wa.me/{normalized}
+                    </a>
+                  </div>
+                );
+              })()}
             </div>
 
             <div>

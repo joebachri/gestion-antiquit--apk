@@ -259,6 +259,10 @@ export const translations = {
     purchaseValidationNameRequired: 'Veuillez saisir le nom du produit acheté.',
     purchaseSavedToast: 'Achat enregistré dans l’historique du client.',
     customerSavedToast: 'Fiche client enregistrée.',
+    customerOpenWhatsApp: 'Ouvrir sur WhatsApp',
+    customerCallPhone: 'Appeler par téléphone',
+    customerWhatsAppLinkedHint: 'Lié à WhatsApp :',
+    customerWhatsAppBadge: 'WhatsApp',
   },
   ar: {
     brandName: 'إدارة التحف',
@@ -513,6 +517,10 @@ export const translations = {
     purchaseValidationNameRequired: 'يرجى إدخال اسم المنتج المشتَرى.',
     purchaseSavedToast: 'تم تسجيل عملية الشراء في سجل العميل.',
     customerSavedToast: 'تم حفظ ملف العميل بنجاح.',
+    customerOpenWhatsApp: 'فتح على واتساب',
+    customerCallPhone: 'اتصال هاتفي',
+    customerWhatsAppLinkedHint: 'مرتبط بواتساب:',
+    customerWhatsAppBadge: 'واتساب',
   },
 } as const;
 

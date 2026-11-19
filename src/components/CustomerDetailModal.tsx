@@ -5,6 +5,7 @@ import {
   Edit3,
   FileSpreadsheet,
   MapPin,
+  MessageCircle,
   Phone,
   Plus,
   ShoppingBag,
@@ -21,6 +22,7 @@ import type {
 } from '../types';
 import { formatCurrency, formatNumber, translations } from '../i18n';
 import { convertFromMad, convertToMad } from '../utils/currency';
+import { getCustomerWhatsAppUrl, getPhoneTelHref } from '../utils/phone';
 import { getCustomerCategoryLabel } from './CustomerFormModal';
 
 interface CustomerDetailModalProps {
@@ -212,18 +214,55 @@ export function CustomerDetailModal({
           {/* Customer Profile & Totals Card */}
           <div className="grid grid-cols-1 gap-3 rounded-2xl border border-[#DCE7E0] bg-[#F7FAF8] p-4 sm:grid-cols-3 dark:border-[#1E3A2D] dark:bg-[#091611]">
             <div className="space-y-1.5 sm:col-span-2">
-              {customer.phone && (
-                <div className="flex items-center gap-2 text-xs text-[#0B1F16] dark:text-[#F2F9F5]">
-                  <Phone className="h-3.5 w-3.5 shrink-0 text-[#115E3B] dark:text-[#34D399]" />
-                  <a
-                    href={`tel:${customer.phone}`}
-                    dir="ltr"
-                    className="font-semibold hover:underline"
-                  >
-                    {customer.phone}
-                  </a>
-                </div>
-              )}
+              {customer.phone && (() => {
+                const whatsappUrl = getCustomerWhatsAppUrl(customer.phone);
+                const telHref = getPhoneTelHref(customer.phone);
+                return (
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-[#0B1F16] dark:text-[#F2F9F5]">
+                    {whatsappUrl ? (
+                      <a
+                        href={whatsappUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={t.customerOpenWhatsApp}
+                        aria-label={`${t.customerOpenWhatsApp}: ${customer.phone}`}
+                        className="group inline-flex min-h-[40px] items-center gap-2 rounded-lg py-1 font-semibold transition-colors hover:text-[#115E3B] focus-visible:outline-2 focus-visible:outline-[#115E3B] dark:hover:text-[#34D399]"
+                      >
+                        <MessageCircle className="h-4 w-4 shrink-0 text-[#115E3B] dark:text-[#34D399]" />
+                        <span
+                          dir="ltr"
+                          className="tabular-nums underline decoration-[#115E3B]/35 underline-offset-2 group-hover:decoration-[#115E3B] dark:decoration-[#34D399]/35 dark:group-hover:decoration-[#34D399]"
+                        >
+                          {customer.phone}
+                        </span>
+                        <span className="text-[11px] font-medium text-[#115E3B] dark:text-[#34D399]">
+                          · {t.customerWhatsAppBadge}
+                        </span>
+                      </a>
+                    ) : (
+                      <a
+                        href={telHref}
+                        dir="ltr"
+                        className="inline-flex min-h-[40px] items-center gap-2 font-semibold hover:underline"
+                      >
+                        <Phone className="h-3.5 w-3.5 shrink-0 text-[#115E3B] dark:text-[#34D399]" />
+                        <span className="tabular-nums">{customer.phone}</span>
+                      </a>
+                    )}
+
+                    {whatsappUrl && (
+                      <a
+                        href={telHref}
+                        title={t.customerCallPhone}
+                        aria-label={`${t.customerCallPhone}: ${customer.phone}`}
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#DCE7E0] bg-white text-[#335947] transition-colors hover:bg-[#ECF7F1] hover:text-[#115E3B] dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#9EC0AE] dark:hover:bg-[#162E23] dark:hover:text-[#34D399]"
+                      >
+                        <Phone className="h-3.5 w-3.5" />
+                      </a>
+                    )}
+                  </div>
+                );
+              })()}
               {(customer.city || customer.address) && (
                 <div className="flex items-start gap-2 text-xs text-[#335947] dark:text-[#9EC0AE]">
                   <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#115E3B] dark:text-[#34D399]" />

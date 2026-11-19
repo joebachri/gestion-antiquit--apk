@@ -229,7 +229,7 @@ function getGuideSections(lang: Language): GuideSection[] {
           {
             title: 'افتح قسم العملاء وأضف ملفاً',
             description:
-              'اضغط على تبويب «العملاء والمشتريات» ثم «عميل جديد» لإدخال الاسم والهاتف والعنوان والمدينة والفئة.',
+              'اضغط على تبويب «العملاء والمشتريات» ثم «عميل جديد» لإدخال الاسم والهاتف (النقر على الرقم يفتح واتساب مباشرة) والعنوان والمدينة والفئة.',
           },
           {
             title: 'سجّل المشتريات',
@@ -456,7 +456,7 @@ function getGuideSections(lang: Language): GuideSection[] {
         {
           title: 'Créer un profil client',
           description:
-            'Ouvrez l’onglet « Clients & Achats » puis « Nouveau client » pour saisir nom, téléphone, adresse, ville et catégorie.',
+            'Ouvrez l’onglet « Clients & Achats » puis « Nouveau client » pour saisir nom, téléphone (cliquez sur le numéro pour ouvrir WhatsApp), adresse, ville et catégorie.',
         },
         {
           title: 'Enregistrer les achats',

@@ -3,6 +3,7 @@ import {
   Edit3,
   FileSpreadsheet,
   MapPin,
+  MessageCircle,
   Phone,
   Plus,
   Search,
@@ -14,6 +15,7 @@ import {
 } from 'lucide-react';
 import type { Customer, CustomerCategory, CustomerSummary, Language } from '../types';
 import { formatCurrency, formatNumber, translations } from '../i18n';
+import { getCustomerWhatsAppUrl, getPhoneTelHref } from '../utils/phone';
 import { getCustomerCategoryLabel } from './CustomerFormModal';
 
 interface CustomersViewProps {
@@ -257,18 +259,55 @@ export function CustomersView({
                     </button>
 
                     <div className="mt-2.5 space-y-1.5 text-xs text-[#335947] dark:text-[#9EC0AE]">
-                      {customer.phone && (
-                        <div className="flex items-center gap-2">
-                          <Phone className="h-3.5 w-3.5 shrink-0 text-[#115E3B] dark:text-[#34D399]" />
-                          <a
-                            href={`tel:${customer.phone}`}
-                            dir="ltr"
-                            className="font-medium text-[#0B1F16] hover:underline dark:text-[#F2F9F5]"
-                          >
-                            {customer.phone}
-                          </a>
-                        </div>
-                      )}
+                      {customer.phone && (() => {
+                        const whatsappUrl = getCustomerWhatsAppUrl(customer.phone);
+                        const telHref = getPhoneTelHref(customer.phone);
+                        return (
+                          <div className="flex items-center justify-between gap-2">
+                            {whatsappUrl ? (
+                              <a
+                                href={whatsappUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title={t.customerOpenWhatsApp}
+                                aria-label={`${t.customerOpenWhatsApp}: ${customer.phone}`}
+                                className="group inline-flex min-h-[36px] items-center gap-2 rounded-lg py-1 text-[#0B1F16] transition-colors hover:text-[#115E3B] focus-visible:outline-2 focus-visible:outline-[#115E3B] dark:text-[#F2F9F5] dark:hover:text-[#34D399]"
+                              >
+                                <MessageCircle className="h-4 w-4 shrink-0 text-[#115E3B] dark:text-[#34D399]" />
+                                <span
+                                  dir="ltr"
+                                  className="tabular-nums font-semibold underline decoration-[#115E3B]/35 underline-offset-2 group-hover:decoration-[#115E3B] dark:decoration-[#34D399]/35 dark:group-hover:decoration-[#34D399]"
+                                >
+                                  {customer.phone}
+                                </span>
+                                <span className="text-[11px] font-medium text-[#115E3B] dark:text-[#34D399]">
+                                  · {t.customerWhatsAppBadge}
+                                </span>
+                              </a>
+                            ) : (
+                              <a
+                                href={telHref}
+                                dir="ltr"
+                                className="inline-flex min-h-[36px] items-center gap-2 font-medium text-[#0B1F16] hover:underline dark:text-[#F2F9F5]"
+                              >
+                                <Phone className="h-3.5 w-3.5 shrink-0 text-[#115E3B] dark:text-[#34D399]" />
+                                <span className="tabular-nums">{customer.phone}</span>
+                              </a>
+                            )}
+
+                            {whatsappUrl && (
+                              <a
+                                href={telHref}
+                                title={t.customerCallPhone}
+                                aria-label={`${t.customerCallPhone}: ${customer.phone}`}
+                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#DCE7E0] text-[#335947] transition-colors hover:bg-[#ECF7F1] hover:text-[#115E3B] dark:border-[#1E3A2D] dark:text-[#9EC0AE] dark:hover:bg-[#162E23] dark:hover:text-[#34D399]"
+                              >
+                                <Phone className="h-3.5 w-3.5" />
+                              </a>
+                            )}
+                          </div>
+                        );
+                      })()}
                       {(customer.city || customer.address) && (
                         <div className="flex items-start gap-2">
                           <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#115E3B] dark:text-[#34D399]" />
