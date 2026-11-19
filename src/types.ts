@@ -126,21 +126,6 @@ export interface CustomerGalleryPayload {
   imageUrl?: string;
 }
 
-export interface FetchedSourceImageCandidate {
-  id: string;
-  imageUrl: string;
-  previewDataUrl: string;
-  title: string;
-  source: Exclude<CustomerImageSource, 'upload'>;
-}
-
-export interface FetchCustomerSourceImagesResult {
-  targetUrl: string;
-  source: Exclude<CustomerImageSource, 'upload'>;
-  images: FetchedSourceImageCandidate[];
-  blockedOrEmptyReason?: string;
-}
-
 export interface CustomerPurchase {
   id: string;
   customerId: string;

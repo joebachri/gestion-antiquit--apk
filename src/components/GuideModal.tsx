@@ -272,26 +272,26 @@ function getGuideSections(lang: Language): GuideSection[] {
       },
       {
         id: 'customer-gallery',
-        navLabel: 'معرض صور العميل',
-        title: 'معرض العميل وتحميل الصور من حساباته',
+        navLabel: 'معرض صور وفيديوهات العميل',
+        title: 'معرض العميل (صور وفيديوهات من الهاتف)',
         summary:
-          'اجلب الصور من صفحات فيسبوك وإنستغرام والموقع المرتبطة بالعميل أو بالصق والرفع المباشر واحفظها في معرضه الخاص.',
+          'أضف صوراً وفيديوهات مباشرة من هاتفك أو عبر الكاميرا واحفظها في معرض كل عميل.',
         icon: Images,
         steps: [
           {
-            title: 'افتح المعرض واختر مصدراً',
+            title: 'افتح تبويب المعرض',
             description:
-              'اضغط أيقونة المعرض على بطاقة العميل أو تبويب «معرض صور العميل»، ثم اضغط «جلب من: فيسبوك / إنستغرام / الموقع» أو الصق رابطاً.',
+              'اضغط أيقونة المعرض على بطاقة العميل أو تبويب «معرض العميل» داخل ملفه الشخصي.',
           },
           {
-            title: 'حدّد الصور واحفظها',
+            title: 'التقط أو استورد من الهاتف',
             description:
-              'اختر الصور المكتشفة واضغط «حفظ في معرض العميل» (إذا طلب الموقع تسجيل الدخول، افتح الحساب وانسخ الصورة ثم الصقها بـ Ctrl+V أو استوردها).',
+              'اضغط «الكاميرا (صورة / فيديو)» للتصوير المباشر أو «استيراد من الهاتف» لاختيار عدة صور وفيديوهات دفعة واحدة.',
           },
           {
             title: 'شاهد بالحجم الكامل أو حمّل على جهازك',
             description:
-              'افتح أي صورة مكبّرة أو اضغط زر التنزيل لحفظها على جهازك في أي وقت.',
+              'اعرض الصور وشغّل الفيديوهات بملء الشاشة، أو اضغط زر التنزيل لحفظ أي ملف على جهازك.',
           },
         ],
       },
@@ -553,25 +553,25 @@ function getGuideSections(lang: Language): GuideSection[] {
     {
       id: 'customer-gallery',
       navLabel: 'Galerie client',
-      title: 'Galerie client & téléchargement d’images',
+      title: 'Galerie client (Photos & Vidéos du téléphone)',
       summary:
-        'Récupérez les photos depuis les comptes Facebook, Instagram ou Site web liés au client (ou par lien/collage/import) et enregistrez-les dans sa galerie.',
+        'Alimentez la galerie de chaque client en important des photos et vidéos depuis votre téléphone ou via la caméra.',
       icon: Images,
       steps: [
         {
-          title: 'Ouvrir la galerie & lancer l’extraction',
+          title: 'Ouvrir l’onglet Galerie client',
           description:
-            'Touchez l’icône Galerie sur une fiche client (ou l’onglet « Galerie client ») puis cliquez sur « Extraire : Facebook / Instagram / Site web » ou collez un lien.',
+            'Touchez l’icône Galerie sur une fiche client ou sélectionnez l’onglet « Galerie client » dans ses détails.',
         },
         {
-          title: 'Sélectionner & enregistrer les images',
+          title: 'Filmer ou importer depuis le téléphone',
           description:
-            'Cochez les images trouvées puis cliquez « Enregistrer dans la galerie » (si la page demande une connexion, utilisez « Ouvrir le compte lié » puis collez avec Ctrl+V ou importez).',
+            'Appuyez sur « Caméra (Photo / Vidéo) » pour capturer en direct ou « Importer depuis le téléphone » pour sélectionner photos et vidéos.',
         },
         {
-          title: 'Agrandir ou enregistrer sur l’appareil',
+          title: 'Lire, agrandir ou enregistrer',
           description:
-            'Affichez les photos sauvegardées en plein écran ou cliquez sur télécharger pour les enregistrer sur votre appareil.',
+            'Affichez les photos ou lisez les vidéos en plein écran, et téléchargez-les sur votre appareil à tout moment.',
         },
       ],
     },

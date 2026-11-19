@@ -648,7 +648,12 @@ export async function localAddCustomerGalleryImages(
   if (!existing) throw new Error('Customer not found');
   const now = new Date().toISOString();
   const newImages: CustomerGalleryImage[] = items
-    .filter((item) => Boolean(item.imageData && item.imageData.startsWith('data:image/')))
+    .filter((item) =>
+      Boolean(
+        item.imageData &&
+          (item.imageData.startsWith('data:image/') || item.imageData.startsWith('data:video/'))
+      )
+    )
     .map((item) => ({
       id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
       customerId,

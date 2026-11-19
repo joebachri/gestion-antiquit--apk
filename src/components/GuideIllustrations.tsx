@@ -6,7 +6,6 @@ import {
   Copy,
   Download,
   Edit3,
-  ExternalLink,
   FileSpreadsheet,
   Film,
   Globe,
@@ -123,9 +122,9 @@ const SECTION_ARROWS: Record<GuideSectionId, ArrowDef[]> = {
     { step: 3, fromX: 454, fromY: 348, ctrlX: 492, ctrlY: 332, toX: 522, toY: 296, badgeX: 438, badgeY: 352 },
   ],
   'customer-gallery': [
-    { step: 1, fromX: 266, fromY: 36, ctrlX: 324, ctrlY: 44, toX: 378, toY: 64, badgeX: 248, badgeY: 36 },
-    { step: 2, fromX: 102, fromY: 352, ctrlX: 152, ctrlY: 346, toX: 206, toY: 324, badgeX: 86, badgeY: 352 },
-    { step: 3, fromX: 404, fromY: 352, ctrlX: 458, ctrlY: 344, toX: 510, toY: 320, badgeX: 388, badgeY: 352 },
+    { step: 1, fromX: 256, fromY: 36, ctrlX: 274, ctrlY: 46, toX: 288, toY: 66, badgeX: 238, badgeY: 36 },
+    { step: 2, fromX: 98, fromY: 222, ctrlX: 146, ctrlY: 228, toX: 204, toY: 234, badgeX: 82, badgeY: 222 },
+    { step: 3, fromX: 396, fromY: 352, ctrlX: 452, ctrlY: 344, toX: 506, toY: 320, badgeX: 380, badgeY: 352 },
   ],
 };
 
@@ -999,117 +998,84 @@ function renderCanvasContent(sectionId: GuideSectionId, lang: Language, activeSt
     case 'customer-gallery':
       return (
         <div className="flex h-full flex-col justify-between gap-2 p-3 sm:p-4">
-          {/* Top Customer Detail Header + Extract Buttons */}
-          <div className="flex flex-col gap-1.5 rounded-xl border border-[#DCE7E0] bg-white px-3 py-2 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5">
-                <span className="rounded-lg border border-[#DCE7E0] px-2 py-1 text-[8.5px] font-semibold text-[#335947] dark:border-[#1E3A2D] dark:text-[#9EC0AE]">
-                  {t.customerTabPurchases} (2)
-                </span>
-                <span
-                  className={`flex items-center gap-1 rounded-lg bg-[#115E3B] px-2.5 py-1 text-[8.5px] font-bold text-white transition-all dark:bg-[#10B981] dark:text-[#052E1C] ${hi(1)}`}
-                >
-                  <Images className="h-3 w-3" />
-                  <span>{t.customerTabGallery} (4)</span>
-                </span>
-              </div>
-
-              <div className={`flex flex-wrap items-center gap-1 rounded-lg p-0.5 transition-all ${hi(1)}`}>
-                <span className="rounded-md bg-[#1877F2] px-1.5 py-0.5 text-[7.5px] font-bold text-white">
-                  Facebook
-                </span>
-                <span className="rounded-md bg-gradient-to-r from-[#833AB4] to-[#C13584] px-1.5 py-0.5 text-[7.5px] font-bold text-white">
-                  Instagram
-                </span>
-                <span className="flex items-center gap-0.5 rounded-md border border-[#DCE7E0] bg-[#F7FAF8] px-1.5 py-0.5 text-[7.5px] font-bold text-[#115E3B] dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#34D399]">
-                  <Globe className="h-2.5 w-2.5" /> Web
-                </span>
-              </div>
+          {/* Top Customer Detail Tab Bar */}
+          <div className="flex items-center justify-between gap-2 rounded-xl border border-[#DCE7E0] bg-white px-3 py-2 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
+            <div className="flex items-center gap-1.5">
+              <span className="rounded-lg border border-[#DCE7E0] px-2.5 py-1 text-[8.5px] font-semibold text-[#335947] dark:border-[#1E3A2D] dark:text-[#9EC0AE]">
+                {t.customerTabPurchases} (2)
+              </span>
+              <span
+                className={`flex items-center gap-1 rounded-lg bg-[#115E3B] px-2.5 py-1 text-[8.5px] font-bold text-white transition-all dark:bg-[#10B981] dark:text-[#052E1C] ${hi(1)}`}
+              >
+                <Images className="h-3 w-3" />
+                <span>{t.customerTabGallery} (4)</span>
+              </span>
             </div>
+
+            <span className="text-[8.5px] font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+              Ahmed Benali · CL0001
+            </span>
           </div>
 
-          {/* Body: Left = Extract / Upload / Paste & Save | Right = Client Gallery Grid */}
+          {/* Body: Left = Camera & Phone Photo/Video Import | Right = Saved Photos & Videos Gallery */}
           <div dir={dir} className="grid flex-1 grid-cols-12 gap-2.5">
             <div className="col-span-6 flex flex-col justify-between rounded-xl border border-[#DCE7E0] bg-white p-2.5 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
               <div className="space-y-1.5">
-                <div className="flex items-center justify-between text-[8.5px] font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
-                  <span>{t.customerGalleryFoundTitle}</span>
-                  <span className="text-[7.5px] text-[#335947] dark:text-[#9EC0AE]">Ctrl+V / URL</span>
+                <div className="text-[9px] font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+                  {t.customerGalleryFetchFromAccounts}
                 </div>
+                <p className="text-[7.5px] leading-snug text-[#335947] dark:text-[#9EC0AE]">
+                  {t.customerGallerySubtitle}
+                </p>
+              </div>
 
-                {/* Extracted Candidate Thumbnails */}
-                <div className="grid grid-cols-2 gap-1.5">
-                  <div className="relative overflow-hidden rounded-lg border-2 border-[#115E3B] dark:border-[#10B981]">
-                    <img
-                      src={lanternImg}
-                      alt="Found 1"
-                      referrerPolicy="no-referrer"
-                      className="h-14 w-full object-cover"
-                    />
-                    <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]">
-                      <Check className="h-2.5 w-2.5" />
-                    </span>
-                  </div>
-                  <div className="relative overflow-hidden rounded-lg border-2 border-[#115E3B] dark:border-[#10B981]">
-                    <img
-                      src={ceramicImg}
-                      alt="Found 2"
-                      referrerPolicy="no-referrer"
-                      className="h-14 w-full object-cover"
-                    />
-                    <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]">
-                      <Check className="h-2.5 w-2.5" />
-                    </span>
-                  </div>
+              <div className={`space-y-1.5 rounded-lg p-1 transition-all ${hi(2)}`}>
+                <div className="flex items-center justify-center gap-1.5 rounded-lg bg-[#115E3B] py-2 text-[8.5px] font-bold text-white dark:bg-[#10B981] dark:text-[#052E1C]">
+                  <Camera className="h-3.5 w-3.5" />
+                  <span>{t.takePhotoCamera}</span>
                 </div>
-
-                {/* Fallback / Paste & Upload row */}
-                <div className="flex items-center justify-between gap-1 text-[7.5px] text-[#335947] dark:text-[#9EC0AE]">
-                  <span className="flex items-center gap-0.5 rounded border border-[#DCE7E0] bg-[#F7FAF8] px-1.5 py-0.5 dark:border-[#1E3A2D] dark:bg-[#091611]">
-                    <ExternalLink className="h-2.5 w-2.5" /> {t.customerGalleryOpenProfile}
-                  </span>
-                  <span className="flex items-center gap-0.5 rounded border border-[#DCE7E0] bg-[#F7FAF8] px-1.5 py-0.5 dark:border-[#1E3A2D] dark:bg-[#091611]">
-                    <Upload className="h-2.5 w-2.5" /> {t.customerGallerySourceUpload}
-                  </span>
+                <div className="flex items-center justify-center gap-1.5 rounded-lg border border-[#DCE7E0] bg-[#F7FAF8] py-2 text-[8.5px] font-bold text-[#115E3B] dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#34D399]">
+                  <Upload className="h-3.5 w-3.5" />
+                  <span>{t.customerGalleryUploadDevice}</span>
                 </div>
               </div>
 
-              <div
-                className={`flex items-center justify-center gap-1 rounded-lg bg-[#115E3B] py-1.5 text-[8.5px] font-bold text-white transition-all dark:bg-[#10B981] dark:text-[#052E1C] ${hi(2)}`}
-              >
-                <Check className="h-3 w-3" />
-                <span>{t.customerGallerySaveSelected} (2)</span>
+              <div className="rounded-lg border border-dashed border-[#DCE7E0] bg-[#F7FAF8] px-2 py-1.5 text-center text-[7.5px] text-[#335947] dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#9EC0AE]">
+                JPG · PNG · MP4 · WEBM
               </div>
             </div>
 
             <div className="col-span-6 flex flex-col justify-between rounded-xl border border-[#DCE7E0] bg-white p-2.5 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
               <div className="flex items-center justify-between text-[8.5px] font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
                 <span>{t.customerGalleryTitle}</span>
-                <span className="text-[8px] font-semibold text-[#115E3B] dark:text-[#34D399]">4 photos</span>
+                <span className="text-[8px] font-semibold text-[#115E3B] dark:text-[#34D399]">4</span>
               </div>
 
               <div className="grid grid-cols-2 gap-1.5">
                 <div className="overflow-hidden rounded-lg border border-[#DCE7E0] bg-[#F7FAF8] dark:border-[#1E3A2D] dark:bg-[#091611]">
                   <img
                     src={chestImg}
-                    alt="Gallery 1"
+                    alt="Photo"
                     referrerPolicy="no-referrer"
                     className="h-14 w-full object-cover"
                   />
                   <div className="flex items-center justify-between px-1.5 py-1 text-[7.5px] text-[#335947] dark:text-[#9EC0AE]">
-                    <span>Instagram</span>
+                    <span>Photo</span>
                     <Maximize2 className="h-2.5 w-2.5" />
                   </div>
                 </div>
-                <div className="overflow-hidden rounded-lg border border-[#DCE7E0] bg-[#F7FAF8] dark:border-[#1E3A2D] dark:bg-[#091611]">
+                <div className="relative overflow-hidden rounded-lg border border-[#DCE7E0] bg-[#0B1F16] dark:border-[#1E3A2D]">
                   <img
                     src={lanternImg}
-                    alt="Gallery 2"
+                    alt="Video"
                     referrerPolicy="no-referrer"
-                    className="h-14 w-full object-cover"
+                    className="h-14 w-full object-cover opacity-75"
                   />
-                  <div className="flex items-center justify-between px-1.5 py-1 text-[7.5px] text-[#335947] dark:text-[#9EC0AE]">
-                    <span>Site web</span>
+                  <span className="absolute top-1 left-1 flex items-center gap-0.5 rounded bg-[#0B1F16]/85 px-1 py-0.5 text-[7px] font-bold text-[#34D399]">
+                    <Video className="h-2.5 w-2.5" /> {t.videoLabel}
+                  </span>
+                  <div className="flex items-center justify-between bg-[#F7FAF8] px-1.5 py-1 text-[7.5px] text-[#335947] dark:bg-[#091611] dark:text-[#9EC0AE]">
+                    <span>MP4</span>
                     <Maximize2 className="h-2.5 w-2.5" />
                   </div>
                 </div>

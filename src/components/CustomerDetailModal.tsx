@@ -448,7 +448,6 @@ export function CustomerDetailModal({
             <CustomerGallerySection
               customer={customer}
               lang={lang}
-              onEditProfile={onEditProfile}
               onSaveGalleryImages={onSaveGalleryImages}
               onDeleteGalleryImage={onDeleteGalleryImage}
             />

@@ -6,7 +6,6 @@ import type {
   CustomerPurchasePayload,
   CustomerSummary,
   FacebookPublishPayload,
-  FetchCustomerSourceImagesResult,
   InstagramPublishPayload,
   InventorySummary,
   MetaAuthStatus,
@@ -33,7 +32,6 @@ import {
   localUpdatePurchase,
 } from './storage';
 import { getExchangeRates, setExchangeRates } from './currency';
-import { compressImageBlob } from './image';
 
 const isNative = () => Capacitor.isNativePlatform();
 
@@ -365,63 +363,6 @@ export async function deleteCustomerPurchaseApi(
   if (!res.ok) throw new Error('Purchase delete failed');
   const data = (await res.json()) as { customer: Customer };
   return data.customer;
-}
-
-export async function fetchCustomerSourceImagesApi(
-  customerId: string,
-  source: 'facebook' | 'instagram' | 'website',
-  customUrl?: string,
-  options?: { linkedUrl?: string; customerName?: string }
-): Promise<FetchCustomerSourceImagesResult> {
-  if (isNative()) {
-    const trimmed = (customUrl || '').trim();
-    if (trimmed && /^https?:\/\//i.test(trimmed)) {
-      try {
-        const res = await fetch(trimmed);
-        if (res.ok && (res.headers.get('content-type') || '').startsWith('image/')) {
-          const blob = await res.blob();
-          const dataUrl = await compressImageBlob(blob, 1280, 0.86);
-          return {
-            targetUrl: trimmed,
-            source,
-            images: [
-              {
-                id: `${Date.now()}`,
-                imageUrl: trimmed,
-                previewDataUrl: dataUrl,
-                title: options?.customerName || '',
-                source,
-              },
-            ],
-          };
-        }
-      } catch {
-        // fall through to blocked hint
-      }
-    }
-    return {
-      targetUrl: trimmed || options?.linkedUrl || '',
-      source,
-      images: [],
-      blockedOrEmptyReason: 'BLOCKED_OR_LOGIN_REQUIRED',
-    };
-  }
-
-  const res = await fetch(`/api/customers/${customerId}/gallery/fetch-source`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      source,
-      customUrl,
-      linkedUrl: options?.linkedUrl,
-      customerName: options?.customerName,
-    }),
-  });
-  if (!res.ok) {
-    const errData = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(errData.error || 'Fetch source failed');
-  }
-  return (await res.json()) as FetchCustomerSourceImagesResult;
 }
 
 export async function saveCustomerGalleryImagesApi(
