@@ -483,6 +483,9 @@ export async function localListCustomers(
       c.phone.toLowerCase().includes(q) ||
       c.city.toLowerCase().includes(q) ||
       c.address.toLowerCase().includes(q) ||
+      (c.facebookUrl || '').toLowerCase().includes(q) ||
+      (c.instagramUrl || '').toLowerCase().includes(q) ||
+      (c.websiteUrl || '').toLowerCase().includes(q) ||
       (c.purchases || []).some(
         (p) => p.productName.toLowerCase().includes(q) || p.productCode.toLowerCase().includes(q)
       )
@@ -509,6 +512,9 @@ export async function localCreateCustomer(payload: CustomerPayload): Promise<Cus
     city: payload.city.trim(),
     category: (payload.category || 'regular') as CustomerCategory,
     notes: payload.notes.trim(),
+    facebookUrl: (payload.facebookUrl || '').trim(),
+    instagramUrl: (payload.instagramUrl || '').trim(),
+    websiteUrl: (payload.websiteUrl || '').trim(),
     createdAt: now,
     updatedAt: now,
     purchases: [],
@@ -529,6 +535,9 @@ export async function localUpdateCustomer(id: string, payload: CustomerPayload):
     city: payload.city.trim(),
     category: (payload.category || 'regular') as CustomerCategory,
     notes: payload.notes.trim(),
+    facebookUrl: (payload.facebookUrl || '').trim(),
+    instagramUrl: (payload.instagramUrl || '').trim(),
+    websiteUrl: (payload.websiteUrl || '').trim(),
     updatedAt: new Date().toISOString(),
   };
   await putInStore(db, STORE_CUSTOMERS, updated);

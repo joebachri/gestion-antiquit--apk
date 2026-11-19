@@ -1,8 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Check, MessageCircle, UserCheck, X } from 'lucide-react';
+import { Check, ExternalLink, Facebook, Globe, Instagram, MessageCircle, UserCheck, X } from 'lucide-react';
 import type { Customer, CustomerCategory, CustomerPayload, Language } from '../types';
 import { translations } from '../i18n';
 import { getCustomerWhatsAppUrl, normalizePhoneForWhatsApp } from '../utils/phone';
+import {
+  getCustomerFacebookUrl,
+  getCustomerInstagramUrl,
+  getCustomerWebsiteUrl,
+} from '../utils/socialLinks';
 
 interface CustomerFormModalProps {
   isOpen: boolean;
@@ -34,6 +39,9 @@ export function CustomerFormModal({
   const [phone, setPhone] = useState('');
   const [city, setCity] = useState('');
   const [address, setAddress] = useState('');
+  const [facebookUrl, setFacebookUrl] = useState('');
+  const [instagramUrl, setInstagramUrl] = useState('');
+  const [websiteUrl, setWebsiteUrl] = useState('');
   const [category, setCategory] = useState<CustomerCategory>('regular');
   const [notes, setNotes] = useState('');
   const [error, setError] = useState('');
@@ -47,6 +55,9 @@ export function CustomerFormModal({
       setPhone(editingCustomer.phone);
       setCity(editingCustomer.city);
       setAddress(editingCustomer.address);
+      setFacebookUrl(editingCustomer.facebookUrl || '');
+      setInstagramUrl(editingCustomer.instagramUrl || '');
+      setWebsiteUrl(editingCustomer.websiteUrl || '');
       setCategory(editingCustomer.category || 'regular');
       setNotes(editingCustomer.notes);
     } else {
@@ -54,6 +65,9 @@ export function CustomerFormModal({
       setPhone('');
       setCity('');
       setAddress('');
+      setFacebookUrl('');
+      setInstagramUrl('');
+      setWebsiteUrl('');
       setCategory('regular');
       setNotes('');
     }
@@ -78,6 +92,9 @@ export function CustomerFormModal({
           address: address.trim(),
           category,
           notes: notes.trim(),
+          facebookUrl: facebookUrl.trim(),
+          instagramUrl: instagramUrl.trim(),
+          websiteUrl: websiteUrl.trim(),
         },
         editingCustomer?.id
       );
@@ -235,6 +252,108 @@ export function CustomerFormModal({
               placeholder={t.customerAddressPlaceholder}
               className="min-h-[44px] w-full rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-3.5 text-sm text-[#0B1F16] placeholder:text-[#6B8A79] focus:border-[#115E3B] focus:bg-white focus:outline-none dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#F2F9F5] dark:placeholder:text-[#5F8370] dark:focus:border-[#10B981] dark:focus:bg-[#0D1E16]"
             />
+          </div>
+
+          {/* Social Media & Website */}
+          <div className="space-y-3 rounded-2xl border border-[#DCE7E0] bg-[#F7FAF8]/70 p-3.5 dark:border-[#1E3A2D] dark:bg-[#091611]/70">
+            <p className="text-xs font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+              {t.customerSocialSectionLabel}
+            </p>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-[#0B1F16] dark:text-[#F2F9F5]">
+                  <Facebook className="h-3.5 w-3.5 text-[#1877F2] dark:text-[#60A5FA]" />
+                  <span>{t.customerFacebookLabel}</span>
+                </label>
+                <input
+                  type="text"
+                  dir="ltr"
+                  value={facebookUrl}
+                  onChange={(e) => setFacebookUrl(e.target.value)}
+                  placeholder={t.customerFacebookPlaceholder}
+                  className="min-h-[42px] w-full rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs text-[#0B1F16] placeholder:text-[#6B8A79] focus:border-[#1877F2] focus:bg-white focus:outline-none dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5] dark:placeholder:text-[#5F8370] dark:focus:border-[#60A5FA] dark:focus:bg-[#0D1E16]"
+                />
+                {(() => {
+                  const resolved = getCustomerFacebookUrl(facebookUrl);
+                  if (!resolved) return null;
+                  return (
+                    <a
+                      href={resolved}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      dir="ltr"
+                      className="mt-1 inline-flex max-w-full items-center gap-1 truncate text-[11px] font-medium text-[#1877F2] underline underline-offset-2 dark:text-[#60A5FA]"
+                    >
+                      <ExternalLink className="h-3 w-3 shrink-0" />
+                      <span className="truncate">{resolved.replace(/^https?:\/\//i, '')}</span>
+                    </a>
+                  );
+                })()}
+              </div>
+
+              <div>
+                <label className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-[#0B1F16] dark:text-[#F2F9F5]">
+                  <Instagram className="h-3.5 w-3.5 text-[#C13584] dark:text-[#F472B6]" />
+                  <span>{t.customerInstagramLabel}</span>
+                </label>
+                <input
+                  type="text"
+                  dir="ltr"
+                  value={instagramUrl}
+                  onChange={(e) => setInstagramUrl(e.target.value)}
+                  placeholder={t.customerInstagramPlaceholder}
+                  className="min-h-[42px] w-full rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs text-[#0B1F16] placeholder:text-[#6B8A79] focus:border-[#C13584] focus:bg-white focus:outline-none dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5] dark:placeholder:text-[#5F8370] dark:focus:border-[#F472B6] dark:focus:bg-[#0D1E16]"
+                />
+                {(() => {
+                  const resolved = getCustomerInstagramUrl(instagramUrl);
+                  if (!resolved) return null;
+                  return (
+                    <a
+                      href={resolved}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      dir="ltr"
+                      className="mt-1 inline-flex max-w-full items-center gap-1 truncate text-[11px] font-medium text-[#C13584] underline underline-offset-2 dark:text-[#F472B6]"
+                    >
+                      <ExternalLink className="h-3 w-3 shrink-0" />
+                      <span className="truncate">{resolved.replace(/^https?:\/\//i, '')}</span>
+                    </a>
+                  );
+                })()}
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-[#0B1F16] dark:text-[#F2F9F5]">
+                <Globe className="h-3.5 w-3.5 text-[#115E3B] dark:text-[#34D399]" />
+                <span>{t.customerWebsiteLabel}</span>
+              </label>
+              <input
+                type="text"
+                dir="ltr"
+                value={websiteUrl}
+                onChange={(e) => setWebsiteUrl(e.target.value)}
+                placeholder={t.customerWebsitePlaceholder}
+                className="min-h-[42px] w-full rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs text-[#0B1F16] placeholder:text-[#6B8A79] focus:border-[#115E3B] focus:bg-white focus:outline-none dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5] dark:placeholder:text-[#5F8370] dark:focus:border-[#10B981] dark:focus:bg-[#0D1E16]"
+              />
+              {(() => {
+                const resolved = getCustomerWebsiteUrl(websiteUrl);
+                if (!resolved) return null;
+                return (
+                  <a
+                    href={resolved}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    dir="ltr"
+                    className="mt-1 inline-flex max-w-full items-center gap-1 truncate text-[11px] font-medium text-[#115E3B] underline underline-offset-2 dark:text-[#34D399]"
+                  >
+                    <ExternalLink className="h-3 w-3 shrink-0" />
+                    <span className="truncate">{resolved.replace(/^https?:\/\//i, '')}</span>
+                  </a>
+                );
+              })()}
+            </div>
           </div>
 
           {/* Notes */}

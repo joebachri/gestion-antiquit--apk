@@ -275,6 +275,13 @@ export const translations = {
     calculatorNoHistory: 'Aucun calcul récent',
     calculatorError: 'Erreur',
     calculatorEquivLabel: 'Équivalence boutique :',
+    customerSocialSectionLabel: 'Réseaux sociaux & Site web (optionnel)',
+    customerFacebookLabel: 'Facebook',
+    customerFacebookPlaceholder: 'Ex. facebook.com/nom ou pseudo',
+    customerInstagramLabel: 'Instagram',
+    customerInstagramPlaceholder: 'Ex. @compte ou instagram.com/...',
+    customerWebsiteLabel: 'Site web',
+    customerWebsitePlaceholder: 'Ex. www.monsite.ma',
   },
   ar: {
     brandName: 'إدارة التحف',
@@ -545,6 +552,13 @@ export const translations = {
     calculatorNoHistory: 'لا توجد عمليات حديثة',
     calculatorError: 'خطأ',
     calculatorEquivLabel: 'التحويل السريع:',
+    customerSocialSectionLabel: 'حسابات التواصل والموقع الإلكتروني (اختياري)',
+    customerFacebookLabel: 'فيسبوك',
+    customerFacebookPlaceholder: 'مثال: facebook.com/name أو اسم الصفحة',
+    customerInstagramLabel: 'إنستغرام',
+    customerInstagramPlaceholder: 'مثال: @username أو رابط الحساب',
+    customerWebsiteLabel: 'الموقع الإلكتروني',
+    customerWebsitePlaceholder: 'مثال: www.example.ma',
   },
 } as const;
 

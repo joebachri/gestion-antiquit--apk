@@ -3,7 +3,11 @@ import {
   Calendar,
   Check,
   Edit3,
+  ExternalLink,
+  Facebook,
   FileSpreadsheet,
+  Globe,
+  Instagram,
   MapPin,
   MessageCircle,
   Phone,
@@ -23,6 +27,12 @@ import type {
 import { formatCurrency, formatNumber, translations } from '../i18n';
 import { convertFromMad, convertToMad } from '../utils/currency';
 import { getCustomerWhatsAppUrl, getPhoneTelHref } from '../utils/phone';
+import {
+  formatSocialDisplayLabel,
+  getCustomerFacebookUrl,
+  getCustomerInstagramUrl,
+  getCustomerWebsiteUrl,
+} from '../utils/socialLinks';
 import { getCustomerCategoryLabel } from './CustomerFormModal';
 
 interface CustomerDetailModalProps {
@@ -271,6 +281,58 @@ export function CustomerDetailModal({
                   </span>
                 </div>
               )}
+              {(() => {
+                const fbHref = getCustomerFacebookUrl(customer.facebookUrl || '');
+                const igHref = getCustomerInstagramUrl(customer.instagramUrl || '');
+                const webHref = getCustomerWebsiteUrl(customer.websiteUrl || '');
+                if (!fbHref && !igHref && !webHref) return null;
+                return (
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 pt-1 text-xs">
+                    {fbHref && (
+                      <a
+                        href={fbHref}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex min-h-[36px] items-center gap-1.5 font-semibold text-[#1877F2] hover:underline dark:text-[#60A5FA]"
+                      >
+                        <Facebook className="h-3.5 w-3.5 shrink-0" />
+                        <span dir="ltr">
+                          {formatSocialDisplayLabel(customer.facebookUrl || '', 'facebook')}
+                        </span>
+                        <ExternalLink className="h-3 w-3 shrink-0 opacity-75" />
+                      </a>
+                    )}
+                    {igHref && (
+                      <a
+                        href={igHref}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex min-h-[36px] items-center gap-1.5 font-semibold text-[#C13584] hover:underline dark:text-[#F472B6]"
+                      >
+                        <Instagram className="h-3.5 w-3.5 shrink-0" />
+                        <span dir="ltr">
+                          {formatSocialDisplayLabel(customer.instagramUrl || '', 'instagram')}
+                        </span>
+                        <ExternalLink className="h-3 w-3 shrink-0 opacity-75" />
+                      </a>
+                    )}
+                    {webHref && (
+                      <a
+                        href={webHref}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex min-h-[36px] items-center gap-1.5 font-semibold text-[#115E3B] hover:underline dark:text-[#34D399]"
+                      >
+                        <Globe className="h-3.5 w-3.5 shrink-0" />
+                        <span dir="ltr">
+                          {formatSocialDisplayLabel(customer.websiteUrl || '', 'website')}
+                        </span>
+                        <ExternalLink className="h-3 w-3 shrink-0 opacity-75" />
+                      </a>
+                    )}
+                  </div>
+                );
+              })()}
               {customer.notes && (
                 <p className="text-xs leading-relaxed text-[#335947] dark:text-[#9EC0AE]">
                   {customer.notes}

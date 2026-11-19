@@ -125,6 +125,9 @@ db.exec(`
     city TEXT NOT NULL DEFAULT '',
     category TEXT NOT NULL DEFAULT 'regular',
     notes TEXT NOT NULL DEFAULT '',
+    facebook_url TEXT NOT NULL DEFAULT '',
+    instagram_url TEXT NOT NULL DEFAULT '',
+    website_url TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
@@ -146,6 +149,19 @@ db.exec(`
   );
 `);
 
+const customerTableColumns = (
+  db.prepare('PRAGMA table_info(customers)').all() as Array<{ name: string }>
+).map((col) => col.name);
+if (!customerTableColumns.includes('facebook_url')) {
+  db.exec("ALTER TABLE customers ADD COLUMN facebook_url TEXT NOT NULL DEFAULT ''");
+}
+if (!customerTableColumns.includes('instagram_url')) {
+  db.exec("ALTER TABLE customers ADD COLUMN instagram_url TEXT NOT NULL DEFAULT ''");
+}
+if (!customerTableColumns.includes('website_url')) {
+  db.exec("ALTER TABLE customers ADD COLUMN website_url TEXT NOT NULL DEFAULT ''");
+}
+
 interface CustomerRow {
   id: string;
   code: string;
@@ -155,6 +171,9 @@ interface CustomerRow {
   city: string;
   category: string;
   notes: string;
+  facebook_url: string;
+  instagram_url: string;
+  website_url: string;
   created_at: string;
   updated_at: string;
 }
@@ -534,6 +553,9 @@ function mapCustomersWithPurchases(rows: CustomerRow[]) {
       city: row.city || '',
       category: row.category || 'regular',
       notes: row.notes || '',
+      facebookUrl: row.facebook_url || '',
+      instagramUrl: row.instagram_url || '',
+      websiteUrl: row.website_url || '',
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       purchases,
@@ -1575,12 +1597,27 @@ async function startServer() {
                OR c.phone LIKE ? COLLATE NOCASE
                OR c.city LIKE ? COLLATE NOCASE
                OR c.address LIKE ? COLLATE NOCASE
+               OR c.facebook_url LIKE ? COLLATE NOCASE
+               OR c.instagram_url LIKE ? COLLATE NOCASE
+               OR c.website_url LIKE ? COLLATE NOCASE
                OR cp.product_name LIKE ? COLLATE NOCASE
                OR cp.product_code LIKE ? COLLATE NOCASE
              )
            ORDER BY c.created_at DESC`
         )
-        .all(category, pattern, pattern, pattern, pattern, pattern, pattern, pattern) as CustomerRow[];
+        .all(
+          category,
+          pattern,
+          pattern,
+          pattern,
+          pattern,
+          pattern,
+          pattern,
+          pattern,
+          pattern,
+          pattern,
+          pattern
+        ) as CustomerRow[];
     } else if (q) {
       const pattern = `%${q}%`;
       rows = db
@@ -1592,11 +1629,25 @@ async function startServer() {
               OR c.phone LIKE ? COLLATE NOCASE
               OR c.city LIKE ? COLLATE NOCASE
               OR c.address LIKE ? COLLATE NOCASE
+              OR c.facebook_url LIKE ? COLLATE NOCASE
+              OR c.instagram_url LIKE ? COLLATE NOCASE
+              OR c.website_url LIKE ? COLLATE NOCASE
               OR cp.product_name LIKE ? COLLATE NOCASE
               OR cp.product_code LIKE ? COLLATE NOCASE
            ORDER BY c.created_at DESC`
         )
-        .all(pattern, pattern, pattern, pattern, pattern, pattern, pattern) as CustomerRow[];
+        .all(
+          pattern,
+          pattern,
+          pattern,
+          pattern,
+          pattern,
+          pattern,
+          pattern,
+          pattern,
+          pattern,
+          pattern
+        ) as CustomerRow[];
     } else if (category && category !== 'all') {
       rows = db
         .prepare('SELECT * FROM customers WHERE category = ? ORDER BY created_at DESC')
@@ -1619,6 +1670,9 @@ async function startServer() {
       city?: string;
       category?: string;
       notes?: string;
+      facebookUrl?: string;
+      instagramUrl?: string;
+      websiteUrl?: string;
     };
     const name = typeof body?.name === 'string' ? body.name.trim() : '';
     if (!name) {
@@ -1637,8 +1691,8 @@ async function startServer() {
 
     db.prepare(
       `INSERT INTO customers (
-        id, code, name, phone, address, city, category, notes, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        id, code, name, phone, address, city, category, notes, facebook_url, instagram_url, website_url, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       id,
       code,
@@ -1648,6 +1702,9 @@ async function startServer() {
       typeof body.city === 'string' ? body.city.trim() : '',
       category,
       typeof body.notes === 'string' ? body.notes.trim() : '',
+      typeof body.facebookUrl === 'string' ? body.facebookUrl.trim().slice(0, 240) : '',
+      typeof body.instagramUrl === 'string' ? body.instagramUrl.trim().slice(0, 240) : '',
+      typeof body.websiteUrl === 'string' ? body.websiteUrl.trim().slice(0, 240) : '',
       now,
       now
     );
@@ -1675,6 +1732,9 @@ async function startServer() {
       city?: string;
       category?: string;
       notes?: string;
+      facebookUrl?: string;
+      instagramUrl?: string;
+      websiteUrl?: string;
     };
     const name = typeof body?.name === 'string' ? body.name.trim() : '';
     if (!name) {
@@ -1691,7 +1751,7 @@ async function startServer() {
 
     db.prepare(
       `UPDATE customers SET
-        name = ?, phone = ?, address = ?, city = ?, category = ?, notes = ?, updated_at = ?
+        name = ?, phone = ?, address = ?, city = ?, category = ?, notes = ?, facebook_url = ?, instagram_url = ?, website_url = ?, updated_at = ?
        WHERE id = ?`
     ).run(
       name,
@@ -1700,6 +1760,9 @@ async function startServer() {
       typeof body.city === 'string' ? body.city.trim() : '',
       category,
       typeof body.notes === 'string' ? body.notes.trim() : '',
+      typeof body.facebookUrl === 'string' ? body.facebookUrl.trim().slice(0, 240) : '',
+      typeof body.instagramUrl === 'string' ? body.instagramUrl.trim().slice(0, 240) : '',
+      typeof body.websiteUrl === 'string' ? body.websiteUrl.trim().slice(0, 240) : '',
       now,
       req.params.id
     );
@@ -1934,6 +1997,9 @@ async function startServer() {
             'رقم الهاتف',
             'المدينة',
             'العنوان',
+            'فيسبوك',
+            'إنستغرام',
+            'الموقع الإلكتروني',
             'عدد المشتريات',
             `إجمالي المشتريات (${currency})`,
             'آخر شراء',
@@ -1946,6 +2012,9 @@ async function startServer() {
             'Téléphone',
             'Ville',
             'Adresse',
+            'Facebook',
+            'Instagram',
+            'Site web',
             "Nb d'achats",
             `Total acheté (${currency})`,
             'Dernier achat',
@@ -1974,6 +2043,9 @@ async function startServer() {
         cust.phone || '',
         cust.city || '',
         cust.address || '',
+        cust.facebookUrl || '',
+        cust.instagramUrl || '',
+        cust.websiteUrl || '',
         cust.purchases.length,
         convertServerAmountFromMad(totalMad, currency, rates),
         lastDate,
@@ -1984,6 +2056,9 @@ async function startServer() {
     profileRows.push([
       lang === 'ar' ? 'المجموع' : 'TOTAL',
       lang === 'ar' ? `${customers.length} عملاء` : `${customers.length} client(s)`,
+      '',
+      '',
+      '',
       '',
       '',
       '',
@@ -2082,6 +2157,9 @@ async function startServer() {
       { wch: 18 },
       { wch: 16 },
       { wch: 30 },
+      { wch: 24 },
+      { wch: 22 },
+      { wch: 26 },
       { wch: 14 },
       { wch: 20 },
       { wch: 14 },

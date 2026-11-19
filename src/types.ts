@@ -130,6 +130,9 @@ export interface Customer {
   city: string;
   category: CustomerCategory;
   notes: string;
+  facebookUrl?: string;
+  instagramUrl?: string;
+  websiteUrl?: string;
   createdAt: string;
   updatedAt: string;
   purchases: CustomerPurchase[];
@@ -148,6 +151,9 @@ export interface CustomerPayload {
   city: string;
   category: CustomerCategory;
   notes: string;
+  facebookUrl?: string;
+  instagramUrl?: string;
+  websiteUrl?: string;
 }
 
 export interface CustomerPurchasePayload {

@@ -1,7 +1,11 @@
 import { useState } from 'react';
 import {
   Edit3,
+  ExternalLink,
+  Facebook,
   FileSpreadsheet,
+  Globe,
+  Instagram,
   MapPin,
   MessageCircle,
   Phone,
@@ -16,6 +20,12 @@ import {
 import type { Customer, CustomerCategory, CustomerSummary, Language } from '../types';
 import { formatCurrency, formatNumber, translations } from '../i18n';
 import { getCustomerWhatsAppUrl, getPhoneTelHref } from '../utils/phone';
+import {
+  formatSocialDisplayLabel,
+  getCustomerFacebookUrl,
+  getCustomerInstagramUrl,
+  getCustomerWebsiteUrl,
+} from '../utils/socialLinks';
 import { getCustomerCategoryLabel } from './CustomerFormModal';
 
 interface CustomersViewProps {
@@ -316,6 +326,61 @@ export function CustomersView({
                           </span>
                         </div>
                       )}
+                      {(() => {
+                        const fbHref = getCustomerFacebookUrl(customer.facebookUrl || '');
+                        const igHref = getCustomerInstagramUrl(customer.instagramUrl || '');
+                        const webHref = getCustomerWebsiteUrl(customer.websiteUrl || '');
+                        if (!fbHref && !igHref && !webHref) return null;
+                        return (
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1">
+                            {fbHref && (
+                              <a
+                                href={fbHref}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title={fbHref}
+                                className="inline-flex min-h-[32px] max-w-full items-center gap-1.5 font-medium text-[#1877F2] hover:underline dark:text-[#60A5FA]"
+                              >
+                                <Facebook className="h-3.5 w-3.5 shrink-0" />
+                                <span dir="ltr" className="max-w-[140px] truncate">
+                                  {formatSocialDisplayLabel(customer.facebookUrl || '', 'facebook')}
+                                </span>
+                                <ExternalLink className="h-3 w-3 shrink-0 opacity-70" />
+                              </a>
+                            )}
+                            {igHref && (
+                              <a
+                                href={igHref}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title={igHref}
+                                className="inline-flex min-h-[32px] max-w-full items-center gap-1.5 font-medium text-[#C13584] hover:underline dark:text-[#F472B6]"
+                              >
+                                <Instagram className="h-3.5 w-3.5 shrink-0" />
+                                <span dir="ltr" className="max-w-[140px] truncate">
+                                  {formatSocialDisplayLabel(customer.instagramUrl || '', 'instagram')}
+                                </span>
+                                <ExternalLink className="h-3 w-3 shrink-0 opacity-70" />
+                              </a>
+                            )}
+                            {webHref && (
+                              <a
+                                href={webHref}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title={webHref}
+                                className="inline-flex min-h-[32px] max-w-full items-center gap-1.5 font-medium text-[#115E3B] hover:underline dark:text-[#34D399]"
+                              >
+                                <Globe className="h-3.5 w-3.5 shrink-0" />
+                                <span dir="ltr" className="max-w-[160px] truncate">
+                                  {formatSocialDisplayLabel(customer.websiteUrl || '', 'website')}
+                                </span>
+                                <ExternalLink className="h-3 w-3 shrink-0 opacity-70" />
+                              </a>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     {/* Purchase stats row */}
