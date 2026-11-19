@@ -56,6 +56,7 @@ import { GuideModal } from './components/GuideModal';
 import { CustomersView } from './components/CustomersView';
 import { CustomerFormModal } from './components/CustomerFormModal';
 import { CustomerDetailModal } from './components/CustomerDetailModal';
+import { CalculatorModal } from './components/CalculatorModal';
 
 export default function App() {
   const [lang, setLang] = useState<Language>(() => {
@@ -98,6 +99,7 @@ export default function App() {
   const [shareProduct, setShareProduct] = useState<Product | null>(null);
   const [logoModalOpen, setLogoModalOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
+  const [calculatorOpen, setCalculatorOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState<boolean>(() => {
     return localStorage.getItem('babsaida_onboarding_done') !== '1';
   });
@@ -408,6 +410,7 @@ export default function App() {
         linkedAccountLabel={linkedAccountLabel}
         onOpenLogoSettings={() => setLogoModalOpen(true)}
         onOpenGuide={() => setGuideOpen(true)}
+        onOpenCalculator={() => setCalculatorOpen(true)}
       />
 
       <main
@@ -989,6 +992,13 @@ export default function App() {
         onExportCustomerExcel={(cust) => void handleExportCustomersExcel(cust)}
         onSavePurchase={handleSavePurchase}
         onDeletePurchase={handleDeletePurchase}
+      />
+
+      <CalculatorModal
+        isOpen={calculatorOpen}
+        lang={lang}
+        currency={settings.currency}
+        onClose={() => setCalculatorOpen(false)}
       />
 
       {/* Global Confirmation Toast */}
