@@ -1,8 +1,15 @@
 import type {
+  Customer,
+  CustomerCategory,
+  CustomerPayload,
+  CustomerPurchase,
+  CustomerPurchasePayload,
+  CustomerSummary,
   InventorySummary,
   Product,
   ProductPayload,
   ProductPhoto,
+  PurchasePaymentMethod,
   ShopSettings,
 } from '../types';
 import { extractPrefixLetter } from './image';
@@ -12,9 +19,10 @@ import ceramicImg from '../assets/images/antique_fez_ceramic_1794787509914.jpg';
 import teaServiceImg from '../assets/images/antique_silver_tea_service_1794787510384.jpg';
 
 const DB_NAME = 'gestion_antiquites_db';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_PRODUCTS = 'products';
 const STORE_SETTINGS = 'settings';
+const STORE_CUSTOMERS = 'customers';
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -26,6 +34,9 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(STORE_SETTINGS)) {
         db.createObjectStore(STORE_SETTINGS, { keyPath: 'key' });
+      }
+      if (!db.objectStoreNames.contains(STORE_CUSTOMERS)) {
+        db.createObjectStore(STORE_CUSTOMERS, { keyPath: 'id' });
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -407,3 +418,197 @@ export async function localSaveSettings(settings: ShopSettings): Promise<ShopSet
   }
   return settings;
 }
+
+function computeNextCustomerCode(customers: Customer[]): string {
+  let maxNum = 0;
+  for (const c of customers) {
+    if (c.code.startsWith('CL')) {
+      const suffix = c.code.slice(2);
+      if (/^\d+$/.test(suffix)) {
+        const n = Number.parseInt(suffix, 10);
+        if (n > maxNum) maxNum = n;
+      }
+    }
+  }
+  return `CL${String(maxNum + 1).padStart(4, '0')}`;
+}
+
+function computeCustomerSummary(customers: Customer[]): CustomerSummary {
+  let totalPurchases = 0;
+  let totalRevenueMad = 0;
+  for (const cust of customers) {
+    const purchases = cust.purchases || [];
+    totalPurchases += purchases.length;
+    for (const p of purchases) {
+      totalRevenueMad += Number(p.totalPrice) || 0;
+    }
+  }
+  return {
+    totalCustomers: customers.length,
+    totalPurchases,
+    totalRevenueMad,
+  };
+}
+
+export async function localListCustomers(
+  query: string,
+  category?: string
+): Promise<{ customers: Customer[]; summary: CustomerSummary }> {
+  const db = await openDb();
+  const all = await getAllFromStore<Customer>(db, STORE_CUSTOMERS);
+  all.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+  const q = query.trim().toLowerCase();
+  const cat = (category || '').trim().toLowerCase();
+
+  const filtered = all.filter((c) => {
+    if (cat && cat !== 'all' && c.category !== cat) return false;
+    if (!q) return true;
+    return (
+      c.name.toLowerCase().includes(q) ||
+      c.code.toLowerCase().includes(q) ||
+      c.phone.toLowerCase().includes(q) ||
+      c.city.toLowerCase().includes(q) ||
+      c.address.toLowerCase().includes(q) ||
+      (c.purchases || []).some(
+        (p) => p.productName.toLowerCase().includes(q) || p.productCode.toLowerCase().includes(q)
+      )
+    );
+  });
+
+  return {
+    customers: filtered,
+    summary: computeCustomerSummary(all),
+  };
+}
+
+export async function localCreateCustomer(payload: CustomerPayload): Promise<Customer> {
+  const db = await openDb();
+  const all = await getAllFromStore<Customer>(db, STORE_CUSTOMERS);
+  const now = new Date().toISOString();
+  const id = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+  const customer: Customer = {
+    id,
+    code: computeNextCustomerCode(all),
+    name: payload.name.trim(),
+    phone: payload.phone.trim(),
+    address: payload.address.trim(),
+    city: payload.city.trim(),
+    category: (payload.category || 'regular') as CustomerCategory,
+    notes: payload.notes.trim(),
+    createdAt: now,
+    updatedAt: now,
+    purchases: [],
+  };
+  await putInStore(db, STORE_CUSTOMERS, customer);
+  return customer;
+}
+
+export async function localUpdateCustomer(id: string, payload: CustomerPayload): Promise<Customer> {
+  const db = await openDb();
+  const existing = await getFromStore<Customer>(db, STORE_CUSTOMERS, id);
+  if (!existing) throw new Error('Customer not found');
+  const updated: Customer = {
+    ...existing,
+    name: payload.name.trim(),
+    phone: payload.phone.trim(),
+    address: payload.address.trim(),
+    city: payload.city.trim(),
+    category: (payload.category || 'regular') as CustomerCategory,
+    notes: payload.notes.trim(),
+    updatedAt: new Date().toISOString(),
+  };
+  await putInStore(db, STORE_CUSTOMERS, updated);
+  return updated;
+}
+
+export async function localDeleteCustomer(id: string): Promise<void> {
+  const db = await openDb();
+  await deleteFromStore(db, STORE_CUSTOMERS, id);
+}
+
+export async function localAddPurchase(
+  customerId: string,
+  payload: CustomerPurchasePayload
+): Promise<Customer> {
+  const db = await openDb();
+  const existing = await getFromStore<Customer>(db, STORE_CUSTOMERS, customerId);
+  if (!existing) throw new Error('Customer not found');
+  const now = new Date().toISOString();
+  const qty = Math.max(1, Math.floor(Number(payload.quantity) || 1));
+  const unitPrice = Math.max(0, Number(payload.unitPrice) || 0);
+  const purchase: CustomerPurchase = {
+    id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
+    customerId,
+    productId: payload.productId || '',
+    productCode: payload.productCode.trim(),
+    productName: payload.productName.trim(),
+    quantity: qty,
+    unitPrice,
+    totalPrice: Math.round(qty * unitPrice * 100) / 100,
+    purchaseDate: payload.purchaseDate || now.slice(0, 10),
+    paymentMethod: (payload.paymentMethod || 'cash') as PurchasePaymentMethod,
+    notes: payload.notes.trim(),
+    createdAt: now,
+  };
+  const updated: Customer = {
+    ...existing,
+    updatedAt: now,
+    purchases: [purchase, ...(existing.purchases || [])],
+  };
+  await putInStore(db, STORE_CUSTOMERS, updated);
+  return updated;
+}
+
+export async function localUpdatePurchase(
+  customerId: string,
+  purchaseId: string,
+  payload: CustomerPurchasePayload
+): Promise<Customer> {
+  const db = await openDb();
+  const existing = await getFromStore<Customer>(db, STORE_CUSTOMERS, customerId);
+  if (!existing) throw new Error('Customer not found');
+  const now = new Date().toISOString();
+  const qty = Math.max(1, Math.floor(Number(payload.quantity) || 1));
+  const unitPrice = Math.max(0, Number(payload.unitPrice) || 0);
+  const purchases = (existing.purchases || []).map((p) =>
+    p.id === purchaseId
+      ? {
+          ...p,
+          productId: payload.productId || '',
+          productCode: payload.productCode.trim(),
+          productName: payload.productName.trim(),
+          quantity: qty,
+          unitPrice,
+          totalPrice: Math.round(qty * unitPrice * 100) / 100,
+          purchaseDate: payload.purchaseDate || p.purchaseDate,
+          paymentMethod: (payload.paymentMethod || 'cash') as PurchasePaymentMethod,
+          notes: payload.notes.trim(),
+        }
+      : p
+  );
+  const updated: Customer = {
+    ...existing,
+    updatedAt: now,
+    purchases,
+  };
+  await putInStore(db, STORE_CUSTOMERS, updated);
+  return updated;
+}
+
+export async function localDeletePurchase(
+  customerId: string,
+  purchaseId: string
+): Promise<Customer> {
+  const db = await openDb();
+  const existing = await getFromStore<Customer>(db, STORE_CUSTOMERS, customerId);
+  if (!existing) throw new Error('Customer not found');
+  const updated: Customer = {
+    ...existing,
+    updatedAt: new Date().toISOString(),
+    purchases: (existing.purchases || []).filter((p) => p.id !== purchaseId),
+  };
+  await putInStore(db, STORE_CUSTOMERS, updated);
+  return updated;
+}
+

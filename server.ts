@@ -115,7 +115,64 @@ db.exec(`
     selected_ig_id TEXT NOT NULL DEFAULT '',
     updated_at TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS customers (
+    id TEXT PRIMARY KEY,
+    code TEXT UNIQUE NOT NULL,
+    name TEXT NOT NULL,
+    phone TEXT NOT NULL DEFAULT '',
+    address TEXT NOT NULL DEFAULT '',
+    city TEXT NOT NULL DEFAULT '',
+    category TEXT NOT NULL DEFAULT 'regular',
+    notes TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS customer_purchases (
+    id TEXT PRIMARY KEY,
+    customer_id TEXT NOT NULL,
+    product_id TEXT NOT NULL DEFAULT '',
+    product_code TEXT NOT NULL DEFAULT '',
+    product_name TEXT NOT NULL,
+    quantity INTEGER NOT NULL DEFAULT 1,
+    unit_price REAL NOT NULL DEFAULT 0,
+    total_price REAL NOT NULL DEFAULT 0,
+    purchase_date TEXT NOT NULL,
+    payment_method TEXT NOT NULL DEFAULT 'cash',
+    notes TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+  );
 `);
+
+interface CustomerRow {
+  id: string;
+  code: string;
+  name: string;
+  phone: string;
+  address: string;
+  city: string;
+  category: string;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface CustomerPurchaseRow {
+  id: string;
+  customer_id: string;
+  product_id: string;
+  product_code: string;
+  product_name: string;
+  quantity: number;
+  unit_price: number;
+  total_price: number;
+  purchase_date: string;
+  payment_method: string;
+  notes: string;
+  created_at: string;
+}
 
 interface StoredMetaPage {
   id: string;
@@ -431,6 +488,71 @@ function toNumber(value: unknown, fallback = 0): number {
 function toInt(value: unknown, fallback = 1): number {
   const num = Math.floor(Number(value));
   return Number.isFinite(num) && num >= 0 ? num : fallback;
+}
+
+function generateNextCustomerCode(): string {
+  const rows = db.prepare("SELECT code FROM customers WHERE code LIKE 'CL%'").all() as Array<{
+    code: string;
+  }>;
+  let maxNum = 0;
+  for (const row of rows) {
+    const suffix = row.code.slice(2);
+    if (/^\d+$/.test(suffix)) {
+      const parsed = Number.parseInt(suffix, 10);
+      if (parsed > maxNum) maxNum = parsed;
+    }
+  }
+  return `CL${String(maxNum + 1).padStart(4, '0')}`;
+}
+
+function mapCustomersWithPurchases(rows: CustomerRow[]) {
+  const purchaseStmt = db.prepare(
+    'SELECT * FROM customer_purchases WHERE customer_id = ? ORDER BY purchase_date DESC, created_at DESC'
+  );
+  return rows.map((row) => {
+    const purchases = (purchaseStmt.all(row.id) as CustomerPurchaseRow[]).map((p) => ({
+      id: p.id,
+      customerId: p.customer_id,
+      productId: p.product_id || '',
+      productCode: p.product_code,
+      productName: p.product_name,
+      quantity: p.quantity,
+      unitPrice: p.unit_price,
+      totalPrice: p.total_price,
+      purchaseDate: p.purchase_date,
+      paymentMethod: p.payment_method || 'cash',
+      notes: p.notes || '',
+      createdAt: p.created_at,
+    }));
+    return {
+      id: row.id,
+      code: row.code,
+      name: row.name,
+      phone: row.phone || '',
+      address: row.address || '',
+      city: row.city || '',
+      category: row.category || 'regular',
+      notes: row.notes || '',
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      purchases,
+    };
+  });
+}
+
+function getCustomerSummary() {
+  const customersCount = (db.prepare('SELECT COUNT(*) as cnt FROM customers').get() as { cnt: number })
+    .cnt;
+  const stats = db
+    .prepare(
+      'SELECT COUNT(*) as totalPurchases, COALESCE(SUM(total_price), 0) as totalRevenue FROM customer_purchases'
+    )
+    .get() as { totalPurchases: number; totalRevenue: number };
+  return {
+    totalCustomers: customersCount,
+    totalPurchases: Number(stats.totalPurchases) || 0,
+    totalRevenueMad: Number(stats.totalRevenue) || 0,
+  };
 }
 
 async function startServer() {
@@ -1419,6 +1541,588 @@ async function startServer() {
     res.setHeader(
       'Content-Disposition',
       `attachment; filename="gestion-antiquites-${dateStamp}.xlsx"`
+    );
+    res.setHeader('Content-Length', String(buffer.length));
+    res.setHeader('Cache-Control', 'no-store');
+    res.end(buffer);
+  });
+
+  // Customer Management & Purchase History Routes
+  app.get('/api/customers', (req: Request, res: Response) => {
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    const category = typeof req.query.category === 'string' ? req.query.category.trim() : '';
+
+    let rows: CustomerRow[];
+    if (q && category && category !== 'all') {
+      const pattern = `%${q}%`;
+      rows = db
+        .prepare(
+          `SELECT DISTINCT c.* FROM customers c
+           LEFT JOIN customer_purchases cp ON cp.customer_id = c.id
+           WHERE c.category = ?
+             AND (
+               c.name LIKE ? COLLATE NOCASE
+               OR c.code LIKE ? COLLATE NOCASE
+               OR c.phone LIKE ? COLLATE NOCASE
+               OR c.city LIKE ? COLLATE NOCASE
+               OR c.address LIKE ? COLLATE NOCASE
+               OR cp.product_name LIKE ? COLLATE NOCASE
+               OR cp.product_code LIKE ? COLLATE NOCASE
+             )
+           ORDER BY c.created_at DESC`
+        )
+        .all(category, pattern, pattern, pattern, pattern, pattern, pattern, pattern) as CustomerRow[];
+    } else if (q) {
+      const pattern = `%${q}%`;
+      rows = db
+        .prepare(
+          `SELECT DISTINCT c.* FROM customers c
+           LEFT JOIN customer_purchases cp ON cp.customer_id = c.id
+           WHERE c.name LIKE ? COLLATE NOCASE
+              OR c.code LIKE ? COLLATE NOCASE
+              OR c.phone LIKE ? COLLATE NOCASE
+              OR c.city LIKE ? COLLATE NOCASE
+              OR c.address LIKE ? COLLATE NOCASE
+              OR cp.product_name LIKE ? COLLATE NOCASE
+              OR cp.product_code LIKE ? COLLATE NOCASE
+           ORDER BY c.created_at DESC`
+        )
+        .all(pattern, pattern, pattern, pattern, pattern, pattern, pattern) as CustomerRow[];
+    } else if (category && category !== 'all') {
+      rows = db
+        .prepare('SELECT * FROM customers WHERE category = ? ORDER BY created_at DESC')
+        .all(category) as CustomerRow[];
+    } else {
+      rows = db.prepare('SELECT * FROM customers ORDER BY created_at DESC').all() as CustomerRow[];
+    }
+
+    res.json({
+      customers: mapCustomersWithPurchases(rows),
+      summary: getCustomerSummary(),
+    });
+  });
+
+  app.post('/api/customers', (req: Request, res: Response) => {
+    const body = req.body as {
+      name?: string;
+      phone?: string;
+      address?: string;
+      city?: string;
+      category?: string;
+      notes?: string;
+    };
+    const name = typeof body?.name === 'string' ? body.name.trim() : '';
+    if (!name) {
+      res.status(400).json({ error: 'Customer name is required' });
+      return;
+    }
+
+    const validCategories = new Set(['seller', 'hobbyist', 'regular', 'other']);
+    const category =
+      typeof body.category === 'string' && validCategories.has(body.category)
+        ? body.category
+        : 'regular';
+    const now = new Date().toISOString();
+    const id = crypto.randomUUID();
+    const code = generateNextCustomerCode();
+
+    db.prepare(
+      `INSERT INTO customers (
+        id, code, name, phone, address, city, category, notes, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      id,
+      code,
+      name,
+      typeof body.phone === 'string' ? body.phone.trim() : '',
+      typeof body.address === 'string' ? body.address.trim() : '',
+      typeof body.city === 'string' ? body.city.trim() : '',
+      category,
+      typeof body.notes === 'string' ? body.notes.trim() : '',
+      now,
+      now
+    );
+
+    const row = db.prepare('SELECT * FROM customers WHERE id = ?').get(id) as CustomerRow;
+    res.status(201).json({
+      customer: mapCustomersWithPurchases([row])[0],
+      summary: getCustomerSummary(),
+    });
+  });
+
+  app.put('/api/customers/:id', (req: Request, res: Response) => {
+    const existing = db
+      .prepare('SELECT * FROM customers WHERE id = ?')
+      .get(req.params.id) as CustomerRow | undefined;
+    if (!existing) {
+      res.status(404).json({ error: 'Customer not found' });
+      return;
+    }
+
+    const body = req.body as {
+      name?: string;
+      phone?: string;
+      address?: string;
+      city?: string;
+      category?: string;
+      notes?: string;
+    };
+    const name = typeof body?.name === 'string' ? body.name.trim() : '';
+    if (!name) {
+      res.status(400).json({ error: 'Customer name is required' });
+      return;
+    }
+
+    const validCategories = new Set(['seller', 'hobbyist', 'regular', 'other']);
+    const category =
+      typeof body.category === 'string' && validCategories.has(body.category)
+        ? body.category
+        : existing.category;
+    const now = new Date().toISOString();
+
+    db.prepare(
+      `UPDATE customers SET
+        name = ?, phone = ?, address = ?, city = ?, category = ?, notes = ?, updated_at = ?
+       WHERE id = ?`
+    ).run(
+      name,
+      typeof body.phone === 'string' ? body.phone.trim() : '',
+      typeof body.address === 'string' ? body.address.trim() : '',
+      typeof body.city === 'string' ? body.city.trim() : '',
+      category,
+      typeof body.notes === 'string' ? body.notes.trim() : '',
+      now,
+      req.params.id
+    );
+
+    const updated = db
+      .prepare('SELECT * FROM customers WHERE id = ?')
+      .get(req.params.id) as CustomerRow;
+    res.json({
+      customer: mapCustomersWithPurchases([updated])[0],
+      summary: getCustomerSummary(),
+    });
+  });
+
+  app.delete('/api/customers/:id', (req: Request, res: Response) => {
+    const result = db.prepare('DELETE FROM customers WHERE id = ?').run(req.params.id);
+    if (result.changes === 0) {
+      res.status(404).json({ error: 'Customer not found' });
+      return;
+    }
+    res.json({ ok: true, summary: getCustomerSummary() });
+  });
+
+  app.post('/api/customers/:id/purchases', (req: Request, res: Response) => {
+    const customer = db
+      .prepare('SELECT * FROM customers WHERE id = ?')
+      .get(req.params.id) as CustomerRow | undefined;
+    if (!customer) {
+      res.status(404).json({ error: 'Customer not found' });
+      return;
+    }
+
+    const body = req.body as {
+      productId?: string;
+      productCode?: string;
+      productName?: string;
+      quantity?: number;
+      unitPrice?: number;
+      purchaseDate?: string;
+      paymentMethod?: string;
+      notes?: string;
+    };
+    const productName = typeof body?.productName === 'string' ? body.productName.trim() : '';
+    if (!productName) {
+      res.status(400).json({ error: 'Product name is required' });
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const id = crypto.randomUUID();
+    const qty = Math.max(1, toInt(body.quantity, 1));
+    const unitPrice = toNumber(body.unitPrice, 0);
+    const totalPrice = Math.round(qty * unitPrice * 100) / 100;
+    const purchaseDate =
+      typeof body.purchaseDate === 'string' && body.purchaseDate.trim()
+        ? body.purchaseDate.trim()
+        : now.slice(0, 10);
+    const validPayments = new Set(['cash', 'transfer', 'check', 'card', 'other']);
+    const paymentMethod =
+      typeof body.paymentMethod === 'string' && validPayments.has(body.paymentMethod)
+        ? body.paymentMethod
+        : 'cash';
+
+    db.prepare(
+      `INSERT INTO customer_purchases (
+        id, customer_id, product_id, product_code, product_name,
+        quantity, unit_price, total_price, purchase_date, payment_method, notes, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      id,
+      customer.id,
+      typeof body.productId === 'string' ? body.productId.trim() : '',
+      typeof body.productCode === 'string' ? body.productCode.trim() : '',
+      productName,
+      qty,
+      unitPrice,
+      totalPrice,
+      purchaseDate,
+      paymentMethod,
+      typeof body.notes === 'string' ? body.notes.trim() : '',
+      now
+    );
+
+    db.prepare('UPDATE customers SET updated_at = ? WHERE id = ?').run(now, customer.id);
+
+    const updated = db
+      .prepare('SELECT * FROM customers WHERE id = ?')
+      .get(customer.id) as CustomerRow;
+    res.status(201).json({
+      customer: mapCustomersWithPurchases([updated])[0],
+      summary: getCustomerSummary(),
+    });
+  });
+
+  app.put('/api/customers/:id/purchases/:purchaseId', (req: Request, res: Response) => {
+    const existingPurchase = db
+      .prepare('SELECT * FROM customer_purchases WHERE id = ? AND customer_id = ?')
+      .get(req.params.purchaseId, req.params.id) as CustomerPurchaseRow | undefined;
+    if (!existingPurchase) {
+      res.status(404).json({ error: 'Purchase record not found' });
+      return;
+    }
+
+    const body = req.body as {
+      productId?: string;
+      productCode?: string;
+      productName?: string;
+      quantity?: number;
+      unitPrice?: number;
+      purchaseDate?: string;
+      paymentMethod?: string;
+      notes?: string;
+    };
+    const productName = typeof body?.productName === 'string' ? body.productName.trim() : '';
+    if (!productName) {
+      res.status(400).json({ error: 'Product name is required' });
+      return;
+    }
+
+    const qty = Math.max(1, toInt(body.quantity, 1));
+    const unitPrice = toNumber(body.unitPrice, 0);
+    const totalPrice = Math.round(qty * unitPrice * 100) / 100;
+    const purchaseDate =
+      typeof body.purchaseDate === 'string' && body.purchaseDate.trim()
+        ? body.purchaseDate.trim()
+        : existingPurchase.purchase_date;
+    const validPayments = new Set(['cash', 'transfer', 'check', 'card', 'other']);
+    const paymentMethod =
+      typeof body.paymentMethod === 'string' && validPayments.has(body.paymentMethod)
+        ? body.paymentMethod
+        : existingPurchase.payment_method;
+    const now = new Date().toISOString();
+
+    db.prepare(
+      `UPDATE customer_purchases SET
+        product_id = ?, product_code = ?, product_name = ?,
+        quantity = ?, unit_price = ?, total_price = ?,
+        purchase_date = ?, payment_method = ?, notes = ?
+       WHERE id = ? AND customer_id = ?`
+    ).run(
+      typeof body.productId === 'string' ? body.productId.trim() : '',
+      typeof body.productCode === 'string' ? body.productCode.trim() : '',
+      productName,
+      qty,
+      unitPrice,
+      totalPrice,
+      purchaseDate,
+      paymentMethod,
+      typeof body.notes === 'string' ? body.notes.trim() : '',
+      req.params.purchaseId,
+      req.params.id
+    );
+
+    db.prepare('UPDATE customers SET updated_at = ? WHERE id = ?').run(now, req.params.id);
+
+    const updated = db
+      .prepare('SELECT * FROM customers WHERE id = ?')
+      .get(req.params.id) as CustomerRow;
+    res.json({
+      customer: mapCustomersWithPurchases([updated])[0],
+      summary: getCustomerSummary(),
+    });
+  });
+
+  app.delete('/api/customers/:id/purchases/:purchaseId', (req: Request, res: Response) => {
+    const result = db
+      .prepare('DELETE FROM customer_purchases WHERE id = ? AND customer_id = ?')
+      .run(req.params.purchaseId, req.params.id);
+    if (result.changes === 0) {
+      res.status(404).json({ error: 'Purchase record not found' });
+      return;
+    }
+
+    const updated = db
+      .prepare('SELECT * FROM customers WHERE id = ?')
+      .get(req.params.id) as CustomerRow;
+    res.json({
+      customer: mapCustomersWithPurchases([updated])[0],
+      summary: getCustomerSummary(),
+    });
+  });
+
+  app.get('/api/export/customers/excel', async (req: Request, res: Response) => {
+    const lang = req.query.lang === 'ar' ? 'ar' : 'fr';
+    const customerId = typeof req.query.customerId === 'string' ? req.query.customerId.trim() : '';
+
+    const settingsRow = db.prepare("SELECT value FROM shop_settings WHERE key = 'currency'").get() as
+      | { value: string }
+      | undefined;
+    const currency = settingsRow?.value || 'MAD';
+    const rates = await getActiveRatesFromMad();
+
+    const rows = customerId
+      ? (db.prepare('SELECT * FROM customers WHERE id = ?').all(customerId) as CustomerRow[])
+      : (db.prepare('SELECT * FROM customers ORDER BY code ASC').all() as CustomerRow[]);
+
+    const customers = mapCustomersWithPurchases(rows);
+
+    const catLabel = (cat: string) => {
+      if (lang === 'ar') {
+        if (cat === 'seller') return 'بائع / تاجر';
+        if (cat === 'hobbyist') return 'هاوٍ / جامع تحف';
+        if (cat === 'regular') return 'عميل دائم';
+        return 'أخرى';
+      }
+      if (cat === 'seller') return 'Vendeur / Revendeur';
+      if (cat === 'hobbyist') return 'Amateur / Collectionneur';
+      if (cat === 'regular') return 'Client régulier';
+      return 'Autre';
+    };
+
+    const payLabel = (method: string) => {
+      if (lang === 'ar') {
+        if (method === 'cash') return 'نقداً';
+        if (method === 'transfer') return 'تحويل بنكي';
+        if (method === 'check') return 'شيك';
+        if (method === 'card') return 'بطاقة بنكية';
+        return 'أخرى';
+      }
+      if (method === 'cash') return 'Espèces';
+      if (method === 'transfer') return 'Virement';
+      if (method === 'check') return 'Chèque';
+      if (method === 'card') return 'Carte bancaire';
+      return 'Autre';
+    };
+
+    const profileHeaders =
+      lang === 'ar'
+        ? [
+            'رمز العميل',
+            'الاسم الكامل',
+            'الفئة',
+            'رقم الهاتف',
+            'المدينة',
+            'العنوان',
+            'عدد المشتريات',
+            `إجمالي المشتريات (${currency})`,
+            'آخر شراء',
+            'ملاحظات',
+          ]
+        : [
+            'Code Client',
+            'Nom complet',
+            'Catégorie',
+            'Téléphone',
+            'Ville',
+            'Adresse',
+            "Nb d'achats",
+            `Total acheté (${currency})`,
+            'Dernier achat',
+            'Notes',
+          ];
+
+    const profileRows: Array<Array<string | number>> = [profileHeaders];
+    let grandPurchasesCount = 0;
+    let grandRevenueMad = 0;
+
+    for (const cust of customers) {
+      const totalMad = cust.purchases.reduce((sum, p) => sum + (Number(p.totalPrice) || 0), 0);
+      const lastDate =
+        cust.purchases
+          .map((p) => p.purchaseDate)
+          .filter(Boolean)
+          .sort()
+          .pop() || '';
+      grandPurchasesCount += cust.purchases.length;
+      grandRevenueMad += totalMad;
+
+      profileRows.push([
+        cust.code,
+        cust.name,
+        catLabel(cust.category),
+        cust.phone || '',
+        cust.city || '',
+        cust.address || '',
+        cust.purchases.length,
+        convertServerAmountFromMad(totalMad, currency, rates),
+        lastDate,
+        cust.notes || '',
+      ]);
+    }
+
+    profileRows.push([
+      lang === 'ar' ? 'المجموع' : 'TOTAL',
+      lang === 'ar' ? `${customers.length} عملاء` : `${customers.length} client(s)`,
+      '',
+      '',
+      '',
+      '',
+      grandPurchasesCount,
+      convertServerAmountFromMad(grandRevenueMad, currency, rates),
+      '',
+      '',
+    ]);
+
+    const purchaseHeaders =
+      lang === 'ar'
+        ? [
+            'رمز العميل',
+            'اسم العميل',
+            'رقم الهاتف',
+            'المدينة',
+            'الفئة',
+            'تاريخ الشراء',
+            'رمز المنتج',
+            'اسم المنتج',
+            'الكمية',
+            `سعر الوحدة (${currency})`,
+            `المجموع (${currency})`,
+            'طريقة الدفع',
+            'تفاصيل',
+          ]
+        : [
+            'Code Client',
+            'Nom Client',
+            'Téléphone',
+            'Ville',
+            'Catégorie',
+            "Date d'achat",
+            'Code Produit',
+            'Nom Produit',
+            'Quantité',
+            `Prix unitaire (${currency})`,
+            `Total (${currency})`,
+            'Paiement',
+            'Détails',
+          ];
+
+    const purchaseRows: Array<Array<string | number>> = [purchaseHeaders];
+    let totalQty = 0;
+    let totalPurchasesMad = 0;
+
+    for (const cust of customers) {
+      for (const p of cust.purchases) {
+        totalQty += Number(p.quantity) || 0;
+        totalPurchasesMad += Number(p.totalPrice) || 0;
+        purchaseRows.push([
+          cust.code,
+          cust.name,
+          cust.phone || '',
+          cust.city || '',
+          catLabel(cust.category),
+          p.purchaseDate,
+          p.productCode || '',
+          p.productName,
+          p.quantity,
+          convertServerAmountFromMad(p.unitPrice, currency, rates),
+          convertServerAmountFromMad(p.totalPrice, currency, rates),
+          payLabel(p.paymentMethod),
+          p.notes || '',
+        ]);
+      }
+    }
+
+    purchaseRows.push([
+      lang === 'ar' ? 'المجموع' : 'TOTAL',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      lang === 'ar' ? `${grandPurchasesCount} عمليات` : `${grandPurchasesCount} achat(s)`,
+      totalQty,
+      '',
+      convertServerAmountFromMad(totalPurchasesMad, currency, rates),
+      '',
+      '',
+    ]);
+
+    const workbook = XLSX.utils.book_new();
+    if (lang === 'ar') {
+      workbook.Workbook = { Views: [{ RTL: true }] };
+    }
+
+    const profileSheet = XLSX.utils.aoa_to_sheet(profileRows);
+    profileSheet['!cols'] = [
+      { wch: 13 },
+      { wch: 24 },
+      { wch: 22 },
+      { wch: 18 },
+      { wch: 16 },
+      { wch: 30 },
+      { wch: 14 },
+      { wch: 20 },
+      { wch: 14 },
+      { wch: 30 },
+    ];
+
+    const purchaseSheet = XLSX.utils.aoa_to_sheet(purchaseRows);
+    purchaseSheet['!cols'] = [
+      { wch: 13 },
+      { wch: 22 },
+      { wch: 18 },
+      { wch: 15 },
+      { wch: 20 },
+      { wch: 14 },
+      { wch: 13 },
+      { wch: 28 },
+      { wch: 10 },
+      { wch: 18 },
+      { wch: 18 },
+      { wch: 16 },
+      { wch: 28 },
+    ];
+
+    XLSX.utils.book_append_sheet(
+      workbook,
+      profileSheet,
+      lang === 'ar' ? 'ملفات العملاء' : 'Profils Clients'
+    );
+    XLSX.utils.book_append_sheet(
+      workbook,
+      purchaseSheet,
+      lang === 'ar' ? 'سجل المشتريات' : 'Historique Achats'
+    );
+
+    const raw = XLSX.write(workbook, {
+      type: 'buffer',
+      bookType: 'xlsx',
+      compression: true,
+    }) as Buffer;
+    const buffer = Buffer.from(raw);
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    const fileLabel = customers.length === 1 && customerId ? customers[0].code.toLowerCase() : 'tous';
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="clients-achats-${fileLabel}-${dateStamp}.xlsx"`
     );
     res.setHeader('Content-Length', String(buffer.length));
     res.setHeader('Cache-Control', 'no-store');

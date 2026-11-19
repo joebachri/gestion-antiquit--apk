@@ -11,6 +11,7 @@ import {
   MessageCircle,
   PlusSquare,
   Share2,
+  Users,
   X,
 } from 'lucide-react';
 import type { Language } from '../types';
@@ -217,6 +218,31 @@ function getGuideSections(lang: Language): GuideSection[] {
           },
         ],
       },
+      {
+        id: 'customers',
+        navLabel: 'العملاء والمشتريات',
+        title: 'إدارة العملاء وسجل المشتريات',
+        summary:
+          'أنشئ ملفات العملاء (بائع، هاوٍ، عميل دائم) مع تسجيل المشتريات وتصدير Excel فردي أو جماعي.',
+        icon: Users,
+        steps: [
+          {
+            title: 'افتح قسم العملاء وأضف ملفاً',
+            description:
+              'اضغط على تبويب «العملاء والمشتريات» ثم «عميل جديد» لإدخال الاسم والهاتف والعنوان والمدينة والفئة.',
+          },
+          {
+            title: 'سجّل المشتريات',
+            description:
+              'افتح ملف العميل واضغط «إضافة عملية شراء» لاختيار منتج من المخزون أو كتابته يدوياً مع الكمية والتاريخ.',
+          },
+          {
+            title: 'صدّر إلى Excel (فردي أو جماعي)',
+            description:
+              'استخدم «تصدير Excel» داخل بطاقة العميل لتصدير ملفه فقط، أو «تصدير Excel (الجميع)» لتصدير كل العملاء.',
+          },
+        ],
+      },
     ];
   }
 
@@ -416,6 +442,31 @@ function getGuideSections(lang: Language): GuideSection[] {
           title: 'Exporter vers Excel',
           description:
             'Cliquez sur « Exporter Excel » pour télécharger le catalogue complet au format .xlsx.',
+        },
+      ],
+    },
+    {
+      id: 'customers',
+      navLabel: 'Clients & Achats',
+      title: 'Gestion des clients, achats & export Excel',
+      summary:
+        'Créez vos fiches clients (Vendeur, Amateur, Client régulier), suivez leurs achats et exportez un ou tous les clients vers Excel.',
+      icon: Users,
+      steps: [
+        {
+          title: 'Créer un profil client',
+          description:
+            'Ouvrez l’onglet « Clients & Achats » puis « Nouveau client » pour saisir nom, téléphone, adresse, ville et catégorie.',
+        },
+        {
+          title: 'Enregistrer les achats',
+          description:
+            'Touchez + ou ouvrez la fiche du client pour ajouter un article (du stock ou libre), quantité, prix et date.',
+        },
+        {
+          title: 'Exporter Excel (Individuel / Tous)',
+          description:
+            'Cliquez sur l’icône Excel d’un client pour son historique seul, ou « Exporter Excel (Tous) » pour l’ensemble.',
         },
       ],
     },

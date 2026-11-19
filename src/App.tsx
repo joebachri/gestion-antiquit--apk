@@ -4,15 +4,23 @@ import {
   Edit3,
   FileSpreadsheet,
   Image as ImageIcon,
+  Package,
   Play,
   Plus,
   Search,
   Share2,
   Trash2,
+  UserPlus,
+  Users,
   Video,
   X,
 } from 'lucide-react';
 import type {
+  Customer,
+  CustomerCategory,
+  CustomerPayload,
+  CustomerPurchasePayload,
+  CustomerSummary,
   InventorySummary,
   Language,
   MetaAuthStatus,
@@ -21,13 +29,18 @@ import type {
   ShopSettings,
 } from './types';
 import { formatCurrency, formatNumber, translations } from './i18n';
-import { buildExcelBlob } from './utils/excel';
+import { buildCustomersExcelBlob, buildExcelBlob } from './utils/excel';
 import {
+  deleteCustomerApi,
+  deleteCustomerPurchaseApi,
   deleteProductApi,
+  fetchCustomersApi,
   fetchExchangeRatesApi,
   fetchMetaAuthStatusApi,
   fetchProductsApi,
   fetchSettingsApi,
+  saveCustomerApi,
+  saveCustomerPurchaseApi,
   saveProductApi,
   saveSettingsApi,
 } from './utils/api';
@@ -40,6 +53,9 @@ import { ShareModal } from './components/ShareModal';
 import { LogoModal } from './components/LogoModal';
 import { InitialSetupModal } from './components/InitialSetupModal';
 import { GuideModal } from './components/GuideModal';
+import { CustomersView } from './components/CustomersView';
+import { CustomerFormModal } from './components/CustomerFormModal';
+import { CustomerDetailModal } from './components/CustomerDetailModal';
 
 export default function App() {
   const [lang, setLang] = useState<Language>(() => {
@@ -90,6 +106,23 @@ export default function App() {
   const [, setRatesVersion] = useState(0);
   const [toastMessage, setToastMessage] = useState('');
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Customers & Purchase History state
+  const [activeTab, setActiveTab] = useState<'inventory' | 'customers'>('inventory');
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [customerSummary, setCustomerSummary] = useState<CustomerSummary>({
+    totalCustomers: 0,
+    totalPurchases: 0,
+    totalRevenueMad: 0,
+  });
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [customerCategory, setCustomerCategory] = useState<'all' | CustomerCategory>('all');
+  const [customersLoading, setCustomersLoading] = useState(true);
+  const [customerFormOpen, setCustomerFormOpen] = useState(false);
+  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+  const [detailCustomer, setDetailCustomer] = useState<Customer | null>(null);
+  const [detailStartAddPurchase, setDetailStartAddPurchase] = useState(false);
+  const [exportingCustomers, setExportingCustomers] = useState(false);
 
   const showToast = useCallback((message: string) => {
     if (!message) return;
@@ -182,6 +215,122 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [searchQuery, fetchProducts]);
 
+  const fetchCustomers = useCallback(
+    async (query: string, category: 'all' | CustomerCategory) => {
+      try {
+        const data = await fetchCustomersApi(query, category);
+        setCustomers(data.customers);
+        setCustomerSummary(data.summary);
+      } catch {
+        // keep current customers
+      } finally {
+        setCustomersLoading(false);
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void fetchCustomers(customerSearch, customerCategory);
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [customerSearch, customerCategory, fetchCustomers]);
+
+  const handleSaveCustomer = async (payload: CustomerPayload, editingId?: string) => {
+    const saved = await saveCustomerApi(payload, editingId);
+    if (detailCustomer?.id === saved.id) {
+      setDetailCustomer(saved);
+    }
+    showToast(t.customerSavedToast);
+    await fetchCustomers(customerSearch, customerCategory);
+  };
+
+  const handleDeleteCustomer = async (customerId: string) => {
+    await deleteCustomerApi(customerId);
+    if (detailCustomer?.id === customerId) {
+      setDetailCustomer(null);
+    }
+    await fetchCustomers(customerSearch, customerCategory);
+  };
+
+  const handleSavePurchase = async (
+    customerId: string,
+    payload: CustomerPurchasePayload,
+    editingPurchaseId?: string
+  ) => {
+    const updatedCustomer = await saveCustomerPurchaseApi(
+      customerId,
+      payload,
+      editingPurchaseId
+    );
+    setDetailCustomer(updatedCustomer);
+    showToast(t.purchaseSavedToast);
+    await fetchCustomers(customerSearch, customerCategory);
+  };
+
+  const handleDeletePurchase = async (customerId: string, purchaseId: string) => {
+    const updatedCustomer = await deleteCustomerPurchaseApi(customerId, purchaseId);
+    setDetailCustomer(updatedCustomer);
+    await fetchCustomers(customerSearch, customerCategory);
+  };
+
+  const handleExportCustomersExcel = async (singleCustomer?: Customer) => {
+    if (exportingCustomers) return;
+    setExportingCustomers(true);
+    try {
+      const dateStamp = new Date().toISOString().slice(0, 10);
+      const label = singleCustomer ? singleCustomer.code.toLowerCase() : 'tous';
+      const filename = `clients-achats-${label}-${dateStamp}.xlsx`;
+      let xlsxBlob: Blob | null = null;
+
+      try {
+        const params = new URLSearchParams({ lang });
+        if (singleCustomer) params.set('customerId', singleCustomer.id);
+        const res = await fetch(`/api/export/customers/excel?${params.toString()}`, {
+          credentials: 'same-origin',
+          cache: 'no-store',
+        });
+        if (res.ok) {
+          const buf = await res.arrayBuffer();
+          const bytes = new Uint8Array(buf);
+          if (bytes.length > 100 && bytes[0] === 0x50 && bytes[1] === 0x4b) {
+            xlsxBlob = new Blob([buf], {
+              type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            });
+          }
+        }
+      } catch {
+        // Fallback to client-side XLSX generation
+      }
+
+      if (!xlsxBlob) {
+        let targetList: Customer[];
+        if (singleCustomer) {
+          targetList = [singleCustomer];
+        } else if (customerSearch.trim() || customerCategory !== 'all') {
+          try {
+            const full = await fetchCustomersApi('', 'all');
+            targetList = full.customers;
+          } catch {
+            targetList = customers;
+          }
+        } else {
+          targetList = customers;
+        }
+        xlsxBlob = buildCustomersExcelBlob(targetList, settings.currency, lang);
+      }
+
+      await saveOrShareBlob(
+        xlsxBlob,
+        filename,
+        singleCustomer ? `${singleCustomer.code} — ${singleCustomer.name}` : t.exportAllCustomersExcel
+      );
+    } finally {
+      setExportingCustomers(false);
+    }
+  };
+
   const handleSaveProduct = async (payload: ProductPayload, editingId?: string) => {
     await saveProductApi(payload, editingId);
     await fetchProducts(searchQuery);
@@ -265,7 +414,73 @@ export default function App() {
         dir={lang === 'ar' ? 'rtl' : 'ltr'}
         className="mx-auto max-w-7xl px-4 pb-28 pt-5 sm:px-6 sm:pb-12"
       >
-        {/* KPI Summary Strip: Total Items & Global Monetary Value */}
+        {/* Top Module Switcher: Inventory vs Customers & Purchases */}
+        <nav
+          aria-label="Sections"
+          className="mb-5 grid grid-cols-2 gap-2 rounded-2xl border border-[#DCE7E0] bg-white p-1.5 sm:inline-grid sm:w-auto dark:border-[#1E3A2D] dark:bg-[#0F2119]"
+        >
+          <button
+            type="button"
+            onClick={() => setActiveTab('inventory')}
+            className={`flex min-h-[44px] items-center justify-center gap-2 rounded-xl px-4 text-xs font-bold transition-colors whitespace-nowrap sm:text-sm ${
+              activeTab === 'inventory'
+                ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
+                : 'text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]'
+            }`}
+          >
+            <Package className="h-4 w-4 shrink-0" />
+            <span>{t.tabInventory}</span>
+            <span className="tabular-nums opacity-80">({formatNumber(summary.totalReferences, lang)})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('customers')}
+            className={`flex min-h-[44px] items-center justify-center gap-2 rounded-xl px-4 text-xs font-bold transition-colors whitespace-nowrap sm:text-sm ${
+              activeTab === 'customers'
+                ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
+                : 'text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]'
+            }`}
+          >
+            <Users className="h-4 w-4 shrink-0" />
+            <span>{t.tabCustomers}</span>
+            <span className="tabular-nums opacity-80">
+              ({formatNumber(customerSummary.totalCustomers, lang)})
+            </span>
+          </button>
+        </nav>
+
+        {activeTab === 'customers' ? (
+          <CustomersView
+            lang={lang}
+            currency={settings.currency}
+            customers={customers}
+            summary={customerSummary}
+            loading={customersLoading}
+            searchQuery={customerSearch}
+            onChangeSearch={setCustomerSearch}
+            selectedCategory={customerCategory}
+            onChangeCategory={setCustomerCategory}
+            exporting={exportingCustomers}
+            onExportAllExcel={() => void handleExportCustomersExcel()}
+            onExportSingleExcel={(cust) => void handleExportCustomersExcel(cust)}
+            onAddCustomer={() => {
+              setEditingCustomer(null);
+              setCustomerFormOpen(true);
+            }}
+            onEditCustomer={(cust) => {
+              setEditingCustomer(cust);
+              setCustomerFormOpen(true);
+            }}
+            onViewCustomer={(cust, startAddPurchase = false) => {
+              setDetailStartAddPurchase(startAddPurchase);
+              setDetailCustomer(cust);
+            }}
+            onDeleteCustomer={handleDeleteCustomer}
+          />
+        ) : (
+          <>
+            {/* KPI Summary Strip: Total Items & Global Monetary Value */}
         <section className="mb-5 grid grid-cols-2 gap-3 sm:gap-4">
           <div className="rounded-2xl border border-[#DCE7E0] bg-white p-4 sm:p-5 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
             <p className="text-xs font-medium text-[#335947] dark:text-[#9EC0AE]">
@@ -598,6 +813,8 @@ export default function App() {
             })}
           </section>
         )}
+          </>
+        )}
       </main>
 
       {/* Mobile Sticky Bottom Action Bar (Thumb Zone) */}
@@ -605,29 +822,55 @@ export default function App() {
         dir={lang === 'ar' ? 'rtl' : 'ltr'}
         className="pb-safe fixed bottom-0 left-0 right-0 z-30 border-t border-[#DCE7E0] bg-white/95 px-4 pt-2.5 backdrop-blur-md sm:hidden dark:border-[#1E3A2D] dark:bg-[#0A1812]/95"
       >
-        <div className="flex items-center gap-2.5">
-          <button
-            type="button"
-            onClick={() => void handleExportExcel()}
-            disabled={exporting}
-            className="flex min-h-[46px] items-center justify-center gap-2 rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-4 text-xs font-semibold text-[#115E3B] disabled:opacity-60 whitespace-nowrap shrink-0 dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#34D399]"
-          >
-            <FileSpreadsheet className="h-4 w-4" />
-            <span>{t.exportExcel}</span>
-          </button>
+        {activeTab === 'customers' ? (
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() => void handleExportCustomersExcel()}
+              disabled={exportingCustomers || customerSummary.totalCustomers === 0}
+              className="flex min-h-[46px] items-center justify-center gap-2 rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-4 text-xs font-semibold text-[#115E3B] disabled:opacity-60 whitespace-nowrap shrink-0 dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#34D399]"
+            >
+              <FileSpreadsheet className="h-4 w-4" />
+              <span>{t.exportExcel}</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => {
-              setEditingProduct(null);
-              setFormOpen(true);
-            }}
-            className="flex min-h-[46px] flex-1 items-center justify-center gap-2 rounded-xl bg-[#115E3B] px-4 text-sm font-semibold text-white whitespace-nowrap dark:bg-[#10B981] dark:text-[#052E1C]"
-          >
-            <Plus className="h-4 w-4" />
-            <span>{t.addProduct}</span>
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={() => {
+                setEditingCustomer(null);
+                setCustomerFormOpen(true);
+              }}
+              className="flex min-h-[46px] flex-1 items-center justify-center gap-2 rounded-xl bg-[#115E3B] px-4 text-sm font-semibold text-white whitespace-nowrap dark:bg-[#10B981] dark:text-[#052E1C]"
+            >
+              <UserPlus className="h-4 w-4" />
+              <span>{t.addCustomer}</span>
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() => void handleExportExcel()}
+              disabled={exporting}
+              className="flex min-h-[46px] items-center justify-center gap-2 rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-4 text-xs font-semibold text-[#115E3B] disabled:opacity-60 whitespace-nowrap shrink-0 dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#34D399]"
+            >
+              <FileSpreadsheet className="h-4 w-4" />
+              <span>{t.exportExcel}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setEditingProduct(null);
+                setFormOpen(true);
+              }}
+              className="flex min-h-[46px] flex-1 items-center justify-center gap-2 rounded-xl bg-[#115E3B] px-4 text-sm font-semibold text-white whitespace-nowrap dark:bg-[#10B981] dark:text-[#052E1C]"
+            >
+              <Plus className="h-4 w-4" />
+              <span>{t.addProduct}</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Modals */}
@@ -709,12 +952,43 @@ export default function App() {
         onClose={() => setGuideOpen(false)}
         onQuickAction={(action) => {
           if (action === 'add-product') {
+            setActiveTab('inventory');
             setEditingProduct(null);
             setFormOpen(true);
           } else if (action === 'open-settings') {
             setLogoModalOpen(true);
           }
         }}
+      />
+
+      <CustomerFormModal
+        isOpen={customerFormOpen}
+        lang={lang}
+        editingCustomer={editingCustomer}
+        onClose={() => {
+          setCustomerFormOpen(false);
+          setEditingCustomer(null);
+        }}
+        onSubmit={handleSaveCustomer}
+      />
+
+      <CustomerDetailModal
+        customer={detailCustomer}
+        lang={lang}
+        currency={settings.currency}
+        products={products}
+        initialAddPurchase={detailStartAddPurchase}
+        onClose={() => {
+          setDetailCustomer(null);
+          setDetailStartAddPurchase(false);
+        }}
+        onEditProfile={(cust) => {
+          setEditingCustomer(cust);
+          setCustomerFormOpen(true);
+        }}
+        onExportCustomerExcel={(cust) => void handleExportCustomersExcel(cust)}
+        onSavePurchase={handleSavePurchase}
+        onDeletePurchase={handleDeletePurchase}
       />
 
       {/* Global Confirmation Toast */}

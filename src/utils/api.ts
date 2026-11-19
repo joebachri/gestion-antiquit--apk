@@ -1,5 +1,9 @@
 import { Capacitor } from '@capacitor/core';
 import type {
+  Customer,
+  CustomerPayload,
+  CustomerPurchasePayload,
+  CustomerSummary,
   FacebookPublishPayload,
   InstagramPublishPayload,
   InventorySummary,
@@ -9,13 +13,20 @@ import type {
   ShopSettings,
 } from '../types';
 import {
+  localAddPurchase,
+  localCreateCustomer,
   localCreateProduct,
+  localDeleteCustomer,
   localDeleteProduct,
+  localDeletePurchase,
   localGetSettings,
+  localListCustomers,
   localListProducts,
   localNextCode,
   localSaveSettings,
+  localUpdateCustomer,
   localUpdateProduct,
+  localUpdatePurchase,
 } from './storage';
 import { getExchangeRates, setExchangeRates } from './currency';
 
@@ -264,3 +275,90 @@ export async function fetchExchangeRatesApi(): Promise<Record<string, number>> {
   }
   return getExchangeRates();
 }
+
+export async function fetchCustomersApi(
+  query: string,
+  category?: string
+): Promise<{ customers: Customer[]; summary: CustomerSummary }> {
+  if (isNative()) {
+    return localListCustomers(query, category);
+  }
+  try {
+    const params = new URLSearchParams();
+    if (query.trim()) params.set('q', query.trim());
+    if (category && category !== 'all') params.set('category', category);
+    const res = await fetch(`/api/customers?${params.toString()}`);
+    if (!res.ok) throw new Error('HTTP error');
+    return (await res.json()) as { customers: Customer[]; summary: CustomerSummary };
+  } catch {
+    return localListCustomers(query, category);
+  }
+}
+
+export async function saveCustomerApi(
+  payload: CustomerPayload,
+  editingId?: string
+): Promise<Customer> {
+  if (isNative()) {
+    return editingId ? localUpdateCustomer(editingId, payload) : localCreateCustomer(payload);
+  }
+  const url = editingId ? `/api/customers/${editingId}` : '/api/customers';
+  const method = editingId ? 'PUT' : 'POST';
+  const res = await fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error('Customer save failed');
+  const data = (await res.json()) as { customer: Customer };
+  return data.customer;
+}
+
+export async function deleteCustomerApi(customerId: string): Promise<void> {
+  if (isNative()) {
+    await localDeleteCustomer(customerId);
+    return;
+  }
+  const res = await fetch(`/api/customers/${customerId}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Customer delete failed');
+}
+
+export async function saveCustomerPurchaseApi(
+  customerId: string,
+  payload: CustomerPurchasePayload,
+  editingPurchaseId?: string
+): Promise<Customer> {
+  if (isNative()) {
+    return editingPurchaseId
+      ? localUpdatePurchase(customerId, editingPurchaseId, payload)
+      : localAddPurchase(customerId, payload);
+  }
+  const url = editingPurchaseId
+    ? `/api/customers/${customerId}/purchases/${editingPurchaseId}`
+    : `/api/customers/${customerId}/purchases`;
+  const method = editingPurchaseId ? 'PUT' : 'POST';
+  const res = await fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error('Purchase save failed');
+  const data = (await res.json()) as { customer: Customer };
+  return data.customer;
+}
+
+export async function deleteCustomerPurchaseApi(
+  customerId: string,
+  purchaseId: string
+): Promise<Customer> {
+  if (isNative()) {
+    return localDeletePurchase(customerId, purchaseId);
+  }
+  const res = await fetch(`/api/customers/${customerId}/purchases/${purchaseId}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error('Purchase delete failed');
+  const data = (await res.json()) as { customer: Customer };
+  return data.customer;
+}
+

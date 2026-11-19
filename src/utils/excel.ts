@@ -122,3 +122,239 @@ export function buildExcelBlob(
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   });
 }
+
+function getCustomerCategoryExportLabel(category: string, lang: Language): string {
+  if (lang === 'ar') {
+    if (category === 'seller') return 'بائع / تاجر';
+    if (category === 'hobbyist') return 'هاوٍ / جامع تحف';
+    if (category === 'regular') return 'عميل دائم';
+    return 'أخرى';
+  }
+  if (category === 'seller') return 'Vendeur / Revendeur';
+  if (category === 'hobbyist') return 'Amateur / Collectionneur';
+  if (category === 'regular') return 'Client régulier';
+  return 'Autre';
+}
+
+function getPaymentMethodExportLabel(method: string, lang: Language): string {
+  if (lang === 'ar') {
+    if (method === 'cash') return 'نقداً';
+    if (method === 'transfer') return 'تحويل بنكي';
+    if (method === 'check') return 'شيك';
+    if (method === 'card') return 'بطاقة بنكية';
+    return 'أخرى';
+  }
+  if (method === 'cash') return 'Espèces';
+  if (method === 'transfer') return 'Virement';
+  if (method === 'check') return 'Chèque';
+  if (method === 'card') return 'Carte bancaire';
+  return 'Autre';
+}
+
+export function buildCustomersExcelBlob(
+  customers: import('../types').Customer[],
+  currency: string,
+  lang: Language
+): Blob {
+  const profileHeaders =
+    lang === 'ar'
+      ? [
+          'رمز العميل',
+          'الاسم الكامل',
+          'الفئة',
+          'رقم الهاتف',
+          'المدينة',
+          'العنوان',
+          'عدد المشتريات',
+          `إجمالي المشتريات (${currency})`,
+          'آخر شراء',
+          'ملاحظات',
+        ]
+      : [
+          'Code Client',
+          'Nom complet',
+          'Catégorie',
+          'Téléphone',
+          'Ville',
+          'Adresse',
+          "Nb d'achats",
+          `Total acheté (${currency})`,
+          'Dernier achat',
+          'Notes',
+        ];
+
+  const profileRows: Array<Array<string | number>> = [profileHeaders];
+  let grandPurchasesCount = 0;
+  let grandRevenueMad = 0;
+
+  for (const cust of customers) {
+    const purchases = cust.purchases || [];
+    const totalMad = purchases.reduce((sum, p) => sum + (Number(p.totalPrice) || 0), 0);
+    const lastDate = purchases
+      .map((p) => p.purchaseDate)
+      .filter(Boolean)
+      .sort()
+      .pop() || '';
+    grandPurchasesCount += purchases.length;
+    grandRevenueMad += totalMad;
+
+    profileRows.push([
+      cust.code,
+      cust.name,
+      getCustomerCategoryExportLabel(cust.category, lang),
+      cust.phone || '',
+      cust.city || '',
+      cust.address || '',
+      purchases.length,
+      convertFromMad(totalMad, currency),
+      lastDate,
+      cust.notes || '',
+    ]);
+  }
+
+  profileRows.push([
+    lang === 'ar' ? 'المجموع' : 'TOTAL',
+    lang === 'ar' ? `${customers.length} عملاء` : `${customers.length} client(s)`,
+    '',
+    '',
+    '',
+    '',
+    grandPurchasesCount,
+    convertFromMad(grandRevenueMad, currency),
+    '',
+    '',
+  ]);
+
+  const purchaseHeaders =
+    lang === 'ar'
+      ? [
+          'رمز العميل',
+          'اسم العميل',
+          'رقم الهاتف',
+          'المدينة',
+          'الفئة',
+          'تاريخ الشراء',
+          'رمز المنتج',
+          'اسم المنتج',
+          'الكمية',
+          `سعر الوحدة (${currency})`,
+          `المجموع (${currency})`,
+          'طريقة الدفع',
+          'تفاصيل',
+        ]
+      : [
+          'Code Client',
+          'Nom Client',
+          'Téléphone',
+          'Ville',
+          'Catégorie',
+          "Date d'achat",
+          'Code Produit',
+          'Nom Produit',
+          'Quantité',
+          `Prix unitaire (${currency})`,
+          `Total (${currency})`,
+          'Paiement',
+          'Détails',
+        ];
+
+  const purchaseRows: Array<Array<string | number>> = [purchaseHeaders];
+  let totalQty = 0;
+  let totalPurchasesMad = 0;
+
+  for (const cust of customers) {
+    for (const p of cust.purchases || []) {
+      totalQty += Number(p.quantity) || 0;
+      totalPurchasesMad += Number(p.totalPrice) || 0;
+      purchaseRows.push([
+        cust.code,
+        cust.name,
+        cust.phone || '',
+        cust.city || '',
+        getCustomerCategoryExportLabel(cust.category, lang),
+        p.purchaseDate,
+        p.productCode || '',
+        p.productName,
+        p.quantity,
+        convertFromMad(p.unitPrice, currency),
+        convertFromMad(p.totalPrice, currency),
+        getPaymentMethodExportLabel(p.paymentMethod, lang),
+        p.notes || '',
+      ]);
+    }
+  }
+
+  purchaseRows.push([
+    lang === 'ar' ? 'المجموع' : 'TOTAL',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    lang === 'ar' ? `${grandPurchasesCount} عمليات` : `${grandPurchasesCount} achat(s)`,
+    totalQty,
+    '',
+    convertFromMad(totalPurchasesMad, currency),
+    '',
+    '',
+  ]);
+
+  const workbook = XLSX.utils.book_new();
+  if (lang === 'ar') {
+    workbook.Workbook = { Views: [{ RTL: true }] };
+  }
+
+  const profileSheet = XLSX.utils.aoa_to_sheet(profileRows);
+  profileSheet['!cols'] = [
+    { wch: 13 },
+    { wch: 24 },
+    { wch: 22 },
+    { wch: 18 },
+    { wch: 16 },
+    { wch: 30 },
+    { wch: 14 },
+    { wch: 20 },
+    { wch: 14 },
+    { wch: 30 },
+  ];
+
+  const purchaseSheet = XLSX.utils.aoa_to_sheet(purchaseRows);
+  purchaseSheet['!cols'] = [
+    { wch: 13 },
+    { wch: 22 },
+    { wch: 18 },
+    { wch: 15 },
+    { wch: 20 },
+    { wch: 14 },
+    { wch: 13 },
+    { wch: 28 },
+    { wch: 10 },
+    { wch: 18 },
+    { wch: 18 },
+    { wch: 16 },
+    { wch: 28 },
+  ];
+
+  XLSX.utils.book_append_sheet(
+    workbook,
+    profileSheet,
+    lang === 'ar' ? 'ملفات العملاء' : 'Profils Clients'
+  );
+  XLSX.utils.book_append_sheet(
+    workbook,
+    purchaseSheet,
+    lang === 'ar' ? 'سجل المشتريات' : 'Historique Achats'
+  );
+
+  const out = XLSX.write(workbook, {
+    bookType: 'xlsx',
+    type: 'array',
+    compression: true,
+  }) as ArrayBuffer;
+
+  return new Blob([out], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+}
+

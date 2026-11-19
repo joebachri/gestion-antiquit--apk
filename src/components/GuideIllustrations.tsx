@@ -14,6 +14,8 @@ import {
   Share2,
   Sparkles,
   Upload,
+  UserPlus,
+  Users,
   Video,
 } from 'lucide-react';
 import type { Language } from '../types';
@@ -30,7 +32,8 @@ export type GuideSectionId =
   | 'post-whatsapp'
   | 'post-facebook'
   | 'post-instagram'
-  | 'search-export';
+  | 'search-export'
+  | 'customers';
 
 interface ArrowDef {
   step: 1 | 2 | 3;
@@ -97,6 +100,11 @@ const SECTION_ARROWS: Record<GuideSectionId, ArrowDef[]> = {
     { step: 1, fromX: 66, fromY: 136, ctrlX: 82, ctrlY: 112, toX: 104, toY: 84, badgeX: 56, badgeY: 148 },
     { step: 2, fromX: 178, fromY: 258, ctrlX: 188, ctrlY: 222, toX: 205, toY: 188, badgeX: 174, badgeY: 274 },
     { step: 3, fromX: 468, fromY: 256, ctrlX: 486, ctrlY: 220, toX: 500, toY: 188, badgeX: 464, badgeY: 272 },
+  ],
+  customers: [
+    { step: 1, fromX: 134, fromY: 42, ctrlX: 172, ctrlY: 54, toX: 210, toY: 78, badgeX: 118, badgeY: 36 },
+    { step: 2, fromX: 342, fromY: 162, ctrlX: 386, ctrlY: 180, toX: 422, toY: 204, badgeX: 326, badgeY: 158 },
+    { step: 3, fromX: 454, fromY: 348, ctrlX: 492, ctrlY: 332, toX: 522, toY: 296, badgeX: 438, badgeY: 352 },
   ],
 };
 
@@ -704,6 +712,92 @@ function renderCanvasContent(sectionId: GuideSectionId, lang: Language, activeSt
             <div className="rounded-lg bg-[#F7FAF8] p-2 dark:bg-[#091611]">
               <span className="block font-bold text-[#115E3B] dark:text-[#34D399]">.XLSX</span>
               <span>Excel Ready</span>
+            </div>
+          </div>
+        </div>
+      );
+
+    case 'customers':
+      return (
+        <div className="flex h-full flex-col justify-between gap-2.5 p-3 sm:p-4">
+          {/* Top Tabs Mockup */}
+          <div className="flex items-center justify-between gap-2 rounded-xl border border-[#DCE7E0] bg-white px-3 py-2 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
+            <div className="flex items-center gap-1.5">
+              <span className="rounded-lg border border-[#DCE7E0] px-2.5 py-1 text-[9px] font-semibold text-[#335947] dark:border-[#1E3A2D] dark:text-[#9EC0AE]">
+                {t.tabInventory}
+              </span>
+              <span
+                className={`flex items-center gap-1 rounded-lg bg-[#115E3B] px-2.5 py-1 text-[9px] font-bold text-white transition-all dark:bg-[#10B981] dark:text-[#052E1C] ${hi(1)}`}
+              >
+                <Users className="h-3 w-3" />
+                <span>{t.tabCustomers}</span>
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <span className="flex items-center gap-1 rounded-lg border border-[#DCE7E0] bg-[#ECF7F1] px-2 py-1 text-[8px] font-bold text-[#115E3B] dark:border-[#1E3A2D] dark:bg-[#132B20] dark:text-[#34D399]">
+                <FileSpreadsheet className="h-3 w-3" />
+                <span>{t.exportAllCustomersExcel}</span>
+              </span>
+              <span className="flex items-center gap-1 rounded-lg bg-[#115E3B] px-2 py-1 text-[8px] font-bold text-white dark:bg-[#10B981] dark:text-[#052E1C]">
+                <UserPlus className="h-3 w-3" />
+                <span>{t.addCustomer}</span>
+              </span>
+            </div>
+          </div>
+
+          {/* Customer Profile + Purchase History Mockup */}
+          <div dir={dir} className="grid flex-1 grid-cols-12 gap-2.5">
+            <div className="col-span-5 flex flex-col justify-between rounded-xl border border-[#DCE7E0] bg-white p-2.5 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
+              <div>
+                <div className="flex items-center justify-between text-[9px] font-bold text-[#115E3B] dark:text-[#34D399]">
+                  <span>CL0001</span>
+                  <span>{t.customerCategorySeller}</span>
+                </div>
+                <p className="mt-1 text-[10px] font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+                  Ahmed Benali
+                </p>
+                <p className="text-[8px] text-[#335947] dark:text-[#9EC0AE]">Fès · +212 6 12 34...</p>
+              </div>
+              <div className="rounded-lg bg-[#F7FAF8] p-2 text-[9px] dark:bg-[#091611]">
+                <span className="block text-[8px] text-[#335947] dark:text-[#9EC0AE]">
+                  {t.customerTotalSpent}
+                </span>
+                <span className="font-bold text-[#115E3B] dark:text-[#34D399]">4 400 MAD</span>
+              </div>
+            </div>
+
+            <div className="col-span-7 flex flex-col justify-between rounded-xl border border-[#DCE7E0] bg-white p-2.5 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[9px] font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+                  {t.customerHistoryTitle}
+                </span>
+                <span
+                  className={`flex items-center gap-1 rounded-lg bg-[#115E3B] px-2 py-1 text-[8px] font-bold text-white transition-all dark:bg-[#10B981] dark:text-[#052E1C] ${hi(2)}`}
+                >
+                  <Plus className="h-2.5 w-2.5" />
+                  <span>{t.customerAddPurchase}</span>
+                </span>
+              </div>
+
+              <div className="space-y-1 rounded-lg border border-[#DCE7E0] bg-[#F7FAF8] p-2 text-[8px] dark:border-[#1E3A2D] dark:bg-[#091611]">
+                <div className="flex items-center justify-between font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+                  <span>L0001 · Lanterne Fassi</span>
+                  <span className="text-[#115E3B] dark:text-[#34D399]">3 200 MAD</span>
+                </div>
+                <span className="block text-[#335947] dark:text-[#9EC0AE]">
+                  Qté: 1 · {t.paymentCash}
+                </span>
+              </div>
+
+              <div className="flex justify-end">
+                <span
+                  className={`flex items-center gap-1 rounded-lg border border-[#115E3B] bg-[#ECF7F1] px-2.5 py-1 text-[8px] font-bold text-[#115E3B] transition-all dark:border-[#10B981] dark:bg-[#132B20] dark:text-[#34D399] ${hi(3)}`}
+                >
+                  <FileSpreadsheet className="h-3 w-3" />
+                  <span>{t.exportCustomerExcel} (.XLSX)</span>
+                </span>
+              </div>
             </div>
           </div>
         </div>

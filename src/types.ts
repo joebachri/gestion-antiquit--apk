@@ -100,3 +100,63 @@ export interface InstagramPublishPayload {
   location?: string;
   igAccountId?: string;
 }
+
+export type CustomerCategory = 'seller' | 'hobbyist' | 'regular' | 'other';
+
+export type PurchasePaymentMethod = 'cash' | 'transfer' | 'check' | 'card' | 'other';
+
+export interface CustomerPurchase {
+  id: string;
+  customerId: string;
+  productId?: string;
+  productCode: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+  purchaseDate: string;
+  paymentMethod: PurchasePaymentMethod;
+  notes: string;
+  createdAt: string;
+}
+
+export interface Customer {
+  id: string;
+  code: string;
+  name: string;
+  phone: string;
+  address: string;
+  city: string;
+  category: CustomerCategory;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+  purchases: CustomerPurchase[];
+}
+
+export interface CustomerSummary {
+  totalCustomers: number;
+  totalPurchases: number;
+  totalRevenueMad: number;
+}
+
+export interface CustomerPayload {
+  name: string;
+  phone: string;
+  address: string;
+  city: string;
+  category: CustomerCategory;
+  notes: string;
+}
+
+export interface CustomerPurchasePayload {
+  productId?: string;
+  productCode: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  purchaseDate: string;
+  paymentMethod: PurchasePaymentMethod;
+  notes: string;
+}
+
