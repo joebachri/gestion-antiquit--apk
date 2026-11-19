@@ -1,12 +1,14 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   BookOpen,
+  Calculator,
   Camera,
   ChevronLeft,
   ChevronRight,
   Coins,
   FileSpreadsheet,
   Film,
+  Images,
   Link2,
   MessageCircle,
   PlusSquare,
@@ -18,7 +20,7 @@ import type { Language } from '../types';
 import { translations } from '../i18n';
 import { GuideIllustration, type GuideSectionId } from './GuideIllustrations';
 
-export type GuideQuickAction = 'add-product' | 'open-settings';
+export type GuideQuickAction = 'add-product' | 'open-settings' | 'open-calculator';
 
 interface GuideModalProps {
   isOpen: boolean;
@@ -70,23 +72,25 @@ function getGuideSections(lang: Language): GuideSection[] {
       },
       {
         id: 'add-logo',
-        navLabel: 'شعار المتجر',
-        title: 'إضافة أو تغيير شعار المتجر',
-        summary: 'خصّص شعار متجرك ليظهر أعلى التطبيق وداخل بطاقات المشاركة الرسمية.',
+        navLabel: 'شعار المتجر والاسم',
+        title: 'شعار التطبيق وشعار واسم متجرك',
+        summary:
+          'يظهر شعار التطبيق الأثري «GA» في أعلى اليسار، بينما يظهر شعار متجرك واسمه الاختياري في أعلى اليمين.',
         icon: Camera,
         quickAction: 'open-settings',
         steps: [
           {
             title: 'افتح إعدادات المتجر',
-            description: 'اضغط على شعار التطبيق وأيقونة الكاميرا في أعلى يمين الشاشة.',
+            description: 'اضغط على منطقة شعار متجرك واسمه في أعلى يمين الشاشة (مقابل شعار GA على اليسار).',
           },
           {
-            title: 'اختر صورة الشعار',
-            description: 'اضغط «استيراد شعار» من المعرض أو «التقاط صورة للشعار» بالكاميرا.',
+            title: 'أضف الاسم والشعار',
+            description:
+              'أدخل اسم متجرك (اختياري) ثم اضغط «استيراد شعار» من المعرض أو «التقاط صورة للشعار» بالكاميرا.',
           },
           {
             title: 'احفظ الإعدادات',
-            description: 'اضغط «حفظ الإعدادات» لتحديث الشعار فوراً في الشريط العلوي.',
+            description: 'اضغط «حفظ الإعدادات» ليظهر اسم متجرك وشعاره أعلى الواجهة وبطاقات المشاركة.',
           },
         ],
       },
@@ -201,12 +205,12 @@ function getGuideSections(lang: Language): GuideSection[] {
         id: 'search-export',
         navLabel: 'البحث و Excel',
         title: 'البحث، اللغة، الوضع الداكن و Excel',
-        summary: 'ابحث فوراً بالرمز أو الاسم، بدّل اللغة أو المظهر، وصدّر كامل المخزون إلى Excel.',
+        summary: 'بدّل اللغة والمظهر من الشريط أسفل الشعارات، ابحث بالرمز أو الاسم وصدّر المخزون إلى Excel.',
         icon: FileSpreadsheet,
         steps: [
           {
             title: 'بدّل اللغة أو الوضع الداكن',
-            description: 'من أعلى يسار الشاشة، اضغط على أيقونة القمر/الشمس أو زر «FR | العربية».',
+            description: 'من الشريط أسفل الشعارات، اضغط على أيقونة القمر/الشمس أو زر «FR | العربية».',
           },
           {
             title: 'ابحث بالاسم أو بالرمز',
@@ -219,27 +223,75 @@ function getGuideSections(lang: Language): GuideSection[] {
         ],
       },
       {
-        id: 'customers',
-        navLabel: 'العملاء والمشتريات',
-        title: 'إدارة العملاء وسجل المشتريات',
+        id: 'calculator',
+        navLabel: 'الآلة الحاسبة',
+        title: 'الآلة الحاسبة والتحويل الفوري',
         summary:
-          'أنشئ ملفات العملاء (بائع، هاوٍ، عميل دائم) مع تسجيل المشتريات وتصدير Excel فردي أو جماعي.',
+          'احسب الأسعار والخصومات (%) بسرعة مع معاينة فورية للتحويل بين MAD و EUR و USD وسجل للعمليات.',
+        icon: Calculator,
+        quickAction: 'open-calculator',
+        steps: [
+          {
+            title: 'افتح الآلة الحاسبة',
+            description: 'اضغط على زر «آلة حاسبة» في شريط الأدوات العلوي أسفل الشعارات.',
+          },
+          {
+            title: 'احسب الأسعار والخصم (%)',
+            description: 'نفّذ العمليات الحسابية (+ − × ÷) أو الخصومات مثل 1000 − 15% = 850 بسهولة.',
+          },
+          {
+            title: 'انسخ النتيجة وشاهد التحويل',
+            description: 'يظهر التحويل الفوري (MAD / EUR / USD) مع زر «نسخ النتيجة» وقائمة العمليات الأخيرة.',
+          },
+        ],
+      },
+      {
+        id: 'customers',
+        navLabel: 'العملاء والواتساب',
+        title: 'ملفات العملاء، واتساب، الروابط والمشتريات',
+        summary:
+          'أدر عملاءك (بائع، هاوٍ، عميل دائم) مع ربط الهاتف بواتساب وحسابات فيسبوك وإنستغرام والموقع وتصدير Excel.',
         icon: Users,
         steps: [
           {
-            title: 'افتح قسم العملاء وأضف ملفاً',
+            title: 'أنشئ ملف العميل وروابطه',
             description:
-              'اضغط على تبويب «العملاء والمشتريات» ثم «عميل جديد» لإدخال الاسم والهاتف (النقر على الرقم يفتح واتساب مباشرة) والعنوان والمدينة والفئة.',
+              'من تبويب «العملاء والمشتريات» اضغط «عميل جديد» وأدخل الاسم والهاتف والمدينة والفئة مع روابط فيسبوك وإنستغرام والموقع.',
           },
           {
-            title: 'سجّل المشتريات',
+            title: 'افتح واتساب أو الروابط وسجّل الشراء',
             description:
-              'افتح ملف العميل واضغط «إضافة عملية شراء» لاختيار منتج من المخزون أو كتابته يدوياً مع الكمية والتاريخ.',
+              'انقر على رقم الهاتف لفتح واتساب العميل مباشرة، أو اضغط على روابط فيسبوك/إنستغرام/الموقع، أو سجّل عملية شراء جديدة.',
           },
           {
             title: 'صدّر إلى Excel (فردي أو جماعي)',
             description:
               'استخدم «تصدير Excel» داخل بطاقة العميل لتصدير ملفه فقط، أو «تصدير Excel (الجميع)» لتصدير كل العملاء.',
+          },
+        ],
+      },
+      {
+        id: 'customer-gallery',
+        navLabel: 'معرض صور العميل',
+        title: 'معرض العميل وتحميل الصور من حساباته',
+        summary:
+          'اجلب الصور من صفحات فيسبوك وإنستغرام والموقع المرتبطة بالعميل أو بالصق والرفع المباشر واحفظها في معرضه الخاص.',
+        icon: Images,
+        steps: [
+          {
+            title: 'افتح المعرض واختر مصدراً',
+            description:
+              'اضغط أيقونة المعرض على بطاقة العميل أو تبويب «معرض صور العميل»، ثم اضغط «جلب من: فيسبوك / إنستغرام / الموقع» أو الصق رابطاً.',
+          },
+          {
+            title: 'حدّد الصور واحفظها',
+            description:
+              'اختر الصور المكتشفة واضغط «حفظ في معرض العميل» (إذا طلب الموقع تسجيل الدخول، افتح الحساب وانسخ الصورة ثم الصقها بـ Ctrl+V أو استوردها).',
+          },
+          {
+            title: 'شاهد بالحجم الكامل أو حمّل على جهازك',
+            description:
+              'افتح أي صورة مكبّرة أو اضغط زر التنزيل لحفظها على جهازك في أي وقت.',
           },
         ],
       },
@@ -274,25 +326,27 @@ function getGuideSections(lang: Language): GuideSection[] {
     },
     {
       id: 'add-logo',
-      navLabel: 'Ajouter un logo',
-      title: 'Ajouter ou changer le logo',
+      navLabel: 'Logo & Nom du magasin',
+      title: 'Logo GA, logo personnel & nom du magasin',
       summary:
-        'Personnalisez votre emblème de boutique dans l’en-tête et sur toutes vos cartes de partage.',
+        'Le logo antique « GA » s’affiche en haut à gauche ; votre propre logo et le nom de votre magasin apparaissent en haut à droite.',
       icon: Camera,
       quickAction: 'open-settings',
       steps: [
         {
           title: 'Ouvrir les paramètres boutique',
-          description: 'Touchez le nom et l’icône caméra du logo tout en haut à droite.',
+          description:
+            'Touchez votre logo et nom de boutique en haut à droite (face au logo « GA » placé à gauche).',
         },
         {
-          title: 'Choisir ou photographier le logo',
+          title: 'Saisir le nom et choisir le logo',
           description:
-            'Appuyez sur « Importer un logo » depuis vos fichiers ou « Prendre en photo ».',
+            'Renseignez le nom de votre magasin (optionnel) puis appuyez sur « Importer un logo » ou « Prendre en photo ».',
         },
         {
           title: 'Valider le changement',
-          description: 'Appuyez sur « Enregistrer les préférences » pour appliquer le nouveau logo.',
+          description:
+            'Appuyez sur « Enregistrer les préférences » pour afficher votre logo et votre enseigne en haut de l’écran.',
         },
       ],
     },
@@ -425,13 +479,13 @@ function getGuideSections(lang: Language): GuideSection[] {
       navLabel: 'Recherche & Excel',
       title: 'Recherche, Langue, Thème & Export Excel',
       summary:
-        'Retrouvez une pièce par code ou nom, basculez en Arabe/Français ou mode sombre et exportez votre stock.',
+        'Basculez le thème ou la langue depuis la barre sous les logos, filtrez par code ou nom et exportez votre stock.',
       icon: FileSpreadsheet,
       steps: [
         {
           title: 'Langue & Mode sombre',
           description:
-            'En haut à gauche, utilisez le bouton Lune/Soleil et le sélecteur « FR | العربية ».',
+            'Dans la barre située sous les logos, utilisez le bouton Lune/Soleil et le sélecteur « FR | العربية ».',
         },
         {
           title: 'Recherche rapide par code',
@@ -446,27 +500,78 @@ function getGuideSections(lang: Language): GuideSection[] {
       ],
     },
     {
-      id: 'customers',
-      navLabel: 'Clients & Achats',
-      title: 'Gestion des clients, achats & export Excel',
+      id: 'calculator',
+      navLabel: 'Calculatrice',
+      title: 'Calculatrice boutique & conversion rapide',
       summary:
-        'Créez vos fiches clients (Vendeur, Amateur, Client régulier), suivez leurs achats et exportez un ou tous les clients vers Excel.',
+        'Calculez vos prix et remises (%) avec équivalence directe MAD · EUR · USD, copie en un clic et historique.',
+      icon: Calculator,
+      quickAction: 'open-calculator',
+      steps: [
+        {
+          title: 'Ouvrir la calculatrice',
+          description:
+            'Appuyez sur le bouton « Calculatrice » dans la barre d’outils placée sous les logos.',
+        },
+        {
+          title: 'Calculer prix et remises (%)',
+          description:
+            'Effectuez vos opérations (+ − × ÷) ou remises rapides (ex. 1000 − 15% = 850) sur le pavé.',
+        },
+        {
+          title: 'Convertir, copier ou revoir l’historique',
+          description:
+            'Consultez l’équivalence boutique (MAD / EUR / USD), cliquez sur « Copier le résultat » ou parcourez les calculs récents.',
+        },
+      ],
+    },
+    {
+      id: 'customers',
+      navLabel: 'Clients & WhatsApp',
+      title: 'Fiches clients, WhatsApp, Réseaux & Excel',
+      summary:
+        'Créez vos fiches clients (Vendeur, Amateur, Client régulier), ouvrez WhatsApp ou leurs réseaux en un clic et exportez vers Excel.',
       icon: Users,
       steps: [
         {
-          title: 'Créer un profil client',
+          title: 'Créer un profil & lier ses comptes',
           description:
-            'Ouvrez l’onglet « Clients & Achats » puis « Nouveau client » pour saisir nom, téléphone (cliquez sur le numéro pour ouvrir WhatsApp), adresse, ville et catégorie.',
+            'Dans « Clients & Achats », appuyez sur « Nouveau client » pour saisir nom, téléphone, ville, catégorie ainsi que ses liens Facebook, Instagram et Site web.',
         },
         {
-          title: 'Enregistrer les achats',
+          title: 'Ouvrir WhatsApp, réseaux ou ajouter un achat',
           description:
-            'Touchez + ou ouvrez la fiche du client pour ajouter un article (du stock ou libre), quantité, prix et date.',
+            'Cliquez sur le numéro de téléphone pour lancer WhatsApp, sur Facebook / Instagram / Site pour ouvrir sa page, ou sur « Ajouter un achat ».',
         },
         {
           title: 'Exporter Excel (Individuel / Tous)',
           description:
             'Cliquez sur l’icône Excel d’un client pour son historique seul, ou « Exporter Excel (Tous) » pour l’ensemble.',
+        },
+      ],
+    },
+    {
+      id: 'customer-gallery',
+      navLabel: 'Galerie client',
+      title: 'Galerie client & téléchargement d’images',
+      summary:
+        'Récupérez les photos depuis les comptes Facebook, Instagram ou Site web liés au client (ou par lien/collage/import) et enregistrez-les dans sa galerie.',
+      icon: Images,
+      steps: [
+        {
+          title: 'Ouvrir la galerie & lancer l’extraction',
+          description:
+            'Touchez l’icône Galerie sur une fiche client (ou l’onglet « Galerie client ») puis cliquez sur « Extraire : Facebook / Instagram / Site web » ou collez un lien.',
+        },
+        {
+          title: 'Sélectionner & enregistrer les images',
+          description:
+            'Cochez les images trouvées puis cliquez « Enregistrer dans la galerie » (si la page demande une connexion, utilisez « Ouvrir le compte lié » puis collez avec Ctrl+V ou importez).',
+        },
+        {
+          title: 'Agrandir ou enregistrer sur l’appareil',
+          description:
+            'Affichez les photos sauvegardées en plein écran ou cliquez sur télécharger pour les enregistrer sur votre appareil.',
         },
       ],
     },
@@ -496,6 +601,13 @@ export function GuideModal({
   const sections = getGuideSections(lang);
   const [selectedId, setSelectedId] = useState<GuideSectionId>(initialSection);
   const [activeStep, setActiveStep] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setSelectedId(initialSection);
+      setActiveStep(null);
+    }
+  }, [isOpen, initialSection]);
 
   if (!isOpen) return null;
 

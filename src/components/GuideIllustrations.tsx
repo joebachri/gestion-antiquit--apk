@@ -1,12 +1,20 @@
 import {
   BookOpen,
+  Calculator,
   Camera,
   Check,
+  Copy,
+  Download,
   Edit3,
+  ExternalLink,
   FileSpreadsheet,
   Film,
+  Globe,
+  History,
   Image as ImageIcon,
+  Images,
   Link2,
+  Maximize2,
   MessageCircle,
   Moon,
   Plus,
@@ -20,6 +28,7 @@ import {
 } from 'lucide-react';
 import type { Language } from '../types';
 import { translations } from '../i18n';
+import { AppAntiqueLogo } from './AppLogo';
 import lanternImg from '../assets/images/antique_copper_lantern_1794787509666.jpg';
 import ceramicImg from '../assets/images/antique_fez_ceramic_1794787509914.jpg';
 import chestImg from '../assets/images/antique_berber_chest_1794787509355.jpg';
@@ -33,7 +42,9 @@ export type GuideSectionId =
   | 'post-facebook'
   | 'post-instagram'
   | 'search-export'
-  | 'customers';
+  | 'calculator'
+  | 'customers'
+  | 'customer-gallery';
 
 interface ArrowDef {
   step: 1 | 2 | 3;
@@ -67,8 +78,8 @@ const SECTION_ARROWS: Record<GuideSectionId, ArrowDef[]> = {
     { step: 3, fromX: 356, fromY: 350, ctrlX: 430, ctrlY: 352, toX: 495, toY: 332, badgeX: 340, badgeY: 350 },
   ],
   'add-logo': [
-    { step: 1, fromX: 416, fromY: 34, ctrlX: 472, ctrlY: 34, toX: 526, toY: 58, badgeX: 398, badgeY: 34 },
-    { step: 2, fromX: 102, fromY: 222, ctrlX: 146, ctrlY: 235, toX: 204, toY: 256, badgeX: 88, badgeY: 220 },
+    { step: 1, fromX: 416, fromY: 36, ctrlX: 472, ctrlY: 36, toX: 526, toY: 58, badgeX: 398, badgeY: 36 },
+    { step: 2, fromX: 102, fromY: 214, ctrlX: 146, ctrlY: 224, toX: 204, toY: 238, badgeX: 88, badgeY: 212 },
     { step: 3, fromX: 280, fromY: 358, ctrlX: 360, ctrlY: 358, toX: 432, toY: 344, badgeX: 262, badgeY: 358 },
   ],
   'change-currency': [
@@ -97,14 +108,24 @@ const SECTION_ARROWS: Record<GuideSectionId, ArrowDef[]> = {
     { step: 3, fromX: 316, fromY: 352, ctrlX: 374, ctrlY: 350, toX: 428, toY: 332, badgeX: 300, badgeY: 352 },
   ],
   'search-export': [
-    { step: 1, fromX: 66, fromY: 136, ctrlX: 82, ctrlY: 112, toX: 104, toY: 84, badgeX: 56, badgeY: 148 },
+    { step: 1, fromX: 66, fromY: 148, ctrlX: 84, ctrlY: 120, toX: 106, toY: 90, badgeX: 56, badgeY: 160 },
     { step: 2, fromX: 178, fromY: 258, ctrlX: 188, ctrlY: 222, toX: 205, toY: 188, badgeX: 174, badgeY: 274 },
     { step: 3, fromX: 468, fromY: 256, ctrlX: 486, ctrlY: 220, toX: 500, toY: 188, badgeX: 464, badgeY: 272 },
   ],
+  calculator: [
+    { step: 1, fromX: 374, fromY: 34, ctrlX: 418, ctrlY: 42, toX: 454, toY: 66, badgeX: 356, badgeY: 34 },
+    { step: 2, fromX: 72, fromY: 208, ctrlX: 112, ctrlY: 224, toX: 158, toY: 238, badgeX: 56, badgeY: 206 },
+    { step: 3, fromX: 352, fromY: 352, ctrlX: 416, ctrlY: 348, toX: 472, toY: 324, badgeX: 336, badgeY: 352 },
+  ],
   customers: [
-    { step: 1, fromX: 134, fromY: 42, ctrlX: 172, ctrlY: 54, toX: 210, toY: 78, badgeX: 118, badgeY: 36 },
-    { step: 2, fromX: 342, fromY: 162, ctrlX: 386, ctrlY: 180, toX: 422, toY: 204, badgeX: 326, badgeY: 158 },
+    { step: 1, fromX: 134, fromY: 42, ctrlX: 172, ctrlY: 54, toX: 210, toY: 74, badgeX: 118, badgeY: 36 },
+    { step: 2, fromX: 280, fromY: 210, ctrlX: 332, ctrlY: 218, toX: 382, toY: 226, badgeX: 264, badgeY: 208 },
     { step: 3, fromX: 454, fromY: 348, ctrlX: 492, ctrlY: 332, toX: 522, toY: 296, badgeX: 438, badgeY: 352 },
+  ],
+  'customer-gallery': [
+    { step: 1, fromX: 266, fromY: 36, ctrlX: 324, ctrlY: 44, toX: 378, toY: 64, badgeX: 248, badgeY: 36 },
+    { step: 2, fromX: 102, fromY: 352, ctrlX: 152, ctrlY: 346, toX: 206, toY: 324, badgeX: 86, badgeY: 352 },
+    { step: 3, fromX: 404, fromY: 352, ctrlX: 458, ctrlY: 344, toX: 510, toY: 320, badgeX: 388, badgeY: 352 },
   ],
 };
 
@@ -236,62 +257,96 @@ function renderCanvasContent(sectionId: GuideSectionId, lang: Language, activeSt
 
     case 'add-logo':
       return (
-        <div className="flex h-full flex-col justify-between gap-2.5 p-3 sm:p-4">
-          {/* Top Header Mockup */}
-          <div className="flex items-center justify-between rounded-xl border border-[#DCE7E0] bg-white px-3 py-2 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
-            <div className="flex items-center gap-1.5">
-              <span className="flex h-6 w-6 items-center justify-center rounded-md border border-[#DCE7E0] bg-[#F7FAF8] text-[#115E3B] dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#34D399]">
-                <Moon className="h-3 w-3" />
-              </span>
-              <span className="rounded-md bg-[#115E3B] px-1.5 py-0.5 text-[8px] font-bold text-white dark:bg-[#10B981] dark:text-[#052E1C]">
-                FR | العربية
-              </span>
+        <div className="flex h-full flex-col justify-between gap-2 p-3 sm:p-4">
+          {/* Top Header Mockup: GA antique logo on left | User's logo & optional store name on right */}
+          <div className="overflow-hidden rounded-xl border border-[#DCE7E0] bg-white dark:border-[#1E3A2D] dark:bg-[#0F2119]">
+            <div className="flex items-center justify-between px-3 py-1.5">
+              {/* Left: Antique "GA" App Crest */}
+              <div className="flex items-center gap-2">
+                <AppAntiqueLogo size="sm" />
+                <div>
+                  <span className="block text-[9px] font-bold text-[#0B1F16] sm:text-[10px] dark:text-[#F2F9F5]">
+                    {t.brandName}
+                  </span>
+                  <span className="block text-[7px] text-[#335947] dark:text-[#9EC0AE]">
+                    GA Antique
+                  </span>
+                </div>
+              </div>
+
+              {/* Right: User's Custom Logo + Optional Store Name */}
+              <div
+                className={`flex items-center gap-2 rounded-lg px-2 py-0.5 transition-all ${hi(1)}`}
+              >
+                <div className="text-right">
+                  <span className="block text-[9px] font-bold text-[#0B1F16] sm:text-[10px] dark:text-[#F2F9F5]">
+                    Galerie Bab Saida
+                  </span>
+                  <span className="block text-[7px] font-semibold text-[#115E3B] dark:text-[#34D399]">
+                    {t.storeNameLabel.split('(')[0].trim()}
+                  </span>
+                </div>
+                <div className="relative">
+                  <img
+                    src={lanternImg}
+                    alt={t.brandName}
+                    referrerPolicy="no-referrer"
+                    className="h-8 w-8 rounded-lg border border-[#DCE7E0] object-cover dark:border-[#1E3A2D]"
+                  />
+                  <span className="absolute -bottom-1 -right-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]">
+                    <Camera className="h-2 w-2" />
+                  </span>
+                </div>
+              </div>
             </div>
 
-            <div
-              className={`flex items-center gap-2 rounded-lg px-2 py-1 transition-all ${hi(1)}`}
-            >
-              <span className="text-[10px] font-bold text-[#0B1F16] sm:text-xs dark:text-[#F2F9F5]">
-                {t.brandName}
-              </span>
-              <div className="relative">
-                <img
-                  src={lanternImg}
-                  alt={t.brandName}
-                  referrerPolicy="no-referrer"
-                  className="h-8 w-8 rounded-lg border border-[#DCE7E0] object-cover dark:border-[#1E3A2D]"
-                />
-                <span className="absolute -bottom-1 -right-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]">
-                  <Camera className="h-2 w-2" />
-                </span>
+            {/* Bottom Utility Tier */}
+            <div className="flex items-center justify-between border-t border-[#DCE7E0]/75 bg-[#F7FAF8] px-3 py-1 text-[8px] dark:border-[#1E3A2D]/75 dark:bg-[#08140F]">
+              <div className="flex items-center gap-1">
+                <Moon className="h-3 w-3 text-[#115E3B] dark:text-[#34D399]" />
+                <span className="font-bold text-[#115E3B] dark:text-[#34D399]">FR | العربية</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-[#335947] dark:text-[#9EC0AE]">
+                <span>{t.calculatorButtonLabel}</span>
+                <span>·</span>
+                <span>{t.guideButtonLabel}</span>
               </div>
             </div>
           </div>
 
-          {/* Bottom Logo Modal Mockup */}
+          {/* Bottom Logo & Store Name Modal Mockup */}
           <div
             dir={dir}
-            className="flex flex-1 flex-col justify-between rounded-xl border border-[#DCE7E0] bg-white p-3 dark:border-[#1E3A2D] dark:bg-[#0F2119]"
+            className="flex flex-1 flex-col justify-between rounded-xl border border-[#DCE7E0] bg-white p-2.5 sm:p-3 dark:border-[#1E3A2D] dark:bg-[#0F2119]"
           >
             <div className="text-[10px] font-bold text-[#0B1F16] sm:text-xs dark:text-[#F2F9F5]">
               {t.logoModalTitle}
             </div>
 
-            <div className="flex items-center justify-between gap-3 rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] p-2.5 dark:border-[#1E3A2D] dark:bg-[#091611]">
-              <img
-                src={lanternImg}
-                alt={t.brandName}
-                referrerPolicy="no-referrer"
-                className="h-14 w-14 shrink-0 rounded-xl border border-[#DCE7E0] object-cover dark:border-[#1E3A2D]"
-              />
-              <div className={`flex flex-1 flex-wrap gap-1.5 rounded-lg p-1 transition-all ${hi(2)}`}>
-                <div className="flex items-center gap-1 rounded-lg bg-[#115E3B] px-2.5 py-1.5 text-[9px] font-semibold text-white dark:bg-[#10B981] dark:text-[#052E1C]">
-                  <Upload className="h-3 w-3" />
-                  <span>{t.logoUploadButton}</span>
-                </div>
-                <div className="flex items-center gap-1 rounded-lg border border-[#DCE7E0] bg-white px-2.5 py-1.5 text-[9px] font-semibold text-[#115E3B] dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#34D399]">
-                  <Camera className="h-3 w-3" />
-                  <span>{t.logoCameraButton}</span>
+            <div className={`space-y-1.5 rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] p-2 transition-all dark:border-[#1E3A2D] dark:bg-[#091611] ${hi(2)}`}>
+              {/* Store Name Input */}
+              <div className="flex items-center justify-between rounded-lg border border-[#DCE7E0] bg-white px-2.5 py-1 text-[8px] dark:border-[#1E3A2D] dark:bg-[#102119]">
+                <span className="text-[#335947] dark:text-[#9EC0AE]">{t.storeNameLabel}</span>
+                <span className="font-bold text-[#0B1F16] dark:text-[#F2F9F5]">Galerie Bab Saida</span>
+              </div>
+
+              {/* Logo upload & camera */}
+              <div className="flex items-center justify-between gap-2.5">
+                <img
+                  src={lanternImg}
+                  alt={t.brandName}
+                  referrerPolicy="no-referrer"
+                  className="h-10 w-10 shrink-0 rounded-lg border border-[#DCE7E0] object-cover dark:border-[#1E3A2D]"
+                />
+                <div className="flex flex-1 flex-wrap gap-1.5">
+                  <div className="flex items-center gap-1 rounded-lg bg-[#115E3B] px-2 py-1 text-[8px] font-semibold text-white dark:bg-[#10B981] dark:text-[#052E1C]">
+                    <Upload className="h-3 w-3" />
+                    <span>{t.logoUploadButton}</span>
+                  </div>
+                  <div className="flex items-center gap-1 rounded-lg border border-[#DCE7E0] bg-white px-2 py-1 text-[8px] font-semibold text-[#115E3B] dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#34D399]">
+                    <Camera className="h-3 w-3" />
+                    <span>{t.logoCameraButton}</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -313,9 +368,12 @@ function renderCanvasContent(sectionId: GuideSectionId, lang: Language, activeSt
         <div className="flex h-full flex-col justify-between gap-2.5 p-3 sm:p-4">
           {/* Header target */}
           <div className="flex items-center justify-between rounded-xl border border-[#DCE7E0] bg-white px-3 py-2 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
-            <span className="text-[9px] font-medium text-[#335947] dark:text-[#9EC0AE]">
-              100 MAD = 100 DH = 10 USD = 10 EUR
-            </span>
+            <div className="flex items-center gap-2">
+              <AppAntiqueLogo size="sm" />
+              <span className="text-[9px] font-medium text-[#335947] dark:text-[#9EC0AE]">
+                100 MAD = 100 DH = 10 USD = 10 EUR
+              </span>
+            </div>
             <div
               className={`flex items-center gap-2 rounded-lg px-2 py-0.5 transition-all ${hi(1)}`}
             >
@@ -655,28 +713,43 @@ function renderCanvasContent(sectionId: GuideSectionId, lang: Language, activeSt
 
     case 'search-export':
       return (
-        <div className="flex h-full flex-col justify-between gap-2.5 p-3 sm:p-4">
-          {/* Header Left controls highlighted */}
-          <div className="flex items-center justify-between rounded-xl border border-[#DCE7E0] bg-white px-3 py-2 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
-            <div className={`flex items-center gap-1.5 rounded-lg p-1 transition-all ${hi(1)}`}>
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg border border-[#DCE7E0] bg-[#F7FAF8] text-[#115E3B] dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#34D399]">
-                <Moon className="h-3.5 w-3.5" />
-              </span>
-              <div className="flex rounded-lg border border-[#DCE7E0] bg-[#F7FAF8] p-0.5 text-[9px] font-bold dark:border-[#1E3A2D] dark:bg-[#102119]">
-                <span className="rounded bg-[#115E3B] px-1.5 py-0.5 text-white dark:bg-[#10B981] dark:text-[#052E1C]">
-                  FR
+        <div className="flex h-full flex-col justify-between gap-2 p-3 sm:p-4">
+          {/* Two-tier Header Utility Bar Highlighted */}
+          <div className="overflow-hidden rounded-xl border border-[#DCE7E0] bg-white dark:border-[#1E3A2D] dark:bg-[#0F2119]">
+            <div className="flex items-center justify-between px-3 py-1">
+              <div className="flex items-center gap-1.5">
+                <AppAntiqueLogo size="sm" />
+                <span className="text-[9px] font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+                  {t.brandName}
                 </span>
-                <span className="px-1.5 py-0.5 text-[#335947] dark:text-[#9EC0AE]">العربية</span>
               </div>
-              <span className="flex items-center gap-1 rounded-lg border border-[#115E3B]/30 bg-[#ECF7F1] px-2 py-1 text-[9px] font-bold text-[#115E3B] dark:bg-[#132B20] dark:text-[#34D399]">
-                <BookOpen className="h-3 w-3" />
-                {t.guideButtonLabel}
+              <span className="text-[9px] font-semibold text-[#335947] dark:text-[#9EC0AE]">
+                {t.yourStoreFallback}
               </span>
             </div>
-
-            <span className="text-[10px] font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
-              {t.brandName}
-            </span>
+            <div className="flex items-center justify-between border-t border-[#DCE7E0]/75 bg-[#F7FAF8] px-2.5 py-1.5 dark:border-[#1E3A2D]/75 dark:bg-[#08140F]">
+              <div className={`flex items-center gap-1.5 rounded-lg p-0.5 transition-all ${hi(1)}`}>
+                <span className="flex h-6 w-6 items-center justify-center rounded-md border border-[#DCE7E0] bg-white text-[#115E3B] dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#34D399]">
+                  <Moon className="h-3 w-3" />
+                </span>
+                <div className="flex rounded-md border border-[#DCE7E0] bg-white p-0.5 text-[8px] font-bold dark:border-[#1E3A2D] dark:bg-[#102119]">
+                  <span className="rounded bg-[#115E3B] px-1.5 py-0.5 text-white dark:bg-[#10B981] dark:text-[#052E1C]">
+                    FR
+                  </span>
+                  <span className="px-1.5 py-0.5 text-[#335947] dark:text-[#9EC0AE]">العربية</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="flex items-center gap-1 rounded-md border border-[#DCE7E0] bg-white px-2 py-0.5 text-[8px] font-bold text-[#115E3B] dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#34D399]">
+                  <Calculator className="h-2.5 w-2.5" />
+                  <span>{t.calculatorButtonLabel}</span>
+                </span>
+                <span className="flex items-center gap-1 rounded-md border border-[#115E3B]/30 bg-[#ECF7F1] px-2 py-0.5 text-[8px] font-bold text-[#115E3B] dark:bg-[#132B20] dark:text-[#34D399]">
+                  <BookOpen className="h-2.5 w-2.5" />
+                  <span>{t.guideButtonLabel}</span>
+                </span>
+              </div>
+            </div>
           </div>
 
           {/* Search & Export Toolbar */}
@@ -700,7 +773,7 @@ function renderCanvasContent(sectionId: GuideSectionId, lang: Language, activeSt
           </div>
 
           {/* Excel Sheet Output Summary */}
-          <div className="grid grid-cols-3 gap-2 rounded-xl border border-[#DCE7E0] bg-white p-2.5 text-[8px] sm:text-[9px] dark:border-[#1E3A2D] dark:bg-[#0F2119]">
+          <div className="grid grid-cols-3 gap-2 rounded-xl border border-[#DCE7E0] bg-white p-2 text-[8px] sm:text-[9px] dark:border-[#1E3A2D] dark:bg-[#0F2119]">
             <div className="rounded-lg bg-[#F7FAF8] p-2 dark:bg-[#091611]">
               <span className="block font-bold text-[#115E3B] dark:text-[#34D399]">Code</span>
               <span>L0001, C0002...</span>
@@ -717,9 +790,111 @@ function renderCanvasContent(sectionId: GuideSectionId, lang: Language, activeSt
         </div>
       );
 
+    case 'calculator':
+      return (
+        <div className="flex h-full flex-col justify-between gap-2 p-3 sm:p-4">
+          {/* Top Utility Strip highlighting Calculator Button */}
+          <div className="flex items-center justify-between rounded-xl border border-[#DCE7E0] bg-white px-3 py-2 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
+            <div className="flex items-center gap-1.5">
+              <AppAntiqueLogo size="sm" />
+              <span className="text-[9px] font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+                {t.brandName}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <div
+                className={`flex items-center gap-1.5 rounded-lg border border-[#115E3B] bg-[#ECF7F1] px-2.5 py-1 text-[9px] font-bold text-[#115E3B] transition-all dark:border-[#10B981] dark:bg-[#132B20] dark:text-[#34D399] ${hi(1)}`}
+              >
+                <Calculator className="h-3.5 w-3.5" />
+                <span>{t.calculatorButtonLabel}</span>
+              </div>
+              <div className="flex items-center gap-1 rounded-lg border border-[#DCE7E0] bg-[#F7FAF8] px-2 py-1 text-[8px] font-semibold text-[#335947] dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#9EC0AE]">
+                <BookOpen className="h-3 w-3" />
+                <span>{t.guideButtonLabel}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Calculator Modal Body Mockup */}
+          <div dir={dir} className="grid flex-1 grid-cols-12 gap-2.5">
+            {/* Left: Screen + Percentage Keypad */}
+            <div
+              className={`col-span-6 flex flex-col justify-between rounded-xl border border-[#DCE7E0] bg-white p-2.5 transition-all dark:border-[#1E3A2D] dark:bg-[#0F2119] ${hi(2)}`}
+            >
+              <div className="rounded-lg border border-[#DCE7E0] bg-[#F7FAF8] px-2.5 py-1.5 text-right dark:border-[#1E3A2D] dark:bg-[#091611]">
+                <span className="tabular-nums block text-[8px] font-medium text-[#335947] dark:text-[#9EC0AE]">
+                  1000 − 15%
+                </span>
+                <span className="tabular-nums block text-sm font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+                  850
+                </span>
+              </div>
+
+              <div className="grid grid-cols-4 gap-1 text-center text-[8px] font-bold">
+                {['C', '⌫', '%', '÷', '7', '8', '9', '×', '4', '5', '6', '−', '1', '2', '3', '='].map(
+                  (key) => (
+                    <span
+                      key={key}
+                      className={`rounded-md py-1 ${
+                        key === '='
+                          ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
+                          : ['%', '÷', '×', '−'].includes(key)
+                            ? 'bg-[#ECF7F1] text-[#115E3B] dark:bg-[#132B20] dark:text-[#34D399]'
+                            : 'border border-[#DCE7E0] bg-[#F7FAF8] text-[#0B1F16] dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#F2F9F5]'
+                      }`}
+                    >
+                      {key}
+                    </span>
+                  )
+                )}
+              </div>
+            </div>
+
+            {/* Right: Live Currency Equivalence + Copy & History */}
+            <div className="col-span-6 flex flex-col justify-between rounded-xl border border-[#DCE7E0] bg-white p-2.5 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
+              <div className="flex items-center justify-between text-[9px] font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+                <span>{t.calculatorTitle}</span>
+                <span className="flex items-center gap-1 text-[8px] text-[#335947] dark:text-[#9EC0AE]">
+                  <History className="h-3 w-3" />
+                  <span>{t.calculatorHistoryTitle}</span>
+                </span>
+              </div>
+
+              <div className="space-y-1 rounded-lg border border-[#DCE7E0] bg-[#F7FAF8] p-2 text-[8px] dark:border-[#1E3A2D] dark:bg-[#091611]">
+                <div className="flex items-center justify-between text-[#335947] dark:text-[#9EC0AE]">
+                  <span>1 000 − 15%</span>
+                  <span className="tabular-nums font-bold text-[#115E3B] dark:text-[#34D399]">= 850</span>
+                </div>
+                <div className="flex items-center justify-between text-[#335947] dark:text-[#9EC0AE]">
+                  <span>450 + 250</span>
+                  <span className="tabular-nums font-bold text-[#115E3B] dark:text-[#34D399]">= 700</span>
+                </div>
+              </div>
+
+              <div className={`space-y-1.5 rounded-lg p-1 transition-all ${hi(3)}`}>
+                <div className="rounded-lg border border-[#115E3B]/25 bg-[#ECF7F1] px-2 py-1.5 dark:border-[#10B981]/30 dark:bg-[#132B20]">
+                  <span className="block text-[7px] font-semibold text-[#335947] dark:text-[#9EC0AE]">
+                    {t.calculatorEquivLabel}
+                  </span>
+                  <span className="tabular-nums block text-[9px] font-bold text-[#115E3B] dark:text-[#34D399]">
+                    850 MAD · 85 EUR · 85 USD
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-center gap-1 rounded-lg bg-[#115E3B] py-1.5 text-[9px] font-bold text-white dark:bg-[#10B981] dark:text-[#052E1C]">
+                  <Copy className="h-3 w-3" />
+                  <span>{t.calculatorCopyResult}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+
     case 'customers':
       return (
-        <div className="flex h-full flex-col justify-between gap-2.5 p-3 sm:p-4">
+        <div className="flex h-full flex-col justify-between gap-2 p-3 sm:p-4">
           {/* Top Tabs Mockup */}
           <div className="flex items-center justify-between gap-2 rounded-xl border border-[#DCE7E0] bg-white px-3 py-2 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
             <div className="flex items-center gap-1.5">
@@ -746,35 +921,53 @@ function renderCanvasContent(sectionId: GuideSectionId, lang: Language, activeSt
             </div>
           </div>
 
-          {/* Customer Profile + Purchase History Mockup */}
+          {/* Customer Profile (WhatsApp + Social Links) & Purchase History Mockup */}
           <div dir={dir} className="grid flex-1 grid-cols-12 gap-2.5">
-            <div className="col-span-5 flex flex-col justify-between rounded-xl border border-[#DCE7E0] bg-white p-2.5 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
+            <div className="col-span-6 flex flex-col justify-between rounded-xl border border-[#DCE7E0] bg-white p-2.5 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
               <div>
                 <div className="flex items-center justify-between text-[9px] font-bold text-[#115E3B] dark:text-[#34D399]">
                   <span>CL0001</span>
                   <span>{t.customerCategorySeller}</span>
                 </div>
-                <p className="mt-1 text-[10px] font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
-                  Ahmed Benali
+                <p className="mt-0.5 text-[10px] font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+                  Ahmed Benali · Fès
                 </p>
-                <p className="text-[8px] text-[#335947] dark:text-[#9EC0AE]">Fès · +212 6 12 34...</p>
+
+                {/* Clickable WhatsApp Phone + Social Links */}
+                <div className={`mt-1.5 space-y-1 rounded-lg p-0.5 transition-all ${hi(2)}`}>
+                  <div className="flex items-center justify-between rounded-md border border-[#16A34A]/35 bg-[#ECFDF5] px-2 py-1 text-[8px] font-bold text-[#15803D] dark:border-[#16A34A]/40 dark:bg-[#0B2318] dark:text-[#4ADE80]">
+                    <span className="flex items-center gap-1">
+                      <MessageCircle className="h-3 w-3 shrink-0" />
+                      <span>+212 6 12 34 56</span>
+                    </span>
+                    <span>{t.customerWhatsAppBadge}</span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1 text-[7.5px] font-semibold">
+                    <span className="rounded border border-[#1877F2]/30 bg-[#1877F2]/10 px-1.5 py-0.5 text-[#1877F2]">
+                      Facebook
+                    </span>
+                    <span className="rounded border border-[#C13584]/30 bg-[#C13584]/10 px-1.5 py-0.5 text-[#C13584]">
+                      @ahmed_antiques
+                    </span>
+                    <span className="rounded border border-[#DCE7E0] bg-[#F7FAF8] px-1.5 py-0.5 text-[#335947] dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#9EC0AE]">
+                      <Globe className="inline h-2.5 w-2.5" /> Web
+                    </span>
+                  </div>
+                </div>
               </div>
-              <div className="rounded-lg bg-[#F7FAF8] p-2 text-[9px] dark:bg-[#091611]">
-                <span className="block text-[8px] text-[#335947] dark:text-[#9EC0AE]">
-                  {t.customerTotalSpent}
-                </span>
-                <span className="font-bold text-[#115E3B] dark:text-[#34D399]">4 400 MAD</span>
+
+              <div className="flex items-center justify-between rounded-lg bg-[#F7FAF8] px-2 py-1.5 text-[8.5px] dark:bg-[#091611]">
+                <span className="text-[#335947] dark:text-[#9EC0AE]">{t.customerTotalSpent}</span>
+                <span className="tabular-nums font-bold text-[#115E3B] dark:text-[#34D399]">4 400 MAD</span>
               </div>
             </div>
 
-            <div className="col-span-7 flex flex-col justify-between rounded-xl border border-[#DCE7E0] bg-white p-2.5 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
+            <div className="col-span-6 flex flex-col justify-between rounded-xl border border-[#DCE7E0] bg-white p-2.5 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[9px] font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
                   {t.customerHistoryTitle}
                 </span>
-                <span
-                  className={`flex items-center gap-1 rounded-lg bg-[#115E3B] px-2 py-1 text-[8px] font-bold text-white transition-all dark:bg-[#10B981] dark:text-[#052E1C] ${hi(2)}`}
-                >
+                <span className="flex items-center gap-1 rounded-lg bg-[#115E3B] px-2 py-1 text-[8px] font-bold text-white dark:bg-[#10B981] dark:text-[#052E1C]">
                   <Plus className="h-2.5 w-2.5" />
                   <span>{t.customerAddPurchase}</span>
                 </span>
@@ -783,7 +976,7 @@ function renderCanvasContent(sectionId: GuideSectionId, lang: Language, activeSt
               <div className="space-y-1 rounded-lg border border-[#DCE7E0] bg-[#F7FAF8] p-2 text-[8px] dark:border-[#1E3A2D] dark:bg-[#091611]">
                 <div className="flex items-center justify-between font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
                   <span>L0001 · Lanterne Fassi</span>
-                  <span className="text-[#115E3B] dark:text-[#34D399]">3 200 MAD</span>
+                  <span className="tabular-nums text-[#115E3B] dark:text-[#34D399]">3 200 MAD</span>
                 </div>
                 <span className="block text-[#335947] dark:text-[#9EC0AE]">
                   Qté: 1 · {t.paymentCash}
@@ -797,6 +990,136 @@ function renderCanvasContent(sectionId: GuideSectionId, lang: Language, activeSt
                   <FileSpreadsheet className="h-3 w-3" />
                   <span>{t.exportCustomerExcel} (.XLSX)</span>
                 </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+
+    case 'customer-gallery':
+      return (
+        <div className="flex h-full flex-col justify-between gap-2 p-3 sm:p-4">
+          {/* Top Customer Detail Header + Extract Buttons */}
+          <div className="flex flex-col gap-1.5 rounded-xl border border-[#DCE7E0] bg-white px-3 py-2 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5">
+                <span className="rounded-lg border border-[#DCE7E0] px-2 py-1 text-[8.5px] font-semibold text-[#335947] dark:border-[#1E3A2D] dark:text-[#9EC0AE]">
+                  {t.customerTabPurchases} (2)
+                </span>
+                <span
+                  className={`flex items-center gap-1 rounded-lg bg-[#115E3B] px-2.5 py-1 text-[8.5px] font-bold text-white transition-all dark:bg-[#10B981] dark:text-[#052E1C] ${hi(1)}`}
+                >
+                  <Images className="h-3 w-3" />
+                  <span>{t.customerTabGallery} (4)</span>
+                </span>
+              </div>
+
+              <div className={`flex flex-wrap items-center gap-1 rounded-lg p-0.5 transition-all ${hi(1)}`}>
+                <span className="rounded-md bg-[#1877F2] px-1.5 py-0.5 text-[7.5px] font-bold text-white">
+                  Facebook
+                </span>
+                <span className="rounded-md bg-gradient-to-r from-[#833AB4] to-[#C13584] px-1.5 py-0.5 text-[7.5px] font-bold text-white">
+                  Instagram
+                </span>
+                <span className="flex items-center gap-0.5 rounded-md border border-[#DCE7E0] bg-[#F7FAF8] px-1.5 py-0.5 text-[7.5px] font-bold text-[#115E3B] dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#34D399]">
+                  <Globe className="h-2.5 w-2.5" /> Web
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Body: Left = Extract / Upload / Paste & Save | Right = Client Gallery Grid */}
+          <div dir={dir} className="grid flex-1 grid-cols-12 gap-2.5">
+            <div className="col-span-6 flex flex-col justify-between rounded-xl border border-[#DCE7E0] bg-white p-2.5 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-[8.5px] font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+                  <span>{t.customerGalleryFoundTitle}</span>
+                  <span className="text-[7.5px] text-[#335947] dark:text-[#9EC0AE]">Ctrl+V / URL</span>
+                </div>
+
+                {/* Extracted Candidate Thumbnails */}
+                <div className="grid grid-cols-2 gap-1.5">
+                  <div className="relative overflow-hidden rounded-lg border-2 border-[#115E3B] dark:border-[#10B981]">
+                    <img
+                      src={lanternImg}
+                      alt="Found 1"
+                      referrerPolicy="no-referrer"
+                      className="h-14 w-full object-cover"
+                    />
+                    <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]">
+                      <Check className="h-2.5 w-2.5" />
+                    </span>
+                  </div>
+                  <div className="relative overflow-hidden rounded-lg border-2 border-[#115E3B] dark:border-[#10B981]">
+                    <img
+                      src={ceramicImg}
+                      alt="Found 2"
+                      referrerPolicy="no-referrer"
+                      className="h-14 w-full object-cover"
+                    />
+                    <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]">
+                      <Check className="h-2.5 w-2.5" />
+                    </span>
+                  </div>
+                </div>
+
+                {/* Fallback / Paste & Upload row */}
+                <div className="flex items-center justify-between gap-1 text-[7.5px] text-[#335947] dark:text-[#9EC0AE]">
+                  <span className="flex items-center gap-0.5 rounded border border-[#DCE7E0] bg-[#F7FAF8] px-1.5 py-0.5 dark:border-[#1E3A2D] dark:bg-[#091611]">
+                    <ExternalLink className="h-2.5 w-2.5" /> {t.customerGalleryOpenProfile}
+                  </span>
+                  <span className="flex items-center gap-0.5 rounded border border-[#DCE7E0] bg-[#F7FAF8] px-1.5 py-0.5 dark:border-[#1E3A2D] dark:bg-[#091611]">
+                    <Upload className="h-2.5 w-2.5" /> {t.customerGallerySourceUpload}
+                  </span>
+                </div>
+              </div>
+
+              <div
+                className={`flex items-center justify-center gap-1 rounded-lg bg-[#115E3B] py-1.5 text-[8.5px] font-bold text-white transition-all dark:bg-[#10B981] dark:text-[#052E1C] ${hi(2)}`}
+              >
+                <Check className="h-3 w-3" />
+                <span>{t.customerGallerySaveSelected} (2)</span>
+              </div>
+            </div>
+
+            <div className="col-span-6 flex flex-col justify-between rounded-xl border border-[#DCE7E0] bg-white p-2.5 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
+              <div className="flex items-center justify-between text-[8.5px] font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+                <span>{t.customerGalleryTitle}</span>
+                <span className="text-[8px] font-semibold text-[#115E3B] dark:text-[#34D399]">4 photos</span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-1.5">
+                <div className="overflow-hidden rounded-lg border border-[#DCE7E0] bg-[#F7FAF8] dark:border-[#1E3A2D] dark:bg-[#091611]">
+                  <img
+                    src={chestImg}
+                    alt="Gallery 1"
+                    referrerPolicy="no-referrer"
+                    className="h-14 w-full object-cover"
+                  />
+                  <div className="flex items-center justify-between px-1.5 py-1 text-[7.5px] text-[#335947] dark:text-[#9EC0AE]">
+                    <span>Instagram</span>
+                    <Maximize2 className="h-2.5 w-2.5" />
+                  </div>
+                </div>
+                <div className="overflow-hidden rounded-lg border border-[#DCE7E0] bg-[#F7FAF8] dark:border-[#1E3A2D] dark:bg-[#091611]">
+                  <img
+                    src={lanternImg}
+                    alt="Gallery 2"
+                    referrerPolicy="no-referrer"
+                    className="h-14 w-full object-cover"
+                  />
+                  <div className="flex items-center justify-between px-1.5 py-1 text-[7.5px] text-[#335947] dark:text-[#9EC0AE]">
+                    <span>Site web</span>
+                    <Maximize2 className="h-2.5 w-2.5" />
+                  </div>
+                </div>
+              </div>
+
+              <div
+                className={`flex items-center justify-center gap-1 rounded-lg border border-[#115E3B] bg-[#ECF7F1] py-1.5 text-[8.5px] font-bold text-[#115E3B] transition-all dark:border-[#10B981] dark:bg-[#132B20] dark:text-[#34D399] ${hi(3)}`}
+              >
+                <Download className="h-3 w-3" />
+                <span>{t.customerGalleryDownloadDevice}</span>
               </div>
             </div>
           </div>

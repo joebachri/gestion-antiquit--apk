@@ -989,6 +989,8 @@ export default function App() {
             setFormOpen(true);
           } else if (action === 'open-settings') {
             setLogoModalOpen(true);
+          } else if (action === 'open-calculator') {
+            setCalculatorOpen(true);
           }
         }}
       />
