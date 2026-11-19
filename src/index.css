@@ -17,6 +17,10 @@
   html[lang="ar"] {
     font-family: var(--font-arabic);
   }
+
+  html.dark {
+    color-scheme: dark;
+  }
 }
 
 .font-display {

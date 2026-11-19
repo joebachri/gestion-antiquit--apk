@@ -1045,7 +1045,7 @@ export function ShareModal({
                   rows={4}
                   value={igCaption}
                   onChange={(e) => setIgCaption(e.target.value)}
-                  className="w-full rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] p-3 text-xs leading-relaxed text-[#0B1F16] focus:border-[#115E3B] focus:bg-white focus:outline-none dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#F2F9F5]"
+                  className="w-full rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] p-3 text-xs leading-relaxed text-[#0B1F16] placeholder:text-[#6B8A79] focus:border-[#115E3B] focus:bg-white focus:outline-none dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#F2F9F5] dark:placeholder:text-[#5F8370] dark:focus:border-[#10B981] dark:focus:bg-[#0D1E16]"
                 />
               </div>
 
@@ -1059,7 +1059,7 @@ export function ShareModal({
                     type="text"
                     value={igHashtags}
                     onChange={(e) => setIgHashtags(e.target.value)}
-                    className="min-h-[42px] w-full rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-3 text-xs text-[#0B1F16] focus:border-[#115E3B] focus:bg-white focus:outline-none dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#F2F9F5]"
+                    className="min-h-[42px] w-full rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-3 text-xs text-[#0B1F16] placeholder:text-[#6B8A79] focus:border-[#115E3B] focus:bg-white focus:outline-none dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#F2F9F5] dark:placeholder:text-[#5F8370] dark:focus:border-[#10B981] dark:focus:bg-[#0D1E16]"
                   />
                 </div>
                 <div>
@@ -1071,7 +1071,7 @@ export function ShareModal({
                     value={igLocation}
                     onChange={(e) => setIgLocation(e.target.value)}
                     placeholder={t.igLocationPlaceholder}
-                    className="min-h-[42px] w-full rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-3 text-xs text-[#0B1F16] focus:border-[#115E3B] focus:bg-white focus:outline-none dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#F2F9F5]"
+                    className="min-h-[42px] w-full rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-3 text-xs text-[#0B1F16] placeholder:text-[#6B8A79] focus:border-[#115E3B] focus:bg-white focus:outline-none dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#F2F9F5] dark:placeholder:text-[#5F8370] dark:focus:border-[#10B981] dark:focus:bg-[#0D1E16]"
                   />
                 </div>
               </div>
@@ -1297,7 +1297,7 @@ export function ShareModal({
                   rows={4}
                   value={fbMessage}
                   onChange={(e) => setFbMessage(e.target.value)}
-                  className="w-full rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] p-3 text-xs leading-relaxed text-[#0B1F16] focus:border-[#1877F2] focus:bg-white focus:outline-none dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#F2F9F5]"
+                  className="w-full rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] p-3 text-xs leading-relaxed text-[#0B1F16] placeholder:text-[#6B8A79] focus:border-[#1877F2] focus:bg-white focus:outline-none dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#F2F9F5] dark:placeholder:text-[#5F8370] dark:focus:border-[#60A5FA] dark:focus:bg-[#0D1E16]"
                 />
               </div>
 
@@ -1310,7 +1310,7 @@ export function ShareModal({
                     type="text"
                     value={fbHashtags}
                     onChange={(e) => setFbHashtags(e.target.value)}
-                    className="min-h-[42px] w-full rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-3 text-xs text-[#0B1F16] focus:border-[#1877F2] focus:bg-white focus:outline-none dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#F2F9F5]"
+                    className="min-h-[42px] w-full rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-3 text-xs text-[#0B1F16] placeholder:text-[#6B8A79] focus:border-[#1877F2] focus:bg-white focus:outline-none dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#F2F9F5] dark:placeholder:text-[#5F8370] dark:focus:border-[#60A5FA] dark:focus:bg-[#0D1E16]"
                   />
                 </div>
                 <div>
@@ -1322,7 +1322,7 @@ export function ShareModal({
                     value={fbCta}
                     onChange={(e) => setFbCta(e.target.value)}
                     placeholder={t.fbCtaPlaceholder}
-                    className="min-h-[42px] w-full rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-3 text-xs text-[#0B1F16] focus:border-[#1877F2] focus:bg-white focus:outline-none dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#F2F9F5]"
+                    className="min-h-[42px] w-full rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-3 text-xs text-[#0B1F16] placeholder:text-[#6B8A79] focus:border-[#1877F2] focus:bg-white focus:outline-none dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#F2F9F5] dark:placeholder:text-[#5F8370] dark:focus:border-[#60A5FA] dark:focus:bg-[#0D1E16]"
                   />
                 </div>
               </div>
