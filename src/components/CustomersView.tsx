@@ -5,6 +5,7 @@ import {
   Facebook,
   FileSpreadsheet,
   Globe,
+  Images,
   Instagram,
   MapPin,
   MessageCircle,
@@ -43,7 +44,11 @@ interface CustomersViewProps {
   onExportSingleExcel: (customer: Customer) => void;
   onAddCustomer: () => void;
   onEditCustomer: (customer: Customer) => void;
-  onViewCustomer: (customer: Customer, startAddPurchase?: boolean) => void;
+  onViewCustomer: (
+    customer: Customer,
+    startAddPurchase?: boolean,
+    initialTab?: 'purchases' | 'gallery'
+  ) => void;
   onDeleteCustomer: (customerId: string) => Promise<void>;
 }
 
@@ -231,6 +236,7 @@ export function CustomersView({
         <section className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
           {customers.map((customer) => {
             const purchases = customer.purchases || [];
+            const gallery = customer.gallery || [];
             const totalSpentMad = purchases.reduce((sum, p) => sum + (Number(p.totalPrice) || 0), 0);
             const lastPurchaseDate =
               purchases
@@ -431,20 +437,31 @@ export function CustomersView({
                       </button>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-5 gap-1.5">
+                    <div className="grid grid-cols-6 gap-1.5">
                       <button
                         type="button"
-                        onClick={() => onViewCustomer(customer, false)}
+                        onClick={() => onViewCustomer(customer, false, 'purchases')}
                         title={t.customerHistoryTitle}
-                        className="col-span-2 flex min-h-[42px] items-center justify-center gap-1 rounded-xl bg-[#ECF7F1] px-2 text-xs font-semibold text-[#115E3B] hover:bg-[#DCF0E4] dark:bg-[#132B20] dark:text-[#34D399]"
+                        className="flex min-h-[42px] items-center justify-center gap-1 rounded-xl bg-[#ECF7F1] px-1.5 text-xs font-semibold text-[#115E3B] hover:bg-[#DCF0E4] dark:bg-[#132B20] dark:text-[#34D399]"
                       >
                         <ShoppingBag className="h-3.5 w-3.5 shrink-0" />
-                        <span className="truncate">{purchases.length}</span>
+                        <span className="tabular-nums truncate">{purchases.length}</span>
                       </button>
 
                       <button
                         type="button"
-                        onClick={() => onViewCustomer(customer, true)}
+                        onClick={() => onViewCustomer(customer, false, 'gallery')}
+                        title={t.customerGalleryTitle}
+                        aria-label={`${t.customerGalleryTitle}: ${gallery.length}`}
+                        className="flex min-h-[42px] items-center justify-center gap-1 rounded-xl border border-[#DCE7E0] bg-white px-1.5 text-xs font-semibold text-[#115E3B] hover:bg-[#ECF7F1] dark:border-[#1E3A2D] dark:bg-[#0B1913] dark:text-[#34D399]"
+                      >
+                        <Images className="h-3.5 w-3.5 shrink-0" />
+                        <span className="tabular-nums truncate">{gallery.length}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => onViewCustomer(customer, true, 'purchases')}
                         aria-label={t.customerAddPurchase}
                         title={t.customerAddPurchase}
                         className="flex min-h-[42px] items-center justify-center rounded-xl bg-[#115E3B] text-white hover:bg-[#0D4A2E] dark:bg-[#10B981] dark:text-[#052E1C]"
@@ -462,26 +479,25 @@ export function CustomersView({
                         <FileSpreadsheet className="h-4 w-4" />
                       </button>
 
-                      <div className="flex gap-1">
-                        <button
-                          type="button"
-                          onClick={() => onEditCustomer(customer)}
-                          aria-label={t.edit}
-                          title={t.edit}
-                          className="flex min-h-[42px] flex-1 items-center justify-center rounded-xl border border-[#DCE7E0] text-[#0B1F16] hover:bg-[#F7FAF8] dark:border-[#1E3A2D] dark:text-[#F2F9F5]"
-                        >
-                          <Edit3 className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setPendingDeleteId(customer.id)}
-                          aria-label={t.delete}
-                          title={t.delete}
-                          className="flex min-h-[42px] flex-1 items-center justify-center rounded-xl border border-[#DCE7E0] text-red-600 hover:bg-red-50 dark:border-[#1E3A2D] dark:text-red-400"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onEditCustomer(customer)}
+                        aria-label={t.edit}
+                        title={t.edit}
+                        className="flex min-h-[42px] items-center justify-center rounded-xl border border-[#DCE7E0] text-[#0B1F16] hover:bg-[#F7FAF8] dark:border-[#1E3A2D] dark:text-[#F2F9F5]"
+                      >
+                        <Edit3 className="h-3.5 w-3.5" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setPendingDeleteId(customer.id)}
+                        aria-label={t.delete}
+                        title={t.delete}
+                        className="flex min-h-[42px] items-center justify-center rounded-xl border border-[#DCE7E0] text-red-600 hover:bg-red-50 dark:border-[#1E3A2D] dark:text-red-400"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
                     </div>
                   )}
                 </div>

@@ -106,6 +106,41 @@ export type CustomerCategory = 'seller' | 'hobbyist' | 'regular' | 'other';
 
 export type PurchasePaymentMethod = 'cash' | 'transfer' | 'check' | 'card' | 'other';
 
+export type CustomerImageSource = 'facebook' | 'instagram' | 'website' | 'upload';
+
+export interface CustomerGalleryImage {
+  id: string;
+  customerId: string;
+  title: string;
+  source: CustomerImageSource;
+  sourceUrl: string;
+  imageData: string;
+  createdAt: string;
+}
+
+export interface CustomerGalleryPayload {
+  title?: string;
+  source: CustomerImageSource;
+  sourceUrl?: string;
+  imageData?: string;
+  imageUrl?: string;
+}
+
+export interface FetchedSourceImageCandidate {
+  id: string;
+  imageUrl: string;
+  previewDataUrl: string;
+  title: string;
+  source: Exclude<CustomerImageSource, 'upload'>;
+}
+
+export interface FetchCustomerSourceImagesResult {
+  targetUrl: string;
+  source: Exclude<CustomerImageSource, 'upload'>;
+  images: FetchedSourceImageCandidate[];
+  blockedOrEmptyReason?: string;
+}
+
 export interface CustomerPurchase {
   id: string;
   customerId: string;
@@ -136,6 +171,7 @@ export interface Customer {
   createdAt: string;
   updatedAt: string;
   purchases: CustomerPurchase[];
+  gallery: CustomerGalleryImage[];
 }
 
 export interface CustomerSummary {
@@ -166,4 +202,3 @@ export interface CustomerPurchasePayload {
   paymentMethod: PurchasePaymentMethod;
   notes: string;
 }
-

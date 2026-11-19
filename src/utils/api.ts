@@ -1,10 +1,12 @@
 import { Capacitor } from '@capacitor/core';
 import type {
   Customer,
+  CustomerGalleryPayload,
   CustomerPayload,
   CustomerPurchasePayload,
   CustomerSummary,
   FacebookPublishPayload,
+  FetchCustomerSourceImagesResult,
   InstagramPublishPayload,
   InventorySummary,
   MetaAuthStatus,
@@ -13,10 +15,12 @@ import type {
   ShopSettings,
 } from '../types';
 import {
+  localAddCustomerGalleryImages,
   localAddPurchase,
   localCreateCustomer,
   localCreateProduct,
   localDeleteCustomer,
+  localDeleteCustomerGalleryImage,
   localDeleteProduct,
   localDeletePurchase,
   localGetSettings,
@@ -29,6 +33,7 @@ import {
   localUpdatePurchase,
 } from './storage';
 import { getExchangeRates, setExchangeRates } from './currency';
+import { compressImageBlob } from './image';
 
 const isNative = () => Capacitor.isNativePlatform();
 
@@ -358,6 +363,90 @@ export async function deleteCustomerPurchaseApi(
     method: 'DELETE',
   });
   if (!res.ok) throw new Error('Purchase delete failed');
+  const data = (await res.json()) as { customer: Customer };
+  return data.customer;
+}
+
+export async function fetchCustomerSourceImagesApi(
+  customerId: string,
+  source: 'facebook' | 'instagram' | 'website',
+  customUrl?: string
+): Promise<FetchCustomerSourceImagesResult> {
+  if (isNative()) {
+    const trimmed = (customUrl || '').trim();
+    if (trimmed && /^https?:\/\//i.test(trimmed)) {
+      try {
+        const res = await fetch(trimmed);
+        if (res.ok && (res.headers.get('content-type') || '').startsWith('image/')) {
+          const blob = await res.blob();
+          const dataUrl = await compressImageBlob(blob, 1280, 0.86);
+          return {
+            targetUrl: trimmed,
+            source,
+            images: [
+              {
+                id: `${Date.now()}`,
+                imageUrl: trimmed,
+                previewDataUrl: dataUrl,
+                title: '',
+                source,
+              },
+            ],
+          };
+        }
+      } catch {
+        // fall through to blocked hint
+      }
+    }
+    return {
+      targetUrl: trimmed,
+      source,
+      images: [],
+      blockedOrEmptyReason: 'BLOCKED_OR_LOGIN_REQUIRED',
+    };
+  }
+
+  const res = await fetch(`/api/customers/${customerId}/gallery/fetch-source`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source, customUrl }),
+  });
+  if (!res.ok) {
+    const errData = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(errData.error || 'Fetch source failed');
+  }
+  return (await res.json()) as FetchCustomerSourceImagesResult;
+}
+
+export async function saveCustomerGalleryImagesApi(
+  customerId: string,
+  items: CustomerGalleryPayload[]
+): Promise<{ customer: Customer; addedCount: number }> {
+  if (isNative()) {
+    const customer = await localAddCustomerGalleryImages(customerId, items);
+    return { customer, addedCount: items.length };
+  }
+  const res = await fetch(`/api/customers/${customerId}/gallery`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items }),
+  });
+  if (!res.ok) throw new Error('Gallery save failed');
+  const data = (await res.json()) as { customer: Customer; addedCount: number };
+  return data;
+}
+
+export async function deleteCustomerGalleryImageApi(
+  customerId: string,
+  imageId: string
+): Promise<Customer> {
+  if (isNative()) {
+    return localDeleteCustomerGalleryImage(customerId, imageId);
+  }
+  const res = await fetch(`/api/customers/${customerId}/gallery/${imageId}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error('Gallery delete failed');
   const data = (await res.json()) as { customer: Customer };
   return data.customer;
 }

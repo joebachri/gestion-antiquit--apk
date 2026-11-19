@@ -7,6 +7,7 @@ import {
   Facebook,
   FileSpreadsheet,
   Globe,
+  Images,
   Instagram,
   MapPin,
   MessageCircle,
@@ -18,6 +19,7 @@ import {
 } from 'lucide-react';
 import type {
   Customer,
+  CustomerGalleryPayload,
   CustomerPurchase,
   CustomerPurchasePayload,
   Language,
@@ -34,6 +36,7 @@ import {
   getCustomerWebsiteUrl,
 } from '../utils/socialLinks';
 import { getCustomerCategoryLabel } from './CustomerFormModal';
+import { CustomerGallerySection } from './CustomerGallerySection';
 
 interface CustomerDetailModalProps {
   customer: Customer | null;
@@ -41,6 +44,7 @@ interface CustomerDetailModalProps {
   currency: string;
   products: Product[];
   initialAddPurchase?: boolean;
+  initialTab?: 'purchases' | 'gallery';
   onClose: () => void;
   onEditProfile: (customer: Customer) => void;
   onExportCustomerExcel: (customer: Customer) => void;
@@ -50,6 +54,8 @@ interface CustomerDetailModalProps {
     editingPurchaseId?: string
   ) => Promise<void>;
   onDeletePurchase: (customerId: string, purchaseId: string) => Promise<void>;
+  onSaveGalleryImages: (customerId: string, items: CustomerGalleryPayload[]) => Promise<void>;
+  onDeleteGalleryImage: (customerId: string, imageId: string) => Promise<void>;
 }
 
 const PAYMENT_METHODS: PurchasePaymentMethod[] = ['cash', 'transfer', 'check', 'card', 'other'];
@@ -69,13 +75,17 @@ export function CustomerDetailModal({
   currency,
   products,
   initialAddPurchase = false,
+  initialTab = 'purchases',
   onClose,
   onEditProfile,
   onExportCustomerExcel,
   onSavePurchase,
   onDeletePurchase,
+  onSaveGalleryImages,
+  onDeleteGalleryImage,
 }: CustomerDetailModalProps) {
   const t = translations[lang];
+  const [activeSection, setActiveSection] = useState<'purchases' | 'gallery'>(initialTab);
   const [formOpen, setFormOpen] = useState(false);
   const [editingPurchase, setEditingPurchase] = useState<CustomerPurchase | null>(null);
   const [selectedProductId, setSelectedProductId] = useState('');
@@ -111,12 +121,15 @@ export function CustomerDetailModal({
     }
     setPendingDeletePurchaseId(null);
     resetPurchaseForm();
-    setFormOpen(Boolean(initialAddPurchase));
-  }, [customer?.id, initialAddPurchase]);
+    const shouldOpenPurchase = Boolean(initialAddPurchase);
+    setFormOpen(shouldOpenPurchase);
+    setActiveSection(shouldOpenPurchase ? 'purchases' : initialTab);
+  }, [customer?.id, initialAddPurchase, initialTab]);
 
   if (!customer) return null;
 
   const purchases = customer.purchases || [];
+  const gallery = customer.gallery || [];
   const totalSpentMad = purchases.reduce((sum, p) => sum + (Number(p.totalPrice) || 0), 0);
 
   const handleSelectInventoryProduct = (prodId: string) => {
@@ -361,7 +374,11 @@ export function CustomerDetailModal({
               <button
                 type="button"
                 onClick={() => {
-                  if (formOpen) {
+                  if (activeSection !== 'purchases') {
+                    resetPurchaseForm();
+                    setActiveSection('purchases');
+                    setFormOpen(true);
+                  } else if (formOpen) {
                     resetPurchaseForm();
                     setFormOpen(false);
                   } else {
@@ -395,12 +412,54 @@ export function CustomerDetailModal({
             </button>
           </div>
 
-          {/* Add / Edit Purchase Form */}
-          {formOpen && (
-            <form
-              onSubmit={(e) => void handleSubmitPurchase(e)}
-              className="space-y-3 rounded-2xl border border-[#115E3B]/35 bg-[#ECF7F1]/55 p-4 dark:border-[#10B981]/30 dark:bg-[#132B20]/50"
+          {/* Section Switcher: Purchases vs Client Gallery */}
+          <div className="grid grid-cols-2 gap-1.5 rounded-2xl border border-[#DCE7E0] bg-[#F7FAF8] p-1 dark:border-[#1E3A2D] dark:bg-[#091611]">
+            <button
+              type="button"
+              onClick={() => setActiveSection('purchases')}
+              className={`flex min-h-[42px] items-center justify-center gap-2 rounded-xl px-3 text-xs font-semibold transition-colors ${
+                activeSection === 'purchases'
+                  ? 'bg-[#115E3B] text-white shadow-xs dark:bg-[#10B981] dark:text-[#052E1C]'
+                  : 'text-[#335947] hover:bg-white/70 dark:text-[#9EC0AE] dark:hover:bg-[#132B20]'
+              }`}
             >
+              <ShoppingBag className="h-3.5 w-3.5 shrink-0" />
+              <span>
+                {t.customerTabPurchases} ({formatNumber(purchases.length, lang)})
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveSection('gallery')}
+              className={`flex min-h-[42px] items-center justify-center gap-2 rounded-xl px-3 text-xs font-semibold transition-colors ${
+                activeSection === 'gallery'
+                  ? 'bg-[#115E3B] text-white shadow-xs dark:bg-[#10B981] dark:text-[#052E1C]'
+                  : 'text-[#335947] hover:bg-white/70 dark:text-[#9EC0AE] dark:hover:bg-[#132B20]'
+              }`}
+            >
+              <Images className="h-3.5 w-3.5 shrink-0" />
+              <span>
+                {t.customerTabGallery} ({formatNumber(gallery.length, lang)})
+              </span>
+            </button>
+          </div>
+
+          {activeSection === 'gallery' ? (
+            <CustomerGallerySection
+              customer={customer}
+              lang={lang}
+              onEditProfile={onEditProfile}
+              onSaveGalleryImages={onSaveGalleryImages}
+              onDeleteGalleryImage={onDeleteGalleryImage}
+            />
+          ) : (
+            <>
+              {/* Add / Edit Purchase Form */}
+              {formOpen && (
+                <form
+                  onSubmit={(e) => void handleSubmitPurchase(e)}
+                  className="space-y-3 rounded-2xl border border-[#115E3B]/35 bg-[#ECF7F1]/55 p-4 dark:border-[#10B981]/30 dark:bg-[#132B20]/50"
+                >
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
                   {editingPurchase ? t.customerEditPurchase : t.customerAddPurchase}
@@ -674,6 +733,8 @@ export function CustomerDetailModal({
               </div>
             )}
           </div>
+            </>
+          )}
         </div>
       </div>
     </div>

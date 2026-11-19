@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import dns from 'node:dns/promises';
+import net from 'node:net';
 import express from 'express';
 import type { Request, Response } from 'express';
 import Database from 'better-sqlite3';
@@ -147,6 +149,17 @@ db.exec(`
     created_at TEXT NOT NULL,
     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS customer_gallery (
+    id TEXT PRIMARY KEY,
+    customer_id TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT 'upload',
+    source_url TEXT NOT NULL DEFAULT '',
+    image_data TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+  );
 `);
 
 const customerTableColumns = (
@@ -190,6 +203,16 @@ interface CustomerPurchaseRow {
   purchase_date: string;
   payment_method: string;
   notes: string;
+  created_at: string;
+}
+
+interface CustomerGalleryRow {
+  id: string;
+  customer_id: string;
+  title: string;
+  source: string;
+  source_url: string;
+  image_data: string;
   created_at: string;
 }
 
@@ -529,6 +552,9 @@ function mapCustomersWithPurchases(rows: CustomerRow[]) {
   const purchaseStmt = db.prepare(
     'SELECT * FROM customer_purchases WHERE customer_id = ? ORDER BY purchase_date DESC, created_at DESC'
   );
+  const galleryStmt = db.prepare(
+    'SELECT * FROM customer_gallery WHERE customer_id = ? ORDER BY created_at DESC'
+  );
   return rows.map((row) => {
     const purchases = (purchaseStmt.all(row.id) as CustomerPurchaseRow[]).map((p) => ({
       id: p.id,
@@ -543,6 +569,15 @@ function mapCustomersWithPurchases(rows: CustomerRow[]) {
       paymentMethod: p.payment_method || 'cash',
       notes: p.notes || '',
       createdAt: p.created_at,
+    }));
+    const gallery = (galleryStmt.all(row.id) as CustomerGalleryRow[]).map((g) => ({
+      id: g.id,
+      customerId: g.customer_id,
+      title: g.title || '',
+      source: g.source || 'upload',
+      sourceUrl: g.source_url || '',
+      imageData: g.image_data,
+      createdAt: g.created_at,
     }));
     return {
       id: row.id,
@@ -559,8 +594,254 @@ function mapCustomersWithPurchases(rows: CustomerRow[]) {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       purchases,
+      gallery,
     };
   });
+}
+
+function isPrivateIpAddress(ip: string): boolean {
+  const normalized = ip.trim().toLowerCase();
+  if (!normalized) return true;
+  if (normalized === '::1' || normalized === '::') return true;
+  if (normalized.startsWith('::ffff:')) {
+    return isPrivateIpAddress(normalized.slice(7));
+  }
+  if (net.isIPv4(normalized)) {
+    const parts = normalized.split('.').map((n) => Number.parseInt(n, 10));
+    if (parts.length !== 4 || parts.some((p) => Number.isNaN(p))) return true;
+    const [a, b] = parts;
+    if (a === 0 || a === 10 || a === 127) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true;
+    if (a >= 224) return true;
+    return false;
+  }
+  if (net.isIPv6(normalized)) {
+    if (normalized.startsWith('fc') || normalized.startsWith('fd')) return true;
+    if (normalized.startsWith('fe8') || normalized.startsWith('fe9') || normalized.startsWith('fea') || normalized.startsWith('feb')) {
+      return true;
+    }
+    return false;
+  }
+  return true;
+}
+
+async function assertPublicHttpUrl(rawUrl: string): Promise<URL> {
+  const parsed = new URL(rawUrl);
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('INVALID_PROTOCOL');
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (
+    !host ||
+    host === 'localhost' ||
+    host.endsWith('.localhost') ||
+    host.endsWith('.local') ||
+    host.endsWith('.internal') ||
+    host === 'metadata.google.internal'
+  ) {
+    throw new Error('FORBIDDEN_HOST');
+  }
+  if (net.isIP(host)) {
+    if (isPrivateIpAddress(host)) throw new Error('FORBIDDEN_IP');
+    return parsed;
+  }
+  const records = await dns.lookup(host, { all: true });
+  if (!records.length || records.some((r) => isPrivateIpAddress(r.address))) {
+    throw new Error('FORBIDDEN_IP');
+  }
+  return parsed;
+}
+
+function resolveCustomerSourceUrlServer(
+  rawInput: string,
+  source: 'facebook' | 'instagram' | 'website'
+): string | null {
+  const trimmed = (rawInput || '').trim();
+  if (!trimmed || /^(javascript|data|vbscript|file):/i.test(trimmed)) return null;
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+  if (source === 'instagram' && !trimmed.includes('/') && !trimmed.includes('.')) {
+    const handle = trimmed.replace(/^@+/, '').replace(/\s+/g, '');
+    return handle ? `https://www.instagram.com/${encodeURIComponent(handle)}/` : null;
+  }
+  if (source === 'facebook' && !trimmed.includes('/') && !trimmed.includes('.')) {
+    const slug = trimmed.replace(/^@+/, '');
+    if (!slug || slug.includes(' ')) return null;
+    return `https://www.facebook.com/${encodeURIComponent(slug)}`;
+  }
+  return `https://${trimmed}`;
+}
+
+async function safeFetchWithPublicRedirects(
+  targetUrl: string,
+  headers: Record<string, string>,
+  timeoutMs = 10000
+): Promise<{ response: globalThis.Response; finalUrl: string }> {
+  let currentUrl = targetUrl;
+  for (let hop = 0; hop < 4; hop += 1) {
+    const validated = await assertPublicHttpUrl(currentUrl);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(validated.toString(), {
+        method: 'GET',
+        headers,
+        redirect: 'manual',
+        signal: controller.signal,
+      });
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get('location');
+        if (!location) return { response, finalUrl: validated.toString() };
+        currentUrl = new URL(location, validated.toString()).toString();
+        continue;
+      }
+      return { response, finalUrl: validated.toString() };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw new Error('TOO_MANY_REDIRECTS');
+}
+
+async function fetchRemoteImageAsDataUrl(
+  imageUrl: string,
+  referer?: string,
+  minBytes = 256
+): Promise<{ dataUrl: string; mimeType: string } | null> {
+  try {
+    const headers: Record<string, string> = {
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+      Accept: 'image/avif,image/webp,image/apng,image/png,image/jpeg,image/*,*/*;q=0.8',
+    };
+    if (referer) headers.Referer = referer;
+    const { response } = await safeFetchWithPublicRedirects(imageUrl, headers, 8000);
+    if (!response.ok) return null;
+
+    const rawCt = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+    if (!rawCt.startsWith('image/')) return null;
+    if (rawCt === 'image/svg+xml') return null;
+
+    const arrayBuf = await response.arrayBuffer();
+    if (arrayBuf.byteLength < minBytes || arrayBuf.byteLength > 6 * 1024 * 1024) {
+      return null;
+    }
+    const base64 = Buffer.from(arrayBuf).toString('base64');
+    return {
+      dataUrl: `data:${rawCt};base64,${base64}`,
+      mimeType: rawCt,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function decodeHtmlEntitiesMinimal(str: string): string {
+  return str
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#x2F;/gi, '/')
+    .replace(/&#x3D;/gi, '=')
+    .replace(/&#038;/g, '&')
+    .replace(/\\u0026/gi, '&')
+    .replace(/\\\//g, '/');
+}
+
+function isLikelyUiNoiseImageUrl(url: string): boolean {
+  const lower = url.toLowerCase();
+  if (lower.startsWith('data:')) return true;
+  if (/\.svg(\?|$)/i.test(lower)) return true;
+  if (
+    /rsrc\.php|static\.xx\.fbcdn\.net\/rsrc|static\.cdninstagram\.com\/rsrc|favicon|1x1|pixel|spacer|blank\.gif|sprite|emoji/i.test(
+      lower
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function extractCandidateImageUrlsFromHtml(
+  html: string,
+  baseUrl: string
+): Array<{ imageUrl: string; title: string }> {
+  const seen = new Set<string>();
+  const results: Array<{ imageUrl: string; title: string }> = [];
+
+  const pushUrl = (raw: string, title = '') => {
+    const decoded = decodeHtmlEntitiesMinimal(raw).trim();
+    if (!decoded || decoded.startsWith('data:')) return;
+    try {
+      const abs = new URL(decoded, baseUrl).toString();
+      if (!/^https?:\/\//i.test(abs)) return;
+      if (isLikelyUiNoiseImageUrl(abs)) return;
+      if (seen.has(abs)) return;
+      seen.add(abs);
+      results.push({ imageUrl: abs, title: title.trim().slice(0, 120) });
+    } catch {
+      // ignore malformed url
+    }
+  };
+
+  // 1. OpenGraph & Twitter meta images
+  const metaTagRegex = /<meta\b[^>]*>/gi;
+  let metaMatch: RegExpExecArray | null;
+  while ((metaMatch = metaTagRegex.exec(html)) !== null) {
+    const tag = metaMatch[0];
+    const propMatch = tag.match(/(?:property|name)\s*=\s*["']([^"']+)["']/i);
+    const contentMatch = tag.match(/content\s*=\s*["']([^"']+)["']/i);
+    if (propMatch && contentMatch) {
+      const prop = propMatch[1].toLowerCase();
+      if (
+        prop === 'og:image' ||
+        prop === 'og:image:secure_url' ||
+        prop === 'twitter:image' ||
+        prop === 'twitter:image:src'
+      ) {
+        pushUrl(contentMatch[1], prop);
+      }
+    }
+  }
+
+  // 2. Embedded JSON photo URLs (Instagram / Facebook / Schema.org JSON-LD)
+  const jsonFieldRegex =
+    /"(?:display_url|profile_pic_url_hd|hd_src|image|thumbnail_src|full_picture|original_image_url)"\s*:\s*"(https?:\\?\/\\?\/[^"]+)"/gi;
+  let jsonMatch: RegExpExecArray | null;
+  while ((jsonMatch = jsonFieldRegex.exec(html)) !== null) {
+    pushUrl(jsonMatch[1]);
+  }
+
+  // 3. <img> tags (src, data-src, data-lazy-src, srcset)
+  const imgTagRegex = /<img\b[^>]*>/gi;
+  let imgMatch: RegExpExecArray | null;
+  while ((imgMatch = imgTagRegex.exec(html)) !== null) {
+    const tag = imgMatch[0];
+    const altMatch = tag.match(/alt\s*=\s*["']([^"']*)["']/i);
+    const alt = altMatch ? decodeHtmlEntitiesMinimal(altMatch[1]) : '';
+
+    const dataSrcMatch = tag.match(/(?:data-src|data-lazy-src|data-original)\s*=\s*["']([^"']+)["']/i);
+    const srcMatch = tag.match(/\bsrc\s*=\s*["']([^"']+)["']/i);
+    const srcsetMatch = tag.match(/\bsrcset\s*=\s*["']([^"']+)["']/i);
+
+    if (srcsetMatch) {
+      const candidates = srcsetMatch[1]
+        .split(',')
+        .map((part) => part.trim().split(/\s+/)[0])
+        .filter(Boolean);
+      if (candidates.length > 0) {
+        pushUrl(candidates[candidates.length - 1], alt);
+      }
+    }
+    if (dataSrcMatch) pushUrl(dataSrcMatch[1], alt);
+    if (srcMatch) pushUrl(srcMatch[1], alt);
+  }
+
+  return results.slice(0, 18);
 }
 
 function getCustomerSummary() {
@@ -1932,6 +2213,279 @@ async function startServer() {
       .run(req.params.purchaseId, req.params.id);
     if (result.changes === 0) {
       res.status(404).json({ error: 'Purchase record not found' });
+      return;
+    }
+
+    const updated = db
+      .prepare('SELECT * FROM customers WHERE id = ?')
+      .get(req.params.id) as CustomerRow;
+    res.json({
+      customer: mapCustomersWithPurchases([updated])[0],
+      summary: getCustomerSummary(),
+    });
+  });
+
+  // Customer Gallery: Fetch images from client's linked Facebook, Instagram, or Website (or direct pasted link)
+  app.post('/api/customers/:id/gallery/fetch-source', async (req: Request, res: Response) => {
+    const customer = db
+      .prepare('SELECT * FROM customers WHERE id = ?')
+      .get(req.params.id) as CustomerRow | undefined;
+    if (!customer) {
+      res.status(404).json({ error: 'Customer not found' });
+      return;
+    }
+
+    const body = req.body as {
+      source?: 'facebook' | 'instagram' | 'website';
+      customUrl?: string;
+    };
+    const source: 'facebook' | 'instagram' | 'website' =
+      body.source === 'facebook' || body.source === 'instagram' || body.source === 'website'
+        ? body.source
+        : 'website';
+
+    const customUrlInput = typeof body.customUrl === 'string' ? body.customUrl.trim() : '';
+    const linkedRaw =
+      source === 'facebook'
+        ? customer.facebook_url
+        : source === 'instagram'
+          ? customer.instagram_url
+          : customer.website_url;
+
+    const effectiveInput = customUrlInput || linkedRaw || '';
+    if (!effectiveInput) {
+      res.status(400).json({ error: 'SOURCE_NOT_LINKED' });
+      return;
+    }
+
+    const targetUrl = resolveCustomerSourceUrlServer(effectiveInput, source);
+    if (!targetUrl) {
+      res.status(400).json({ error: 'INVALID_URL' });
+      return;
+    }
+
+    try {
+      const browserHeaders = {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/*,*/*;q=0.8',
+        'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8,ar;q=0.7',
+      };
+
+      const { response, finalUrl } = await safeFetchWithPublicRedirects(targetUrl, browserHeaders, 10000);
+      const contentType = (response.headers.get('content-type') || '').toLowerCase();
+
+      // Case 1: Target URL is directly an image
+      if (contentType.startsWith('image/')) {
+        const directImg = await fetchRemoteImageAsDataUrl(finalUrl, undefined, 64);
+        if (!directImg) {
+          res.json({
+            targetUrl: finalUrl,
+            source,
+            images: [],
+            blockedOrEmptyReason: 'EMPTY_OR_BLOCKED',
+          });
+          return;
+        }
+        res.json({
+          targetUrl: finalUrl,
+          source,
+          images: [
+            {
+              id: crypto.randomUUID(),
+              imageUrl: finalUrl,
+              previewDataUrl: directImg.dataUrl,
+              title: customer.name,
+              source,
+            },
+          ],
+        });
+        return;
+      }
+
+      let html = response.ok ? await response.text() : '';
+      if (html.length > 2_000_000) {
+        html = html.slice(0, 2_000_000);
+      }
+
+      let candidates = html ? extractCandidateImageUrlsFromHtml(html, finalUrl) : [];
+
+      // Fallback OpenGraph crawler header for social links when standard browser UA receives thin/empty HTML
+      if (candidates.length === 0 && (source === 'facebook' || source === 'instagram')) {
+        try {
+          const crawlerAttempt = await safeFetchWithPublicRedirects(
+            targetUrl,
+            {
+              'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)',
+              Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
+            },
+            8000
+          );
+          if (crawlerAttempt.response.ok) {
+            const crawlerHtml = (await crawlerAttempt.response.text()).slice(0, 1_500_000);
+            candidates = extractCandidateImageUrlsFromHtml(crawlerHtml, crawlerAttempt.finalUrl);
+          }
+        } catch {
+          // ignore fallback error
+        }
+      }
+
+      if (candidates.length === 0) {
+        res.json({
+          targetUrl: finalUrl,
+          source,
+          images: [],
+          blockedOrEmptyReason:
+            !response.ok || response.status === 401 || response.status === 403 || response.status === 429
+              ? 'BLOCKED_OR_LOGIN_REQUIRED'
+              : 'NO_PUBLIC_IMAGES',
+        });
+        return;
+      }
+
+      // Download up to 12 discovered images server-side in parallel batches so CORS is bypassed
+      const limited = candidates.slice(0, 12);
+      const downloaded: Array<{
+        id: string;
+        imageUrl: string;
+        previewDataUrl: string;
+        title: string;
+        source: 'facebook' | 'instagram' | 'website';
+      }> = [];
+
+      for (let i = 0; i < limited.length; i += 4) {
+        const batch = limited.slice(i, i + 4);
+        const settled = await Promise.all(
+          batch.map(async (cand) => {
+            const imgResult = await fetchRemoteImageAsDataUrl(cand.imageUrl, finalUrl, 1200);
+            if (!imgResult) return null;
+            return {
+              id: crypto.randomUUID(),
+              imageUrl: cand.imageUrl,
+              previewDataUrl: imgResult.dataUrl,
+              title: cand.title || customer.name,
+              source,
+            };
+          })
+        );
+        for (const item of settled) {
+          if (item) downloaded.push(item);
+        }
+      }
+
+      res.json({
+        targetUrl: finalUrl,
+        source,
+        images: downloaded,
+        blockedOrEmptyReason: downloaded.length === 0 ? 'NO_PUBLIC_IMAGES' : undefined,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'FETCH_FAILED';
+      const status = msg === 'INVALID_PROTOCOL' || msg === 'FORBIDDEN_HOST' || msg === 'FORBIDDEN_IP' ? 400 : 502;
+      res.status(status).json({ error: msg });
+    }
+  });
+
+  app.post('/api/customers/:id/gallery', async (req: Request, res: Response) => {
+    const customer = db
+      .prepare('SELECT * FROM customers WHERE id = ?')
+      .get(req.params.id) as CustomerRow | undefined;
+    if (!customer) {
+      res.status(404).json({ error: 'Customer not found' });
+      return;
+    }
+
+    const body = req.body as {
+      items?: Array<{
+        title?: string;
+        source?: string;
+        sourceUrl?: string;
+        imageData?: string;
+        imageUrl?: string;
+      }>;
+      title?: string;
+      source?: string;
+      sourceUrl?: string;
+      imageData?: string;
+      imageUrl?: string;
+    };
+
+    const rawItems = Array.isArray(body?.items)
+      ? body.items
+      : body?.imageData || body?.imageUrl
+        ? [body]
+        : [];
+
+    if (rawItems.length === 0) {
+      res.status(400).json({ error: 'No images provided' });
+      return;
+    }
+
+    const validSources = new Set(['facebook', 'instagram', 'website', 'upload']);
+    const insertStmt = db.prepare(
+      `INSERT INTO customer_gallery (id, customer_id, title, source, source_url, image_data, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    );
+
+    let addedCount = 0;
+    const now = new Date().toISOString();
+
+    for (const item of rawItems.slice(0, 20)) {
+      const source =
+        typeof item.source === 'string' && validSources.has(item.source) ? item.source : 'upload';
+      const title = typeof item.title === 'string' ? item.title.trim().slice(0, 140) : '';
+      const sourceUrl = typeof item.sourceUrl === 'string' ? item.sourceUrl.trim().slice(0, 500) : '';
+
+      let finalImageData = '';
+      if (
+        typeof item.imageData === 'string' &&
+        item.imageData.startsWith('data:image/') &&
+        item.imageData.length <= 8 * 1024 * 1024
+      ) {
+        finalImageData = item.imageData;
+      } else if (typeof item.imageUrl === 'string' && item.imageUrl.trim()) {
+        const downloaded = await fetchRemoteImageAsDataUrl(item.imageUrl.trim(), sourceUrl || undefined, 64);
+        if (downloaded) {
+          finalImageData = downloaded.dataUrl;
+        }
+      }
+
+      if (!finalImageData) continue;
+
+      insertStmt.run(
+        crypto.randomUUID(),
+        customer.id,
+        title || customer.name,
+        source,
+        sourceUrl || (typeof item.imageUrl === 'string' ? item.imageUrl.trim().slice(0, 500) : ''),
+        finalImageData,
+        now
+      );
+      addedCount += 1;
+    }
+
+    if (addedCount === 0) {
+      res.status(400).json({ error: 'No valid images could be saved' });
+      return;
+    }
+
+    db.prepare('UPDATE customers SET updated_at = ? WHERE id = ?').run(now, customer.id);
+    const updated = db
+      .prepare('SELECT * FROM customers WHERE id = ?')
+      .get(customer.id) as CustomerRow;
+    res.status(201).json({
+      customer: mapCustomersWithPurchases([updated])[0],
+      addedCount,
+      summary: getCustomerSummary(),
+    });
+  });
+
+  app.delete('/api/customers/:id/gallery/:imageId', (req: Request, res: Response) => {
+    const result = db
+      .prepare('DELETE FROM customer_gallery WHERE id = ? AND customer_id = ?')
+      .run(req.params.imageId, req.params.id);
+    if (result.changes === 0) {
+      res.status(404).json({ error: 'Gallery image not found' });
       return;
     }
 

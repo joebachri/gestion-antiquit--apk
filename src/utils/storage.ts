@@ -1,6 +1,9 @@
 import type {
   Customer,
   CustomerCategory,
+  CustomerGalleryImage,
+  CustomerGalleryPayload,
+  CustomerImageSource,
   CustomerPayload,
   CustomerPurchase,
   CustomerPurchasePayload,
@@ -493,7 +496,7 @@ export async function localListCustomers(
   });
 
   return {
-    customers: filtered,
+    customers: filtered.map((c) => ({ ...c, gallery: c.gallery || [] })),
     summary: computeCustomerSummary(all),
   };
 }
@@ -518,6 +521,7 @@ export async function localCreateCustomer(payload: CustomerPayload): Promise<Cus
     createdAt: now,
     updatedAt: now,
     purchases: [],
+    gallery: [],
   };
   await putInStore(db, STORE_CUSTOMERS, customer);
   return customer;
@@ -629,6 +633,52 @@ export async function localDeletePurchase(
     ...existing,
     updatedAt: new Date().toISOString(),
     purchases: (existing.purchases || []).filter((p) => p.id !== purchaseId),
+    gallery: existing.gallery || [],
+  };
+  await putInStore(db, STORE_CUSTOMERS, updated);
+  return updated;
+}
+
+export async function localAddCustomerGalleryImages(
+  customerId: string,
+  items: CustomerGalleryPayload[]
+): Promise<Customer> {
+  const db = await openDb();
+  const existing = await getFromStore<Customer>(db, STORE_CUSTOMERS, customerId);
+  if (!existing) throw new Error('Customer not found');
+  const now = new Date().toISOString();
+  const newImages: CustomerGalleryImage[] = items
+    .filter((item) => Boolean(item.imageData && item.imageData.startsWith('data:image/')))
+    .map((item) => ({
+      id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
+      customerId,
+      title: (item.title || '').trim(),
+      source: (item.source || 'upload') as CustomerImageSource,
+      sourceUrl: (item.sourceUrl || '').trim(),
+      imageData: String(item.imageData),
+      createdAt: now,
+    }));
+
+  const updated: Customer = {
+    ...existing,
+    updatedAt: now,
+    gallery: [...newImages, ...(existing.gallery || [])],
+  };
+  await putInStore(db, STORE_CUSTOMERS, updated);
+  return updated;
+}
+
+export async function localDeleteCustomerGalleryImage(
+  customerId: string,
+  imageId: string
+): Promise<Customer> {
+  const db = await openDb();
+  const existing = await getFromStore<Customer>(db, STORE_CUSTOMERS, customerId);
+  if (!existing) throw new Error('Customer not found');
+  const updated: Customer = {
+    ...existing,
+    updatedAt: new Date().toISOString(),
+    gallery: (existing.gallery || []).filter((img) => img.id !== imageId),
   };
   await putInStore(db, STORE_CUSTOMERS, updated);
   return updated;

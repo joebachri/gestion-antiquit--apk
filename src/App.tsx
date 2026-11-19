@@ -18,6 +18,7 @@ import {
 import type {
   Customer,
   CustomerCategory,
+  CustomerGalleryPayload,
   CustomerPayload,
   CustomerPurchasePayload,
   CustomerSummary,
@@ -32,6 +33,7 @@ import { formatCurrency, formatNumber, translations } from './i18n';
 import { buildCustomersExcelBlob, buildExcelBlob } from './utils/excel';
 import {
   deleteCustomerApi,
+  deleteCustomerGalleryImageApi,
   deleteCustomerPurchaseApi,
   deleteProductApi,
   fetchCustomersApi,
@@ -40,6 +42,7 @@ import {
   fetchProductsApi,
   fetchSettingsApi,
   saveCustomerApi,
+  saveCustomerGalleryImagesApi,
   saveCustomerPurchaseApi,
   saveProductApi,
   saveSettingsApi,
@@ -125,6 +128,7 @@ export default function App() {
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [detailCustomer, setDetailCustomer] = useState<Customer | null>(null);
   const [detailStartAddPurchase, setDetailStartAddPurchase] = useState(false);
+  const [detailInitialTab, setDetailInitialTab] = useState<'purchases' | 'gallery'>('purchases');
   const [exportingCustomers, setExportingCustomers] = useState(false);
 
   const showToast = useCallback((message: string) => {
@@ -274,6 +278,19 @@ export default function App() {
 
   const handleDeletePurchase = async (customerId: string, purchaseId: string) => {
     const updatedCustomer = await deleteCustomerPurchaseApi(customerId, purchaseId);
+    setDetailCustomer(updatedCustomer);
+    await fetchCustomers(customerSearch, customerCategory);
+  };
+
+  const handleSaveGalleryImages = async (customerId: string, items: CustomerGalleryPayload[]) => {
+    const { customer: updatedCustomer } = await saveCustomerGalleryImagesApi(customerId, items);
+    setDetailCustomer(updatedCustomer);
+    showToast(t.customerGallerySavedToast);
+    await fetchCustomers(customerSearch, customerCategory);
+  };
+
+  const handleDeleteGalleryImage = async (customerId: string, imageId: string) => {
+    const updatedCustomer = await deleteCustomerGalleryImageApi(customerId, imageId);
     setDetailCustomer(updatedCustomer);
     await fetchCustomers(customerSearch, customerCategory);
   };
@@ -477,8 +494,9 @@ export default function App() {
               setEditingCustomer(cust);
               setCustomerFormOpen(true);
             }}
-            onViewCustomer={(cust, startAddPurchase = false) => {
+            onViewCustomer={(cust, startAddPurchase = false, initialTab = 'purchases') => {
               setDetailStartAddPurchase(startAddPurchase);
+              setDetailInitialTab(initialTab);
               setDetailCustomer(cust);
             }}
             onDeleteCustomer={handleDeleteCustomer}
@@ -984,9 +1002,11 @@ export default function App() {
         currency={settings.currency}
         products={products}
         initialAddPurchase={detailStartAddPurchase}
+        initialTab={detailInitialTab}
         onClose={() => {
           setDetailCustomer(null);
           setDetailStartAddPurchase(false);
+          setDetailInitialTab('purchases');
         }}
         onEditProfile={(cust) => {
           setEditingCustomer(cust);
@@ -995,6 +1015,8 @@ export default function App() {
         onExportCustomerExcel={(cust) => void handleExportCustomersExcel(cust)}
         onSavePurchase={handleSavePurchase}
         onDeletePurchase={handleDeletePurchase}
+        onSaveGalleryImages={handleSaveGalleryImages}
+        onDeleteGalleryImage={handleDeleteGalleryImage}
       />
 
       <CalculatorModal
