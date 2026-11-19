@@ -677,11 +677,21 @@ function resolveCustomerSourceUrlServer(
   return `https://${trimmed}`;
 }
 
+function isLoginWallUrl(url: string): boolean {
+  const lower = url.toLowerCase();
+  return (
+    /instagram\.com\/accounts\/login|facebook\.com\/login|mbasic\.facebook\.com\/login|facebook\.com\/checkpoint|instagram\.com\/challenge/.test(
+      lower
+    )
+  );
+}
+
 async function safeFetchWithPublicRedirects(
   targetUrl: string,
   headers: Record<string, string>,
-  timeoutMs = 10000
-): Promise<{ response: globalThis.Response; finalUrl: string }> {
+  timeoutMs = 10000,
+  options?: { stopOnLoginRedirect?: boolean }
+): Promise<{ response: globalThis.Response; finalUrl: string; loginWallRedirected?: boolean }> {
   let currentUrl = targetUrl;
   for (let hop = 0; hop < 4; hop += 1) {
     const validated = await assertPublicHttpUrl(currentUrl);
@@ -697,8 +707,15 @@ async function safeFetchWithPublicRedirects(
       if (response.status >= 300 && response.status < 400) {
         const location = response.headers.get('location');
         if (!location) return { response, finalUrl: validated.toString() };
-        currentUrl = new URL(location, validated.toString()).toString();
+        const nextUrl = new URL(location, validated.toString()).toString();
+        if (options?.stopOnLoginRedirect && isLoginWallUrl(nextUrl)) {
+          return { response, finalUrl: targetUrl, loginWallRedirected: true };
+        }
+        currentUrl = nextUrl;
         continue;
+      }
+      if (options?.stopOnLoginRedirect && isLoginWallUrl(validated.toString())) {
+        return { response, finalUrl: targetUrl, loginWallRedirected: true };
       }
       return { response, finalUrl: validated.toString() };
     } finally {
@@ -841,7 +858,173 @@ function extractCandidateImageUrlsFromHtml(
     if (srcMatch) pushUrl(srcMatch[1], alt);
   }
 
+  // 4. <picture><source srcset="...">
+  const sourceTagRegex = /<source\b[^>]*srcset\s*=\s*["']([^"']+)["'][^>]*>/gi;
+  let sourceMatch: RegExpExecArray | null;
+  while ((sourceMatch = sourceTagRegex.exec(html)) !== null) {
+    const candidates = sourceMatch[1]
+      .split(',')
+      .map((part) => part.trim().split(/\s+/)[0])
+      .filter(Boolean);
+    if (candidates.length > 0) {
+      pushUrl(candidates[candidates.length - 1]);
+    }
+  }
+
+  // 5. Inline CSS background-image: url(...)
+  const bgRegex = /background-image\s*:\s*url\((["']?)(https?:\/\/[^)"'\s]+)\1\)/gi;
+  let bgMatch: RegExpExecArray | null;
+  while ((bgMatch = bgRegex.exec(html)) !== null) {
+    pushUrl(bgMatch[2]);
+  }
+
   return results.slice(0, 18);
+}
+
+function extractInstagramUsernameFromUrl(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    if (!/instagram\.com$/i.test(parsed.hostname.replace(/^www\./, ''))) return null;
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    if (segments.length === 0) return null;
+    const first = segments[0];
+    if (['p', 'reel', 'reels', 'stories', 'explore', 'accounts', 'direct'].includes(first.toLowerCase())) {
+      return null;
+    }
+    return first.replace(/^@+/, '');
+  } catch {
+    return null;
+  }
+}
+
+function extractFacebookSlugFromUrl(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    if (!/(facebook|fb)\.com$/i.test(parsed.hostname.replace(/^(www|m)\./, ''))) return null;
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    if (segments.length === 0) return null;
+    const first = segments[0];
+    if (['login', 'watch', 'marketplace', 'groups', 'events', 'gaming', 'photo', 'story.php'].includes(first.toLowerCase())) {
+      return null;
+    }
+    return first;
+  } catch {
+    return null;
+  }
+}
+
+async function tryFetchViaConnectedMetaGraph(
+  targetUrl: string,
+  source: 'facebook' | 'instagram' | 'website',
+  fallbackTitle: string
+): Promise<Array<{ imageUrl: string; title: string }>> {
+  if (source !== 'instagram' && source !== 'facebook') return [];
+  const row = db
+    .prepare("SELECT * FROM meta_connections WHERE id = 'primary'")
+    .get() as MetaConnectionRow | undefined;
+  if (!row || !row.pages_json) return [];
+
+  let pages: StoredMetaPage[] = [];
+  try {
+    pages = JSON.parse(row.pages_json) as StoredMetaPage[];
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(pages) || pages.length === 0) return [];
+
+  const selectedPage =
+    pages.find((p) => p.id === row.selected_page_id) ||
+    pages.find((p) => p.igAccount) ||
+    pages[0];
+  if (!selectedPage?.accessToken) return [];
+
+  const collected: Array<{ imageUrl: string; title: string }> = [];
+
+  if (source === 'instagram') {
+    const igPage = pages.find((p) => p.igAccount?.id === row.selected_ig_id) || pages.find((p) => p.igAccount);
+    const username = extractInstagramUsernameFromUrl(targetUrl);
+    if (!igPage?.igAccount?.id || !igPage.accessToken || !username) return [];
+
+    try {
+      const fields = `business_discovery.username(${encodeURIComponent(
+        username
+      )}){username,name,profile_picture_url,media.limit(12){id,caption,media_type,media_url,thumbnail_url,permalink}}`;
+      const apiUrl = `https://graph.facebook.com/v21.0/${encodeURIComponent(
+        igPage.igAccount.id
+      )}?fields=${fields}&access_token=${encodeURIComponent(igPage.accessToken)}`;
+      const res = await fetch(apiUrl);
+      if (!res.ok) return [];
+      const data = (await res.json()) as {
+        business_discovery?: {
+          name?: string;
+          username?: string;
+          profile_picture_url?: string;
+          media?: {
+            data?: Array<{
+              caption?: string;
+              media_type?: string;
+              media_url?: string;
+              thumbnail_url?: string;
+            }>;
+          };
+        };
+      };
+      const disc = data.business_discovery;
+      if (!disc) return [];
+      for (const m of disc.media?.data || []) {
+        const imgUrl = m.media_type === 'VIDEO' ? m.thumbnail_url : m.media_url || m.thumbnail_url;
+        if (imgUrl) {
+          collected.push({
+            imageUrl: imgUrl,
+            title: (m.caption || disc.name || fallbackTitle).slice(0, 120),
+          });
+        }
+      }
+      if (disc.profile_picture_url && collected.length < 12) {
+        collected.push({
+          imageUrl: disc.profile_picture_url,
+          title: disc.name || `@${username}`,
+        });
+      }
+    } catch {
+      return [];
+    }
+  } else if (source === 'facebook') {
+    const slug = extractFacebookSlugFromUrl(targetUrl);
+    if (!slug) return [];
+    try {
+      const apiUrl = `https://graph.facebook.com/v21.0/${encodeURIComponent(
+        slug
+      )}?fields=name,picture.type(large),posts.limit(12){full_picture,message}&access_token=${encodeURIComponent(
+        selectedPage.accessToken
+      )}`;
+      const res = await fetch(apiUrl);
+      if (!res.ok) return [];
+      const data = (await res.json()) as {
+        name?: string;
+        picture?: { data?: { url?: string } };
+        posts?: { data?: Array<{ full_picture?: string; message?: string }> };
+      };
+      for (const p of data.posts?.data || []) {
+        if (p.full_picture) {
+          collected.push({
+            imageUrl: p.full_picture,
+            title: (p.message || data.name || fallbackTitle).slice(0, 120),
+          });
+        }
+      }
+      if (data.picture?.data?.url && collected.length < 12) {
+        collected.push({
+          imageUrl: data.picture.data.url,
+          title: data.name || fallbackTitle,
+        });
+      }
+    } catch {
+      return [];
+    }
+  }
+
+  return collected.slice(0, 12);
 }
 
 function getCustomerSummary() {
@@ -2230,14 +2413,12 @@ async function startServer() {
     const customer = db
       .prepare('SELECT * FROM customers WHERE id = ?')
       .get(req.params.id) as CustomerRow | undefined;
-    if (!customer) {
-      res.status(404).json({ error: 'Customer not found' });
-      return;
-    }
 
     const body = req.body as {
       source?: 'facebook' | 'instagram' | 'website';
       customUrl?: string;
+      linkedUrl?: string;
+      customerName?: string;
     };
     const source: 'facebook' | 'instagram' | 'website' =
       body.source === 'facebook' || body.source === 'instagram' || body.source === 'website'
@@ -2245,14 +2426,18 @@ async function startServer() {
         : 'website';
 
     const customUrlInput = typeof body.customUrl === 'string' ? body.customUrl.trim() : '';
-    const linkedRaw =
-      source === 'facebook'
+    const linkedFromBody = typeof body.linkedUrl === 'string' ? body.linkedUrl.trim() : '';
+    const linkedFromDb = customer
+      ? source === 'facebook'
         ? customer.facebook_url
         : source === 'instagram'
           ? customer.instagram_url
-          : customer.website_url;
+          : customer.website_url
+      : '';
 
-    const effectiveInput = customUrlInput || linkedRaw || '';
+    const effectiveInput = customUrlInput || linkedFromDb || linkedFromBody || '';
+    const displayName = customer?.name || (typeof body.customerName === 'string' ? body.customerName.trim() : '') || 'Client';
+
     if (!effectiveInput) {
       res.status(400).json({ error: 'SOURCE_NOT_LINKED' });
       return;
@@ -2265,6 +2450,45 @@ async function startServer() {
     }
 
     try {
+      // 1. Try connected Meta Graph API first for Facebook / Instagram if linked in Shop Settings
+      const graphCandidates = await tryFetchViaConnectedMetaGraph(targetUrl, source, displayName);
+      if (graphCandidates.length > 0) {
+        const downloadedGraph: Array<{
+          id: string;
+          imageUrl: string;
+          previewDataUrl: string;
+          title: string;
+          source: 'facebook' | 'instagram' | 'website';
+        }> = [];
+        for (let i = 0; i < graphCandidates.length; i += 4) {
+          const batch = graphCandidates.slice(i, i + 4);
+          const settled = await Promise.all(
+            batch.map(async (cand) => {
+              const imgResult = await fetchRemoteImageAsDataUrl(cand.imageUrl, targetUrl, 256);
+              if (!imgResult) return null;
+              return {
+                id: crypto.randomUUID(),
+                imageUrl: cand.imageUrl,
+                previewDataUrl: imgResult.dataUrl,
+                title: cand.title || displayName,
+                source,
+              };
+            })
+          );
+          for (const item of settled) {
+            if (item) downloadedGraph.push(item);
+          }
+        }
+        if (downloadedGraph.length > 0) {
+          res.json({
+            targetUrl,
+            source,
+            images: downloadedGraph,
+          });
+          return;
+        }
+      }
+
       const browserHeaders = {
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
@@ -2272,10 +2496,26 @@ async function startServer() {
         'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8,ar;q=0.7',
       };
 
-      const { response, finalUrl } = await safeFetchWithPublicRedirects(targetUrl, browserHeaders, 10000);
+      const { response, finalUrl, loginWallRedirected } = await safeFetchWithPublicRedirects(
+        targetUrl,
+        browserHeaders,
+        10000,
+        { stopOnLoginRedirect: true }
+      );
+
+      if (loginWallRedirected || response.status === 401 || response.status === 403 || response.status === 429) {
+        res.json({
+          targetUrl,
+          source,
+          images: [],
+          blockedOrEmptyReason: 'BLOCKED_OR_LOGIN_REQUIRED',
+        });
+        return;
+      }
+
       const contentType = (response.headers.get('content-type') || '').toLowerCase();
 
-      // Case 1: Target URL is directly an image
+      // Case 2: Target URL is directly an image
       if (contentType.startsWith('image/')) {
         const directImg = await fetchRemoteImageAsDataUrl(finalUrl, undefined, 64);
         if (!directImg) {
@@ -2295,7 +2535,7 @@ async function startServer() {
               id: crypto.randomUUID(),
               imageUrl: finalUrl,
               previewDataUrl: directImg.dataUrl,
-              title: customer.name,
+              title: displayName,
               source,
             },
           ],
@@ -2308,35 +2548,15 @@ async function startServer() {
         html = html.slice(0, 2_000_000);
       }
 
-      let candidates = html ? extractCandidateImageUrlsFromHtml(html, finalUrl) : [];
-
-      // Fallback OpenGraph crawler header for social links when standard browser UA receives thin/empty HTML
-      if (candidates.length === 0 && (source === 'facebook' || source === 'instagram')) {
-        try {
-          const crawlerAttempt = await safeFetchWithPublicRedirects(
-            targetUrl,
-            {
-              'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)',
-              Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
-            },
-            8000
-          );
-          if (crawlerAttempt.response.ok) {
-            const crawlerHtml = (await crawlerAttempt.response.text()).slice(0, 1_500_000);
-            candidates = extractCandidateImageUrlsFromHtml(crawlerHtml, crawlerAttempt.finalUrl);
-          }
-        } catch {
-          // ignore fallback error
-        }
-      }
+      const candidates = html ? extractCandidateImageUrlsFromHtml(html, finalUrl) : [];
 
       if (candidates.length === 0) {
         res.json({
-          targetUrl: finalUrl,
+          targetUrl,
           source,
           images: [],
           blockedOrEmptyReason:
-            !response.ok || response.status === 401 || response.status === 403 || response.status === 429
+            source === 'facebook' || source === 'instagram'
               ? 'BLOCKED_OR_LOGIN_REQUIRED'
               : 'NO_PUBLIC_IMAGES',
         });
@@ -2363,7 +2583,7 @@ async function startServer() {
               id: crypto.randomUUID(),
               imageUrl: cand.imageUrl,
               previewDataUrl: imgResult.dataUrl,
-              title: cand.title || customer.name,
+              title: cand.title || displayName,
               source,
             };
           })
@@ -2377,7 +2597,12 @@ async function startServer() {
         targetUrl: finalUrl,
         source,
         images: downloaded,
-        blockedOrEmptyReason: downloaded.length === 0 ? 'NO_PUBLIC_IMAGES' : undefined,
+        blockedOrEmptyReason:
+          downloaded.length === 0
+            ? source === 'facebook' || source === 'instagram'
+              ? 'BLOCKED_OR_LOGIN_REQUIRED'
+              : 'NO_PUBLIC_IMAGES'
+            : undefined,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'FETCH_FAILED';
@@ -2387,14 +2612,6 @@ async function startServer() {
   });
 
   app.post('/api/customers/:id/gallery', async (req: Request, res: Response) => {
-    const customer = db
-      .prepare('SELECT * FROM customers WHERE id = ?')
-      .get(req.params.id) as CustomerRow | undefined;
-    if (!customer) {
-      res.status(404).json({ error: 'Customer not found' });
-      return;
-    }
-
     const body = req.body as {
       items?: Array<{
         title?: string;
@@ -2408,7 +2625,63 @@ async function startServer() {
       sourceUrl?: string;
       imageData?: string;
       imageUrl?: string;
+      customerSnapshot?: {
+        code?: string;
+        name?: string;
+        phone?: string;
+        address?: string;
+        city?: string;
+        category?: string;
+        notes?: string;
+        facebookUrl?: string;
+        instagramUrl?: string;
+        websiteUrl?: string;
+      };
     };
+
+    let customer = db
+      .prepare('SELECT * FROM customers WHERE id = ?')
+      .get(req.params.id) as CustomerRow | undefined;
+    if (!customer && typeof body?.customerSnapshot?.name === 'string' && body.customerSnapshot.name.trim()) {
+      const snap = body.customerSnapshot;
+      const snapName = snap.name!.trim();
+      const nowSnap = new Date().toISOString();
+      const validCategories = new Set(['seller', 'hobbyist', 'regular', 'other']);
+      const snapCategory =
+        typeof snap.category === 'string' && validCategories.has(snap.category)
+          ? snap.category
+          : 'regular';
+      const snapCode =
+        typeof snap.code === 'string' && snap.code.trim()
+          ? snap.code.trim()
+          : generateNextCustomerCode();
+      db.prepare(
+        `INSERT OR IGNORE INTO customers (
+          id, code, name, phone, address, city, category, notes, facebook_url, instagram_url, website_url, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        req.params.id,
+        snapCode,
+        snapName,
+        (snap.phone || '').trim(),
+        (snap.address || '').trim(),
+        (snap.city || '').trim(),
+        snapCategory,
+        (snap.notes || '').trim(),
+        (snap.facebookUrl || '').trim().slice(0, 240),
+        (snap.instagramUrl || '').trim().slice(0, 240),
+        (snap.websiteUrl || '').trim().slice(0, 240),
+        nowSnap,
+        nowSnap
+      );
+      customer = db
+        .prepare('SELECT * FROM customers WHERE id = ?')
+        .get(req.params.id) as CustomerRow | undefined;
+    }
+    if (!customer) {
+      res.status(404).json({ error: 'Customer not found' });
+      return;
+    }
 
     const rawItems = Array.isArray(body?.items)
       ? body.items

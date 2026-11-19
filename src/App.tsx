@@ -283,7 +283,15 @@ export default function App() {
   };
 
   const handleSaveGalleryImages = async (customerId: string, items: CustomerGalleryPayload[]) => {
-    const { customer: updatedCustomer } = await saveCustomerGalleryImagesApi(customerId, items);
+    const snap =
+      detailCustomer?.id === customerId
+        ? detailCustomer
+        : customers.find((c) => c.id === customerId);
+    const { customer: updatedCustomer } = await saveCustomerGalleryImagesApi(
+      customerId,
+      items,
+      snap
+    );
     setDetailCustomer(updatedCustomer);
     showToast(t.customerGallerySavedToast);
     await fetchCustomers(customerSearch, customerCategory);

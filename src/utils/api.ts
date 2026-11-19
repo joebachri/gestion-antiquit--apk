@@ -370,7 +370,8 @@ export async function deleteCustomerPurchaseApi(
 export async function fetchCustomerSourceImagesApi(
   customerId: string,
   source: 'facebook' | 'instagram' | 'website',
-  customUrl?: string
+  customUrl?: string,
+  options?: { linkedUrl?: string; customerName?: string }
 ): Promise<FetchCustomerSourceImagesResult> {
   if (isNative()) {
     const trimmed = (customUrl || '').trim();
@@ -388,7 +389,7 @@ export async function fetchCustomerSourceImagesApi(
                 id: `${Date.now()}`,
                 imageUrl: trimmed,
                 previewDataUrl: dataUrl,
-                title: '',
+                title: options?.customerName || '',
                 source,
               },
             ],
@@ -399,7 +400,7 @@ export async function fetchCustomerSourceImagesApi(
       }
     }
     return {
-      targetUrl: trimmed,
+      targetUrl: trimmed || options?.linkedUrl || '',
       source,
       images: [],
       blockedOrEmptyReason: 'BLOCKED_OR_LOGIN_REQUIRED',
@@ -409,7 +410,12 @@ export async function fetchCustomerSourceImagesApi(
   const res = await fetch(`/api/customers/${customerId}/gallery/fetch-source`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ source, customUrl }),
+    body: JSON.stringify({
+      source,
+      customUrl,
+      linkedUrl: options?.linkedUrl,
+      customerName: options?.customerName,
+    }),
   });
   if (!res.ok) {
     const errData = (await res.json().catch(() => ({}))) as { error?: string };
@@ -420,7 +426,8 @@ export async function fetchCustomerSourceImagesApi(
 
 export async function saveCustomerGalleryImagesApi(
   customerId: string,
-  items: CustomerGalleryPayload[]
+  items: CustomerGalleryPayload[],
+  customerSnapshot?: Partial<Customer>
 ): Promise<{ customer: Customer; addedCount: number }> {
   if (isNative()) {
     const customer = await localAddCustomerGalleryImages(customerId, items);
@@ -429,7 +436,7 @@ export async function saveCustomerGalleryImagesApi(
   const res = await fetch(`/api/customers/${customerId}/gallery`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ items }),
+    body: JSON.stringify({ items, customerSnapshot }),
   });
   if (!res.ok) throw new Error('Gallery save failed');
   const data = (await res.json()) as { customer: Customer; addedCount: number };

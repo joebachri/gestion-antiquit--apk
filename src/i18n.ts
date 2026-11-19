@@ -307,9 +307,13 @@ export const translations = {
     customerGalleryDownloadDevice: 'Enregistrer sur l’appareil',
     customerGallerySourceUpload: 'Appareil',
     customerGalleryFetchBlockedHint:
-      'Ce réseau social protège parfois le chargement automatique sans connexion. Vous pouvez ouvrir le compte lié, copier l’adresse directe d’une photo ci-dessus ou importer l’image enregistrée.',
+      'Instagram et Facebook demandent une connexion pour charger automatiquement leurs photos depuis un serveur. Ouvrez le compte du client ci-dessous, puis copiez une adresse d’image (coller le lien) ou faites un clic droit « Copier l’image » et collez-la ici (Ctrl+V).',
     customerGalleryFetchError: 'Impossible d’accéder à ce lien pour le moment.',
     customerGalleryNoImagesFound: 'Aucune image publique exploitable trouvée sur cette page.',
+    customerGalleryOpenProfile: 'Ouvrir le compte lié',
+    customerGalleryCopyProfileUrl: 'Copier le lien',
+    customerGalleryLinkCopied: 'Lien copié !',
+    customerGalleryPasteBoxHint: 'Glissez des photos ici ou collez une image copiée (Ctrl+V)',
   },
   ar: {
     brandName: 'إدارة التحف',
@@ -612,9 +616,13 @@ export const translations = {
     customerGalleryDownloadDevice: 'تحميل على الجهاز',
     customerGallerySourceUpload: 'الجهاز',
     customerGalleryFetchBlockedHint:
-      'قد تمنع بعض منصات التواصل الوصول التلقائي بدون تسجيل الدخول. يمكنك فتح الحساب المرتبط ونسخ رابط الصورة المباشر أعلاه أو استيرادها من جهازك.',
+      'يتطلب إنستغرام وفيسبوك تسجيل الدخول لجلب الصور تلقائياً من الخادم. افتح حساب العميل أدناه، ثم انسخ رابط الصورة المباشر أو انسخ الصورة نفسهـا والصقها هنا (Ctrl+V) أو استوردها من جهازك.',
     customerGalleryFetchError: 'تعذّر الوصول إلى هذا الرابط حالياً.',
     customerGalleryNoImagesFound: 'لم يتم العثور على صور عامة متاحة في هذه الصفحة.',
+    customerGalleryOpenProfile: 'فتح الحساب المرتبط',
+    customerGalleryCopyProfileUrl: 'نسخ الرابط',
+    customerGalleryLinkCopied: 'تم نسخ الرابط!',
+    customerGalleryPasteBoxHint: 'اسحب الصور هنا أو الصق صورة منسوخة (Ctrl+V)',
   },
 } as const;
 

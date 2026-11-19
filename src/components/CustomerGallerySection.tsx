@@ -1,7 +1,8 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Check,
   CheckSquare,
+  Copy,
   Download,
   ExternalLink,
   Facebook,
@@ -68,16 +69,20 @@ export function CustomerGallerySection({
 }: CustomerGallerySectionProps) {
   const t = translations[lang];
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const feedbackRef = useRef<HTMLDivElement | null>(null);
 
   const [fetchingSource, setFetchingSource] = useState<'facebook' | 'instagram' | 'website' | 'custom' | null>(null);
+  const [activeExtractSource, setActiveExtractSource] = useState<CustomerImageSource>('upload');
   const [customUrl, setCustomUrl] = useState('');
   const [fetchError, setFetchError] = useState('');
   const [fetchHint, setFetchHint] = useState('');
   const [lastFetchedTargetUrl, setLastFetchedTargetUrl] = useState('');
+  const [copiedUrl, setCopiedUrl] = useState(false);
 
   const [candidates, setCandidates] = useState<FetchedSourceImageCandidate[]>([]);
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<Set<string>>(new Set());
   const [savingCandidates, setSavingCandidates] = useState(false);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
 
   const [pendingDeleteImageId, setPendingDeleteImageId] = useState<string | null>(null);
   const [lightboxImage, setLightboxImage] = useState<CustomerGalleryImage | null>(null);
@@ -89,20 +94,38 @@ export function CustomerGallerySection({
   const webHref = getCustomerWebsiteUrl(customer.websiteUrl || '');
   const hasAnyLinkedAccount = Boolean(fbHref || igHref || webHref);
 
+  useEffect(() => {
+    if (fetchingSource || fetchHint || fetchError || candidates.length > 0) {
+      feedbackRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [fetchingSource, fetchHint, fetchError, candidates.length]);
+
   const handleFetchFromLinkedSource = async (
     source: 'facebook' | 'instagram' | 'website',
     overrideUrl?: string
   ) => {
+    const linkedRaw =
+      source === 'facebook'
+        ? fbHref || customer.facebookUrl || ''
+        : source === 'instagram'
+          ? igHref || customer.instagramUrl || ''
+          : webHref || customer.websiteUrl || '';
+
     setFetchingSource(overrideUrl ? 'custom' : source);
+    setActiveExtractSource(source);
     setFetchError('');
     setFetchHint('');
+    setCopiedUrl(false);
     setCandidates([]);
     setSelectedCandidateIds(new Set());
-    setLastFetchedTargetUrl('');
+    setLastFetchedTargetUrl(overrideUrl || linkedRaw);
 
     try {
-      const result = await fetchCustomerSourceImagesApi(customer.id, source, overrideUrl);
-      setLastFetchedTargetUrl(result.targetUrl || '');
+      const result = await fetchCustomerSourceImagesApi(customer.id, source, overrideUrl, {
+        linkedUrl: linkedRaw,
+        customerName: customer.name,
+      });
+      setLastFetchedTargetUrl(result.targetUrl || overrideUrl || linkedRaw);
 
       if (result.images.length > 0) {
         setCandidates(result.images);
@@ -166,23 +189,25 @@ export function CustomerGallerySection({
     }
   };
 
-  const handleDeviceFilesSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const fileList = Array.from(e.target.files || []);
-    e.target.value = '';
-    if (fileList.length === 0) return;
-
+  const saveImageFiles = async (
+    files: File[],
+    tagSource: CustomerImageSource = 'upload',
+    tagUrl = ''
+  ) => {
+    if (files.length === 0) return;
     setSavingCandidates(true);
     setFetchError('');
     try {
       const items: CustomerGalleryPayload[] = [];
-      for (const file of fileList.slice(0, 12)) {
+      for (const file of files.slice(0, 12)) {
+        if (!file.type.startsWith('image/')) continue;
         try {
           const dataUrl = await compressImageBlob(file, 1280, 0.85);
           if (dataUrl.startsWith('data:image/')) {
             items.push({
-              title: file.name.replace(/\.[^.]+$/, '') || customer.name,
-              source: 'upload',
-              sourceUrl: '',
+              title: file.name ? file.name.replace(/\.[^.]+$/, '') : customer.name,
+              source: tagSource,
+              sourceUrl: tagUrl,
               imageData: dataUrl,
             });
           }
@@ -200,6 +225,59 @@ export function CustomerGallerySection({
     }
   };
 
+  const handleDeviceFilesSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const fileList = Array.from(e.target.files || []);
+    e.target.value = '';
+    await saveImageFiles(fileList, 'upload', '');
+  };
+
+  const handlePaste = async (e: React.ClipboardEvent<HTMLDivElement>) => {
+    const items = Array.from(e.clipboardData?.items || []);
+    const imageFiles: File[] = [];
+    for (const item of items) {
+      if (item.kind === 'file' && item.type.startsWith('image/')) {
+        const f = item.getAsFile();
+        if (f) imageFiles.push(f);
+      }
+    }
+    if (imageFiles.length > 0) {
+      e.preventDefault();
+      const sourceTag: CustomerImageSource =
+        activeExtractSource === 'facebook' ||
+        activeExtractSource === 'instagram' ||
+        activeExtractSource === 'website'
+          ? activeExtractSource
+          : 'upload';
+      await saveImageFiles(imageFiles, sourceTag, lastFetchedTargetUrl);
+    }
+  };
+
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDraggingOver(false);
+    const files = Array.from(e.dataTransfer?.files || []).filter((f) => f.type.startsWith('image/'));
+    if (files.length > 0) {
+      const sourceTag: CustomerImageSource =
+        activeExtractSource === 'facebook' ||
+        activeExtractSource === 'instagram' ||
+        activeExtractSource === 'website'
+          ? activeExtractSource
+          : 'upload';
+      await saveImageFiles(files, sourceTag, lastFetchedTargetUrl);
+    }
+  };
+
+  const handleCopyProfileLink = async (url: string) => {
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedUrl(true);
+      setTimeout(() => setCopiedUrl(false), 2500);
+    } catch {
+      // ignore clipboard errors
+    }
+  };
+
   const handleDownloadGalleryItem = async (img: CustomerGalleryImage) => {
     const converted = await photoDataToBlob(img.imageData);
     if (!converted) return;
@@ -210,9 +288,21 @@ export function CustomerGallerySection({
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5" onPaste={(e) => void handlePaste(e)}>
       {/* Import from Client Accounts & Device */}
-      <div className="rounded-2xl border border-[#DCE7E0] bg-[#F7FAF8] p-4 space-y-3.5 dark:border-[#1E3A2D] dark:bg-[#091611]">
+      <div
+        onDragOver={(e) => {
+          e.preventDefault();
+          setIsDraggingOver(true);
+        }}
+        onDragLeave={() => setIsDraggingOver(false)}
+        onDrop={(e) => void handleDrop(e)}
+        className={`rounded-2xl border p-4 space-y-3.5 transition-colors ${
+          isDraggingOver
+            ? 'border-[#115E3B] bg-[#ECF7F1] dark:border-[#10B981] dark:bg-[#132B20]'
+            : 'border-[#DCE7E0] bg-[#F7FAF8] dark:border-[#1E3A2D] dark:bg-[#091611]'
+        }`}
+      >
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
             <h3 className="flex items-center gap-2 text-sm font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
@@ -251,7 +341,7 @@ export function CustomerGallerySection({
                 type="button"
                 disabled={fetchingSource !== null}
                 onClick={() => void handleFetchFromLinkedSource('facebook')}
-                className="flex min-h-[42px] items-center gap-2 rounded-xl border border-[#1877F2]/30 bg-white px-3.5 text-xs font-semibold text-[#1877F2] transition-colors hover:bg-[#1877F2]/5 disabled:opacity-60 dark:border-[#60A5FA]/30 dark:bg-[#0F2119] dark:text-[#60A5FA]"
+                className="flex min-h-[42px] items-center gap-2 rounded-xl border border-[#1877F2]/35 bg-white px-3.5 text-xs font-semibold text-[#1877F2] transition-colors hover:bg-[#1877F2]/10 disabled:opacity-60 dark:border-[#60A5FA]/35 dark:bg-[#0F2119] dark:text-[#60A5FA]"
               >
                 {fetchingSource === 'facebook' ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -272,7 +362,7 @@ export function CustomerGallerySection({
                 type="button"
                 disabled={fetchingSource !== null}
                 onClick={() => void handleFetchFromLinkedSource('instagram')}
-                className="flex min-h-[42px] items-center gap-2 rounded-xl border border-[#C13584]/30 bg-white px-3.5 text-xs font-semibold text-[#C13584] transition-colors hover:bg-[#C13584]/5 disabled:opacity-60 dark:border-[#F472B6]/30 dark:bg-[#0F2119] dark:text-[#F472B6]"
+                className="flex min-h-[42px] items-center gap-2 rounded-xl border border-[#C13584]/35 bg-white px-3.5 text-xs font-semibold text-[#C13584] transition-colors hover:bg-[#C13584]/10 disabled:opacity-60 dark:border-[#F472B6]/35 dark:bg-[#0F2119] dark:text-[#F472B6]"
               >
                 {fetchingSource === 'instagram' ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -324,6 +414,130 @@ export function CustomerGallerySection({
           </div>
         )}
 
+        {/* Immediate feedback & discovered candidates right below source buttons */}
+        <div ref={feedbackRef} className="space-y-3">
+          {fetchingSource && (
+            <div className="flex items-center gap-2 rounded-xl border border-[#CBE0D3] bg-white px-3 py-2.5 text-xs font-semibold text-[#115E3B] dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#34D399]">
+              <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+              <span>{t.customerGalleryFetching}</span>
+            </div>
+          )}
+
+          {fetchError && (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
+              {fetchError}
+            </div>
+          )}
+
+          {fetchHint && (
+            <div className="space-y-2.5 rounded-xl border border-amber-300/80 bg-amber-50 p-3.5 text-xs text-amber-950 dark:border-amber-700/40 dark:bg-amber-950/35 dark:text-amber-100">
+              <p className="leading-relaxed font-medium">{fetchHint}</p>
+              {lastFetchedTargetUrl && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <a
+                    href={lastFetchedTargetUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex min-h-[38px] items-center gap-1.5 rounded-xl bg-[#115E3B] px-3.5 text-xs font-semibold text-white hover:bg-[#0D4A2E] dark:bg-[#10B981] dark:text-[#052E1C]"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    <span>{t.customerGalleryOpenProfile}</span>
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => void handleCopyProfileLink(lastFetchedTargetUrl)}
+                    className="inline-flex min-h-[38px] items-center gap-1.5 rounded-xl border border-amber-400/60 bg-white px-3 text-xs font-semibold text-[#0B1F16] hover:bg-amber-100/60 dark:border-amber-600/40 dark:bg-[#0F2119] dark:text-[#F2F9F5]"
+                  >
+                    {copiedUrl ? <Check className="h-3.5 w-3.5 text-[#115E3B] dark:text-[#34D399]" /> : <Copy className="h-3.5 w-3.5" />}
+                    <span>{copiedUrl ? t.customerGalleryLinkCopied : t.customerGalleryCopyProfileUrl}</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Discovered Candidates Picker */}
+          {candidates.length > 0 && (
+            <div className="space-y-3 rounded-xl border border-[#115E3B]/35 bg-white p-3.5 dark:border-[#10B981]/35 dark:bg-[#0F2119]">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+                  {t.customerGalleryFoundTitle} ({formatNumber(candidates.length, lang)})
+                </span>
+                <div className="flex items-center gap-3 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (selectedCandidateIds.size === candidates.length) {
+                        setSelectedCandidateIds(new Set());
+                      } else {
+                        setSelectedCandidateIds(new Set(candidates.map((c) => c.id)));
+                      }
+                    }}
+                    className="font-semibold text-[#115E3B] hover:underline dark:text-[#34D399]"
+                  >
+                    {selectedCandidateIds.size === candidates.length
+                      ? t.customerGalleryDeselectAll
+                      : t.customerGallerySelectAll}
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+                {candidates.map((cand) => {
+                  const selected = selectedCandidateIds.has(cand.id);
+                  return (
+                    <button
+                      key={cand.id}
+                      type="button"
+                      onClick={() => toggleCandidate(cand.id)}
+                      className={`group relative overflow-hidden rounded-xl border-2 text-start transition-all ${
+                        selected
+                          ? 'border-[#115E3B] ring-2 ring-[#115E3B]/20 dark:border-[#10B981] dark:ring-[#10B981]/20'
+                          : 'border-[#DCE7E0] opacity-75 hover:opacity-100 dark:border-[#1E3A2D]'
+                      }`}
+                    >
+                      <img
+                        src={cand.previewDataUrl}
+                        alt={cand.title || customer.name}
+                        className="aspect-square w-full bg-[#F7FAF8] object-cover dark:bg-[#091611]"
+                      />
+                      <span
+                        className={`absolute top-2 flex h-6 w-6 items-center justify-center rounded-lg shadow-sm ${
+                          lang === 'ar' ? 'left-2' : 'right-2'
+                        } ${
+                          selected
+                            ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
+                            : 'bg-white/90 text-[#335947] dark:bg-[#0F2119]/90 dark:text-[#9EC0AE]'
+                        }`}
+                      >
+                        {selected ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <button
+                type="button"
+                disabled={selectedCandidateIds.size === 0 || savingCandidates}
+                onClick={() => void handleSaveSelectedCandidates()}
+                className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-[#115E3B] px-4 text-xs font-semibold text-white hover:bg-[#0D4A2E] disabled:opacity-60 dark:bg-[#10B981] dark:text-[#052E1C]"
+              >
+                {savingCandidates ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Check className="h-4 w-4" />
+                )}
+                <span>
+                  {savingCandidates
+                    ? t.customerGallerySavingSelected
+                    : `${t.customerGallerySaveSelected} (${formatNumber(selectedCandidateIds.size, lang)})`}
+                </span>
+              </button>
+            </div>
+          )}
+        </div>
+
         {/* Direct post / page / image URL input */}
         <form onSubmit={(e) => void handleFetchCustomUrl(e)} className="space-y-1.5">
           <label className="block text-xs font-semibold text-[#0B1F16] dark:text-[#F2F9F5]">
@@ -360,119 +574,10 @@ export function CustomerGallerySection({
               <span>{t.customerGalleryCustomUrlFetch}</span>
             </button>
           </div>
+          <p className="text-[11px] text-[#335947] dark:text-[#9EC0AE]">
+            {t.customerGalleryPasteBoxHint}
+          </p>
         </form>
-
-        {fetchingSource && (
-          <div className="flex items-center gap-2 rounded-xl border border-[#CBE0D3] bg-white px-3 py-2 text-xs font-medium text-[#115E3B] dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#34D399]">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            <span>{t.customerGalleryFetching}</span>
-          </div>
-        )}
-
-        {fetchError && (
-          <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
-            {fetchError}
-          </div>
-        )}
-
-        {fetchHint && (
-          <div className="space-y-2 rounded-xl border border-amber-300/70 bg-amber-50 px-3 py-2.5 text-xs text-amber-900 dark:border-amber-700/40 dark:bg-amber-950/30 dark:text-amber-200">
-            <p className="leading-relaxed">{fetchHint}</p>
-            {lastFetchedTargetUrl && (
-              <a
-                href={lastFetchedTargetUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                dir="ltr"
-                className="inline-flex items-center gap-1.5 font-semibold underline hover:opacity-80"
-              >
-                <span>{lastFetchedTargetUrl}</span>
-                <ExternalLink className="h-3 w-3" />
-              </a>
-            )}
-          </div>
-        )}
-
-        {/* Discovered Candidates Picker */}
-        {candidates.length > 0 && (
-          <div className="space-y-3 rounded-xl border border-[#115E3B]/35 bg-white p-3.5 dark:border-[#10B981]/35 dark:bg-[#0F2119]">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-xs font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
-                {t.customerGalleryFoundTitle} ({formatNumber(candidates.length, lang)})
-              </span>
-              <div className="flex items-center gap-3 text-xs">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (selectedCandidateIds.size === candidates.length) {
-                      setSelectedCandidateIds(new Set());
-                    } else {
-                      setSelectedCandidateIds(new Set(candidates.map((c) => c.id)));
-                    }
-                  }}
-                  className="font-semibold text-[#115E3B] hover:underline dark:text-[#34D399]"
-                >
-                  {selectedCandidateIds.size === candidates.length
-                    ? t.customerGalleryDeselectAll
-                    : t.customerGallerySelectAll}
-                </button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
-              {candidates.map((cand) => {
-                const selected = selectedCandidateIds.has(cand.id);
-                return (
-                  <button
-                    key={cand.id}
-                    type="button"
-                    onClick={() => toggleCandidate(cand.id)}
-                    className={`group relative overflow-hidden rounded-xl border-2 text-start transition-all ${
-                      selected
-                        ? 'border-[#115E3B] ring-2 ring-[#115E3B]/20 dark:border-[#10B981] dark:ring-[#10B981]/20'
-                        : 'border-[#DCE7E0] opacity-75 hover:opacity-100 dark:border-[#1E3A2D]'
-                    }`}
-                  >
-                    <img
-                      src={cand.previewDataUrl}
-                      alt={cand.title || customer.name}
-                      className="aspect-square w-full bg-[#F7FAF8] object-cover dark:bg-[#091611]"
-                    />
-                    <span
-                      className={`absolute top-2 flex h-6 w-6 items-center justify-center rounded-lg shadow-sm ${
-                        lang === 'ar' ? 'left-2' : 'right-2'
-                      } ${
-                        selected
-                          ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
-                          : 'bg-white/90 text-[#335947] dark:bg-[#0F2119]/90 dark:text-[#9EC0AE]'
-                      }`}
-                    >
-                      {selected ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
-            <button
-              type="button"
-              disabled={selectedCandidateIds.size === 0 || savingCandidates}
-              onClick={() => void handleSaveSelectedCandidates()}
-              className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-[#115E3B] px-4 text-xs font-semibold text-white hover:bg-[#0D4A2E] disabled:opacity-60 dark:bg-[#10B981] dark:text-[#052E1C]"
-            >
-              {savingCandidates ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Check className="h-4 w-4" />
-              )}
-              <span>
-                {savingCandidates
-                  ? t.customerGallerySavingSelected
-                  : `${t.customerGallerySaveSelected} (${formatNumber(selectedCandidateIds.size, lang)})`}
-              </span>
-            </button>
-          </div>
-        )}
       </div>
 
       {/* Saved Customer Gallery */}
