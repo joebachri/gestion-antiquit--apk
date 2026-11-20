@@ -5,6 +5,8 @@ import type {
   CustomerPayload,
   CustomerPurchasePayload,
   CustomerSummary,
+  ExcelImportMode,
+  ExcelImportResult,
   FacebookPublishPayload,
   InstagramPublishPayload,
   InventorySummary,
@@ -30,6 +32,7 @@ import {
   localGetProductDigitalFile,
   localGetProductDigitalFileByQr,
   localGetSettings,
+  localImportProducts,
   localListCustomers,
   localListPosSales,
   localListProducts,
@@ -102,6 +105,24 @@ export async function deleteProductApi(productId: string): Promise<void> {
   }
   const res = await fetch(`/api/products/${productId}`, { method: 'DELETE' });
   if (!res.ok) throw new Error('Delete failed');
+}
+
+export async function importProductsExcelApi(
+  items: ProductPayload[],
+  mode: ExcelImportMode = 'skip'
+): Promise<ExcelImportResult> {
+  if (isNative()) {
+    return localImportProducts(items, mode);
+  }
+  const res = await fetch('/api/products/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items, mode }),
+  });
+  if (!res.ok) {
+    throw new Error('Import failed');
+  }
+  return (await res.json()) as ExcelImportResult;
 }
 
 export async function fetchSettingsApi(): Promise<ShopSettings> {

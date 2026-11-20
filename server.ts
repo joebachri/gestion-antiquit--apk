@@ -44,6 +44,7 @@ interface PhotoInput {
 }
 
 interface ProductInput {
+  code?: string;
   name: string;
   description?: string;
   supplier?: string;
@@ -59,6 +60,34 @@ interface ProductInput {
   addedDate?: string;
   photos?: PhotoInput[];
   regenerateCode?: boolean;
+}
+
+function sanitizeCustomProductCode(raw: string): string {
+  return String(raw || '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^A-Z0-9\-_/.]/g, '')
+    .slice(0, 32);
+}
+
+function ensureUniqueProductCode(candidate: string, excludeProductId?: string): string {
+  const base = sanitizeCustomProductCode(candidate);
+  if (!base) return '';
+  let next = base;
+  let suffix = 2;
+  while (true) {
+    const existing = excludeProductId
+      ? (db
+          .prepare('SELECT id FROM products WHERE UPPER(code) = UPPER(?) AND id != ?')
+          .get(next, excludeProductId) as { id: string } | undefined)
+      : (db.prepare('SELECT id FROM products WHERE UPPER(code) = UPPER(?)').get(next) as
+          | { id: string }
+          | undefined);
+    if (!existing) return next;
+    next = `${base}-${suffix}`;
+    suffix += 1;
+  }
 }
 
 interface SalesInvoiceRow {
@@ -1376,7 +1405,11 @@ async function startServer() {
 
     const now = new Date().toISOString();
     const id = crypto.randomUUID();
-    const code = generateNextProductCode(name);
+    const customCode =
+      typeof body.code === 'string' && body.code.trim()
+        ? ensureUniqueProductCode(body.code)
+        : '';
+    const code = customCode || generateNextProductCode(name);
     const qrToken = `GA-QR-${code}`;
     const addedDate =
       typeof body.addedDate === 'string' && body.addedDate.trim() ? body.addedDate.trim() : now.slice(0, 10);
@@ -1468,10 +1501,22 @@ async function startServer() {
     }
 
     const now = new Date().toISOString();
+    const explicitCode =
+      typeof body.code === 'string' && body.code.trim()
+        ? sanitizeCustomProductCode(body.code)
+        : '';
+    const isAutoFormatCode = /^[A-Z]\d{4}$/.test(existing.code);
     const shouldRegen =
-      Boolean(body.regenerateCode) || extractPrefixLetter(name) !== extractPrefixLetter(existing.name);
-    const code = shouldRegen ? generateNextProductCode(name, productId) : existing.code;
-    const qrToken = shouldRegen ? `GA-QR-${code}` : existing.qr_token || `GA-QR-${code}`;
+      Boolean(body.regenerateCode) ||
+      (isAutoFormatCode && extractPrefixLetter(name) !== extractPrefixLetter(existing.name));
+    const code =
+      explicitCode && explicitCode !== existing.code
+        ? ensureUniqueProductCode(explicitCode, productId)
+        : shouldRegen
+          ? generateNextProductCode(name, productId)
+          : existing.code;
+    const qrToken =
+      code !== existing.code ? `GA-QR-${code}` : existing.qr_token || `GA-QR-${code}`;
     const supplier =
       typeof body.supplier === 'string' ? body.supplier.trim() : existing.supplier || '';
     const nextQty = toInt(body.quantity, 1);
@@ -1562,6 +1607,173 @@ async function startServer() {
     const updatedRow = db.prepare('SELECT * FROM products WHERE id = ?').get(productId) as ProductRow;
     res.json({
       product: mapProductsWithPhotos([updatedRow])[0],
+      summary: getInventorySummary(),
+    });
+  });
+
+  app.post('/api/products/import', (req: Request, res: Response) => {
+    const body = req.body as { items?: ProductInput[]; mode?: 'skip' | 'update' };
+    const items = Array.isArray(body?.items) ? body.items : [];
+    if (items.length === 0) {
+      res.status(400).json({ error: 'No items provided' });
+      return;
+    }
+
+    const mode = body?.mode === 'update' ? 'update' : 'skip';
+    const now = new Date().toISOString();
+    let addedCount = 0;
+    let updatedCount = 0;
+    let skippedCount = 0;
+
+    const selectByCode = db.prepare('SELECT * FROM products WHERE UPPER(code) = UPPER(?)');
+    const insertProduct = db.prepare(`
+      INSERT INTO products (
+        id, code, qr_token, name, description, supplier,
+        length_cm, width_cm, height_cm, thickness_cm, pieces_count,
+        quantity, reference_price, expenses, selling_price,
+        added_date, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const updateProduct = db.prepare(`
+      UPDATE products SET
+        name = ?,
+        description = ?,
+        supplier = ?,
+        length_cm = ?,
+        width_cm = ?,
+        height_cm = ?,
+        thickness_cm = ?,
+        pieces_count = ?,
+        quantity = ?,
+        reference_price = ?,
+        expenses = ?,
+        selling_price = ?,
+        added_date = ?,
+        updated_at = ?
+      WHERE id = ?
+    `);
+
+    const tx = db.transaction(() => {
+      for (const rawItem of items) {
+        if (!rawItem || typeof rawItem !== 'object') continue;
+        const cleanCode = sanitizeCustomProductCode(rawItem.code || '');
+        const cleanName = (typeof rawItem.name === 'string' ? rawItem.name.trim() : '') || cleanCode;
+        if (!cleanName) {
+          skippedCount += 1;
+          continue;
+        }
+
+        const existingRow = cleanCode
+          ? (selectByCode.get(cleanCode) as ProductRow | undefined)
+          : undefined;
+
+        if (existingRow) {
+          if (mode === 'skip') {
+            skippedCount += 1;
+            continue;
+          }
+
+          const nextQty =
+            typeof rawItem.quantity === 'number' && Number.isFinite(rawItem.quantity)
+              ? Math.max(0, Math.floor(rawItem.quantity))
+              : existingRow.quantity;
+          const qtyDelta = nextQty - existingRow.quantity;
+
+          updateProduct.run(
+            cleanName,
+            typeof rawItem.description === 'string'
+              ? rawItem.description.trim()
+              : existingRow.description,
+            typeof rawItem.supplier === 'string' ? rawItem.supplier.trim() : existingRow.supplier,
+            typeof rawItem.lengthCm === 'number' ? toNumber(rawItem.lengthCm, 0) : existingRow.length_cm,
+            typeof rawItem.widthCm === 'number' ? toNumber(rawItem.widthCm, 0) : existingRow.width_cm,
+            typeof rawItem.heightCm === 'number' ? toNumber(rawItem.heightCm, 0) : existingRow.height_cm,
+            typeof rawItem.thicknessCm === 'number'
+              ? toNumber(rawItem.thicknessCm, 0)
+              : existingRow.thickness_cm,
+            typeof rawItem.piecesCount === 'number'
+              ? Math.max(1, toInt(rawItem.piecesCount, 1))
+              : existingRow.pieces_count,
+            nextQty,
+            typeof rawItem.referencePrice === 'number'
+              ? toNumber(rawItem.referencePrice, 0)
+              : existingRow.reference_price,
+            typeof rawItem.expenses === 'number' ? toNumber(rawItem.expenses, 0) : existingRow.expenses,
+            typeof rawItem.sellingPrice === 'number'
+              ? toNumber(rawItem.sellingPrice, 0)
+              : existingRow.selling_price,
+            typeof rawItem.addedDate === 'string' && rawItem.addedDate.trim()
+              ? rawItem.addedDate.trim()
+              : existingRow.added_date,
+            now,
+            existingRow.id
+          );
+
+          logProductHistory(
+            existingRow.id,
+            qtyDelta > 0 ? 'restocked' : 'updated',
+            `Import Excel (${existingRow.code})`,
+            qtyDelta !== 0 ? `Stock: ${existingRow.quantity} → ${nextQty}` : '',
+            qtyDelta,
+            nextQty,
+            now
+          );
+          updatedCount += 1;
+          continue;
+        }
+
+        const id = crypto.randomUUID();
+        const finalCode = cleanCode || generateNextProductCode(cleanName);
+        const qrToken = `GA-QR-${finalCode}`;
+        const initialQty = Math.max(0, toInt(rawItem.quantity, 1));
+        const supplier = typeof rawItem.supplier === 'string' ? rawItem.supplier.trim() : '';
+        const addedDate =
+          typeof rawItem.addedDate === 'string' && rawItem.addedDate.trim()
+            ? rawItem.addedDate.trim()
+            : now.slice(0, 10);
+
+        insertProduct.run(
+          id,
+          finalCode,
+          qrToken,
+          cleanName,
+          typeof rawItem.description === 'string' ? rawItem.description.trim() : '',
+          supplier,
+          toNumber(rawItem.lengthCm, 0),
+          toNumber(rawItem.widthCm, 0),
+          toNumber(rawItem.heightCm, 0),
+          toNumber(rawItem.thicknessCm, 0),
+          Math.max(1, toInt(rawItem.piecesCount, 1)),
+          initialQty,
+          toNumber(rawItem.referencePrice, 0),
+          toNumber(rawItem.expenses, 0),
+          toNumber(rawItem.sellingPrice, 0),
+          addedDate,
+          now,
+          now
+        );
+
+        logProductHistory(
+          id,
+          'created',
+          `Import Excel (${finalCode})`,
+          supplier ? `Fournisseur: ${supplier}` : '',
+          initialQty,
+          initialQty,
+          now
+        );
+        addedCount += 1;
+      }
+    });
+
+    tx();
+
+    const rows = db.prepare('SELECT * FROM products ORDER BY created_at DESC').all() as ProductRow[];
+    res.status(201).json({
+      addedCount,
+      updatedCount,
+      skippedCount,
+      products: mapProductsWithPhotos(rows),
       summary: getInventorySummary(),
     });
   });

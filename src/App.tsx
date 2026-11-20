@@ -15,6 +15,7 @@ import {
   Search,
   Share2,
   Trash2,
+  Upload,
   UserPlus,
   Users,
   Video,
@@ -27,6 +28,7 @@ import type {
   CustomerPayload,
   CustomerPurchasePayload,
   CustomerSummary,
+  ExcelImportMode,
   InventorySummary,
   Language,
   MetaAuthStatus,
@@ -57,6 +59,7 @@ import {
   fetchProductDigitalFileApi,
   fetchProductsApi,
   fetchSettingsApi,
+  importProductsExcelApi,
   lookupProductByQrApi,
   saveCustomerApi,
   saveCustomerGalleryImagesApi,
@@ -78,10 +81,11 @@ import { CustomersView } from './components/CustomersView';
 import { CustomerFormModal } from './components/CustomerFormModal';
 import { CustomerDetailModal } from './components/CustomerDetailModal';
 import { CalculatorModal } from './components/CalculatorModal';
-import { QrScannerModal } from './components/QrScannerModal';
+import { QrScannerModal, type QrScanMode } from './components/QrScannerModal';
 import { ProductDigitalFileModal } from './components/ProductDigitalFileModal';
 import { QrCodeDisplayModal } from './components/QrCodeDisplayModal';
 import { PosSalesModal } from './components/PosSalesModal';
+import { ImportProductsExcelModal } from './components/ImportProductsExcelModal';
 
 export default function App() {
   const [lang, setLang] = useState<Language>(() => {
@@ -131,6 +135,9 @@ export default function App() {
   const [shareProduct, setShareProduct] = useState<Product | null>(null);
   const [qrCodeProduct, setQrCodeProduct] = useState<Product | null>(null);
   const [qrScannerOpen, setQrScannerOpen] = useState(false);
+  const [qrScannerInitialMode, setQrScannerInitialMode] = useState<QrScanMode>('view');
+  const [qrScannerLockedCustomer, setQrScannerLockedCustomer] = useState<Customer | null>(null);
+  const [importExcelOpen, setImportExcelOpen] = useState(false);
   const [digitalFileData, setDigitalFileData] = useState<ProductDigitalFile | null>(null);
   const [digitalFileView, setDigitalFileView] = useState<'client' | 'management'>('client');
   const [digitalFileLockedClient, setDigitalFileLockedClient] = useState(false);
@@ -313,6 +320,9 @@ export default function App() {
         const data = await fetchCustomersApi(query, category);
         setCustomers(data.customers);
         setCustomerSummary(data.summary);
+        setDetailCustomer((prev) =>
+          prev ? data.customers.find((c) => c.id === prev.id) || prev : null
+        );
       } catch {
         // keep current customers
       } finally {
@@ -515,19 +525,17 @@ export default function App() {
   );
 
   const handleExecuteQrSale = useCallback(
-    async (productId: string) => {
+    async (payload: PosSalePayload) => {
       const result = await createPosSaleApi({
-        productId,
-        quantity: 1,
-        paymentMethod: 'cash',
-        source: 'qr_scan',
+        ...payload,
+        source: payload.source || 'qr_scan',
       });
       await Promise.all([
         fetchProducts(searchQuery),
         fetchPosSales(),
         fetchCustomers(customerSearch, customerCategory),
       ]);
-      if (digitalFileData?.product.id === productId) {
+      if (digitalFileData?.product.id === payload.productId) {
         setDigitalFileData(result.digitalFile);
       }
       showToast(`${t.qrScannerSoldSuccess} ${result.invoice.invoiceNumber}`);
@@ -547,6 +555,17 @@ export default function App() {
       showToast,
       t.qrScannerSoldSuccess,
     ]
+  );
+
+  const handleImportProductsExcel = useCallback(
+    async (items: ProductPayload[], mode: ExcelImportMode) => {
+      const result = await importProductsExcelApi(items, mode);
+      await fetchProducts(searchQuery);
+      showToast(
+        `${t.importExcelSuccessToast} +${result.addedCount} / ~${result.updatedCount}`
+      );
+    },
+    [fetchProducts, searchQuery, showToast, t.importExcelSuccessToast]
   );
 
   const handleCancelPosInvoice = useCallback(
@@ -864,7 +883,16 @@ export default function App() {
             )}
           </div>
 
-          <div className="hidden items-center gap-2.5 sm:flex">
+          <div className="hidden items-center gap-2 sm:flex">
+            <button
+              type="button"
+              onClick={() => setImportExcelOpen(true)}
+              className="flex min-h-[48px] items-center justify-center gap-2 rounded-2xl border border-[#DCE7E0] bg-white px-4 text-sm font-semibold text-[#115E3B] transition-colors hover:bg-[#ECF7F1] whitespace-nowrap shrink-0 dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#34D399] dark:hover:bg-[#162E23]"
+            >
+              <Upload className="h-4 w-4" />
+              <span>{t.importExcelButton}</span>
+            </button>
+
             <button
               type="button"
               onClick={() => void handleExportExcel()}
@@ -1356,12 +1384,22 @@ export default function App() {
             </button>
           </div>
         ) : (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setImportExcelOpen(true)}
+              aria-label={t.importExcelButton}
+              title={t.importExcelButton}
+              className="flex min-h-[46px] items-center justify-center gap-1 rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-2.5 text-xs font-semibold text-[#115E3B] whitespace-nowrap shrink-0 dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#34D399]"
+            >
+              <Upload className="h-4 w-4" />
+            </button>
+
             <button
               type="button"
               onClick={() => void handleExportExcel()}
               disabled={exporting}
-              className="flex min-h-[46px] items-center justify-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-3 text-xs font-semibold text-[#115E3B] disabled:opacity-60 whitespace-nowrap shrink-0 dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#34D399]"
+              className="flex min-h-[46px] items-center justify-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-2.5 text-xs font-semibold text-[#115E3B] disabled:opacity-60 whitespace-nowrap shrink-0 dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#34D399]"
             >
               <FileSpreadsheet className="h-4 w-4" />
               <span>Excel</span>
@@ -1369,9 +1407,13 @@ export default function App() {
 
             <button
               type="button"
-              onClick={() => setQrScannerOpen(true)}
+              onClick={() => {
+                setQrScannerLockedCustomer(null);
+                setQrScannerInitialMode('view');
+                setQrScannerOpen(true);
+              }}
               aria-label={t.qrScanButtonLabel}
-              className="flex min-h-[46px] items-center justify-center gap-1.5 rounded-xl border border-[#115E3B]/35 bg-[#ECF7F1] px-3 text-xs font-bold text-[#115E3B] whitespace-nowrap shrink-0 dark:border-[#10B981]/40 dark:bg-[#132B20] dark:text-[#34D399]"
+              className="flex min-h-[46px] items-center justify-center gap-1.5 rounded-xl border border-[#115E3B]/35 bg-[#ECF7F1] px-2.5 text-xs font-bold text-[#115E3B] whitespace-nowrap shrink-0 dark:border-[#10B981]/40 dark:bg-[#132B20] dark:text-[#34D399]"
             >
               <QrCode className="h-4 w-4" />
               <span>QR</span>
@@ -1383,7 +1425,7 @@ export default function App() {
                 setEditingProduct(null);
                 setFormOpen(true);
               }}
-              className="flex min-h-[46px] flex-1 items-center justify-center gap-2 rounded-xl bg-[#115E3B] px-3.5 text-sm font-semibold text-white whitespace-nowrap dark:bg-[#10B981] dark:text-[#052E1C]"
+              className="flex min-h-[46px] flex-1 items-center justify-center gap-1.5 rounded-xl bg-[#115E3B] px-3 text-sm font-semibold text-white whitespace-nowrap dark:bg-[#10B981] dark:text-[#052E1C]"
             >
               <Plus className="h-4 w-4" />
               <span>{t.addProduct}</span>
@@ -1529,6 +1571,11 @@ export default function App() {
         onDeletePurchase={handleDeletePurchase}
         onSaveGalleryImages={handleSaveGalleryImages}
         onDeleteGalleryImage={handleDeleteGalleryImage}
+        onOpenQrSellForCustomer={(cust) => {
+          setQrScannerLockedCustomer(cust);
+          setQrScannerInitialMode('sell');
+          setQrScannerOpen(true);
+        }}
       />
 
       <CalculatorModal
@@ -1543,7 +1590,14 @@ export default function App() {
         lang={lang}
         currency={settings.currency}
         storeName={settings.storeName}
-        onClose={() => setQrScannerOpen(false)}
+        initialMode={qrScannerInitialMode}
+        customers={customers}
+        lockedCustomer={qrScannerLockedCustomer}
+        onClose={() => {
+          setQrScannerOpen(false);
+          setQrScannerLockedCustomer(null);
+          setQrScannerInitialMode('view');
+        }}
         onLookupQr={lookupProductByQrApi}
         onExecuteQrSale={handleExecuteQrSale}
         onOpenDigitalFile={(file, view) => {
@@ -1551,6 +1605,14 @@ export default function App() {
           setDigitalFileView(view);
           setDigitalFileData(file);
         }}
+      />
+
+      <ImportProductsExcelModal
+        isOpen={importExcelOpen}
+        lang={lang}
+        currency={settings.currency}
+        onClose={() => setImportExcelOpen(false)}
+        onImport={handleImportProductsExcel}
       />
 
       <QrCodeDisplayModal

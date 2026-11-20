@@ -131,10 +131,11 @@ export function ProductFormModal({
   // Live preview automatic code based on first letter of product name
   useEffect(() => {
     if (!isOpen) return;
+    const isAutoFormat = editingProduct ? /^[A-Z]\d{4}$/.test(editingProduct.code) : true;
     const shouldQuery =
       !editingProduct ||
       regenerateCode ||
-      extractPrefixLetter(name) !== extractPrefixLetter(editingProduct.name);
+      (isAutoFormat && extractPrefixLetter(name) !== extractPrefixLetter(editingProduct.name));
 
     if (!shouldQuery && editingProduct) {
       setPreviewCode(editingProduct.code);

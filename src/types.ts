@@ -55,6 +55,7 @@ export interface ShopSettings {
 }
 
 export interface ProductPayload {
+  code?: string;
   name: string;
   description: string;
   supplier?: string;
@@ -70,6 +71,16 @@ export interface ProductPayload {
   addedDate: string;
   photos: Array<{ id?: string; imageData: string }>;
   regenerateCode?: boolean;
+}
+
+export type ExcelImportMode = 'skip' | 'update';
+
+export interface ExcelImportResult {
+  addedCount: number;
+  updatedCount: number;
+  skippedCount: number;
+  products: Product[];
+  summary: InventorySummary;
 }
 
 export type ProductHistoryEventType =

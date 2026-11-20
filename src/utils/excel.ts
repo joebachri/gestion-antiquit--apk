@@ -1,6 +1,13 @@
 import * as XLSX from 'xlsx';
-import type { Customer, InventorySummary, Language, PosInvoice, Product } from '../types';
-import { convertFromMad } from './currency';
+import type {
+  Customer,
+  InventorySummary,
+  Language,
+  PosInvoice,
+  Product,
+  ProductPayload,
+} from '../types';
+import { convertFromMad, convertToMad } from './currency';
 
 export function buildExcelBlob(
   products: Product[],
@@ -1056,6 +1063,420 @@ export function buildStockPurchasesExcelBlob(
     detailSheet,
     isAr ? 'تفاصيل المشتريات' : 'Détail Acquisitions'
   );
+
+  const out = XLSX.write(workbook, {
+    bookType: 'xlsx',
+    type: 'array',
+    compression: true,
+  }) as ArrayBuffer;
+
+  return new Blob([out], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+}
+
+function normalizeExcelHeader(raw: unknown): string {
+  return String(raw || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\([^)]*\)/g, '')
+    .replace(/[_\-.:/]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function parseExcelNumber(val: unknown, fallback = 0): number {
+  if (typeof val === 'number' && Number.isFinite(val)) return val;
+  const cleaned = String(val ?? '')
+    .trim()
+    .replace(/\s+/g, '')
+    .replace(',', '.')
+    .replace(/[^0-9.-]/g, '');
+  if (!cleaned) return fallback;
+  const parsed = Number.parseFloat(cleaned);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function parseExcelDate(val: unknown, defaultDate: string): string {
+  if (val instanceof Date && !Number.isNaN(val.getTime())) {
+    return val.toISOString().slice(0, 10);
+  }
+  if (typeof val === 'number' && val > 20000 && val < 80000) {
+    const utcMs = Math.round((val - 25569) * 86400 * 1000);
+    return new Date(utcMs).toISOString().slice(0, 10);
+  }
+  const str = String(val || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(str)) return str.slice(0, 10);
+  const dmy = str.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
+  if (dmy) {
+    const day = dmy[1].padStart(2, '0');
+    const month = dmy[2].padStart(2, '0');
+    const year = dmy[3].length === 2 ? `20${dmy[3]}` : dmy[3];
+    return `${year}-${month}-${day}`;
+  }
+  return defaultDate;
+}
+
+function detectFieldFromHeader(header: string):
+  | 'code'
+  | 'name'
+  | 'description'
+  | 'supplier'
+  | 'lengthCm'
+  | 'widthCm'
+  | 'heightCm'
+  | 'thicknessCm'
+  | 'piecesCount'
+  | 'quantity'
+  | 'referencePrice'
+  | 'expenses'
+  | 'sellingPrice'
+  | 'addedDate'
+  | null {
+  if (!header) return null;
+  // Exclude QR token column from overwriting the primary code column
+  if (
+    header === 'code qr' ||
+    header === 'qr' ||
+    header === 'qr token' ||
+    header === 'رمز qr'
+  ) {
+    return null;
+  }
+  if (
+    [
+      'code',
+      'code produit',
+      'code article',
+      'ref',
+      'reference',
+      'sku',
+      'id produit',
+      'الرمز',
+      'رمز المنتج',
+      'كود',
+      'كود المنتج',
+      'product code',
+      'item code',
+    ].includes(header)
+  ) {
+    return 'code';
+  }
+  if (
+    [
+      'nom',
+      'nom produit',
+      'nom du produit',
+      'produit',
+      'article',
+      'designation',
+      'titre',
+      'name',
+      'product',
+      'product name',
+      'اسم المنتج',
+      'المنتج',
+      'الاسم',
+    ].includes(header)
+  ) {
+    return 'name';
+  }
+  if (['description', 'details', 'detail', 'notes', 'الوصف', 'التفاصيل'].includes(header)) {
+    return 'description';
+  }
+  if (['fournisseur', 'vendeur', 'supplier', 'vendor', 'المورد'].includes(header)) {
+    return 'supplier';
+  }
+  if (['longueur', 'length', 'الطول'].includes(header)) return 'lengthCm';
+  if (['largeur', 'width', 'العرض'].includes(header)) return 'widthCm';
+  if (['hauteur', 'height', 'الارتفاع'].includes(header)) return 'heightCm';
+  if (['epaisseur', 'thickness', 'السماكة'].includes(header)) return 'thicknessCm';
+  if (
+    ['nombre de pieces', 'nb pieces', 'pieces', 'pieces count', 'عدد القطع'].includes(header)
+  ) {
+    return 'piecesCount';
+  }
+  if (['quantite', 'qte', 'qty', 'stock', 'quantity', 'الكمية'].includes(header)) {
+    return 'quantity';
+  }
+  if (
+    [
+      'prix de reference',
+      'prix reference',
+      'prix d achat',
+      'prix achat',
+      'cout achat',
+      'purchase price',
+      'reference price',
+      'cost',
+      'السعر المرجعي',
+      'سعر الشراء',
+    ].includes(header)
+  ) {
+    return 'referencePrice';
+  }
+  if (['frais', 'expenses', 'depenses', 'المصاريف'].includes(header)) {
+    return 'expenses';
+  }
+  if (
+    [
+      'prix de vente',
+      'prix vente',
+      'prix',
+      'selling price',
+      'price',
+      'سعر البيع',
+      'السعر',
+    ].includes(header)
+  ) {
+    return 'sellingPrice';
+  }
+  if (
+    [
+      'date d ajout',
+      'date ajout',
+      'date d acquisition',
+      'date',
+      'added date',
+      'تاريخ الاضافة',
+      'تاريخ الإضافة',
+      'تاريخ الاقتناء',
+    ].includes(header)
+  ) {
+    return 'addedDate';
+  }
+  return null;
+}
+
+export async function parseProductsFromExcelFile(
+  file: File,
+  currency: string
+): Promise<{ rows: ProductPayload[]; skippedEmpty: number }> {
+  const buf = await file.arrayBuffer();
+  const workbook = XLSX.read(buf, { type: 'array', cellDates: true });
+  const firstSheetName = workbook.SheetNames[0];
+  if (!firstSheetName) return { rows: [], skippedEmpty: 0 };
+
+  const sheet = workbook.Sheets[firstSheetName];
+  const aoa = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
+    header: 1,
+    defval: '',
+    blankrows: false,
+  });
+  if (aoa.length === 0) return { rows: [], skippedEmpty: 0 };
+
+  // Find header row in first 5 rows (or assume row 0 is headers)
+  let headerRowIdx = 0;
+  let bestMatches = 0;
+  for (let i = 0; i < Math.min(5, aoa.length); i += 1) {
+    const row = aoa[i] || [];
+    let matches = 0;
+    for (const cell of row) {
+      if (detectFieldFromHeader(normalizeExcelHeader(cell))) {
+        matches += 1;
+      }
+    }
+    if (matches > bestMatches) {
+      bestMatches = matches;
+      headerRowIdx = i;
+    }
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const rows: ProductPayload[] = [];
+  let skippedEmpty = 0;
+
+  if (bestMatches > 0) {
+    const headerRow = aoa[headerRowIdx] || [];
+    const colFieldMap = headerRow.map((h) => detectFieldFromHeader(normalizeExcelHeader(h)));
+
+    for (let r = headerRowIdx + 1; r < aoa.length; r += 1) {
+      const cells = aoa[r] || [];
+      const firstNonEmpty = String(cells[0] ?? '').trim().toUpperCase();
+      if (firstNonEmpty === 'TOTAL' || firstNonEmpty === 'المجموع') {
+        continue;
+      }
+
+      const draft: ProductPayload = {
+        code: '',
+        name: '',
+        description: '',
+        supplier: '',
+        lengthCm: 0,
+        widthCm: 0,
+        heightCm: 0,
+        thicknessCm: 0,
+        piecesCount: 1,
+        quantity: 1,
+        referencePrice: 0,
+        expenses: 0,
+        sellingPrice: 0,
+        addedDate: today,
+        photos: [],
+      };
+
+      let hasCodeOrName = false;
+      for (let c = 0; c < colFieldMap.length; c += 1) {
+        const field = colFieldMap[c];
+        if (!field) continue;
+        const val = cells[c];
+        const strVal = String(val ?? '').trim();
+
+        if (field === 'code' && strVal) {
+          draft.code = strVal;
+          hasCodeOrName = true;
+        } else if (field === 'name' && strVal) {
+          draft.name = strVal;
+          hasCodeOrName = true;
+        } else if (field === 'description') {
+          draft.description = strVal;
+        } else if (field === 'supplier') {
+          draft.supplier = strVal;
+        } else if (field === 'lengthCm') {
+          draft.lengthCm = Math.max(0, parseExcelNumber(val, 0));
+        } else if (field === 'widthCm') {
+          draft.widthCm = Math.max(0, parseExcelNumber(val, 0));
+        } else if (field === 'heightCm') {
+          draft.heightCm = Math.max(0, parseExcelNumber(val, 0));
+        } else if (field === 'thicknessCm') {
+          draft.thicknessCm = Math.max(0, parseExcelNumber(val, 0));
+        } else if (field === 'piecesCount') {
+          draft.piecesCount = Math.max(1, Math.floor(parseExcelNumber(val, 1)));
+        } else if (field === 'quantity') {
+          draft.quantity = strVal === '' ? 1 : Math.max(0, Math.floor(parseExcelNumber(val, 1)));
+        } else if (field === 'referencePrice') {
+          draft.referencePrice = convertToMad(Math.max(0, parseExcelNumber(val, 0)), currency);
+        } else if (field === 'expenses') {
+          draft.expenses = convertToMad(Math.max(0, parseExcelNumber(val, 0)), currency);
+        } else if (field === 'sellingPrice') {
+          draft.sellingPrice = convertToMad(Math.max(0, parseExcelNumber(val, 0)), currency);
+        } else if (field === 'addedDate' && strVal) {
+          draft.addedDate = parseExcelDate(val, today);
+        }
+      }
+
+      if (!hasCodeOrName) {
+        skippedEmpty += 1;
+        continue;
+      }
+      if (!draft.name && draft.code) {
+        draft.name = draft.code;
+      }
+      rows.push(draft);
+    }
+  } else {
+    // Headerless simple spreadsheet support: Col A = Code, Col B = Name (or Code only)
+    for (let r = 0; r < aoa.length; r += 1) {
+      const cells = aoa[r] || [];
+      const colA = String(cells[0] ?? '').trim();
+      const colB = String(cells[1] ?? '').trim();
+      if (!colA && !colB) {
+        skippedEmpty += 1;
+        continue;
+      }
+      const code = colA;
+      const name = colB || colA;
+      const qty = cells[2] !== undefined && String(cells[2]).trim() !== ''
+        ? Math.max(0, Math.floor(parseExcelNumber(cells[2], 1)))
+        : 1;
+      const sell = cells[3] !== undefined ? convertToMad(Math.max(0, parseExcelNumber(cells[3], 0)), currency) : 0;
+
+      rows.push({
+        code,
+        name,
+        description: '',
+        supplier: '',
+        lengthCm: 0,
+        widthCm: 0,
+        heightCm: 0,
+        thicknessCm: 0,
+        piecesCount: 1,
+        quantity: qty,
+        referencePrice: 0,
+        expenses: 0,
+        sellingPrice: sell,
+        addedDate: today,
+        photos: [],
+      });
+    }
+  }
+
+  return { rows, skippedEmpty };
+}
+
+export function buildProductsTemplateExcelBlob(currency: string, lang: Language): Blob {
+  const isAr = lang === 'ar';
+  const headers = isAr
+    ? [
+        'الرمز',
+        'اسم المنتج',
+        'الوصف',
+        'المورد',
+        'الكمية',
+        `سعر الشراء (${currency})`,
+        `المصاريف (${currency})`,
+        `سعر البيع (${currency})`,
+        'الطول (سم)',
+        'العرض (سم)',
+        'الارتفاع (سم)',
+        'السماكة (سم)',
+        'عدد القطع',
+        'تاريخ الإضافة',
+      ]
+    : [
+        'Code',
+        'Nom',
+        'Description',
+        'Fournisseur',
+        'Quantité',
+        `Prix d'achat (${currency})`,
+        `Frais (${currency})`,
+        `Prix de vente (${currency})`,
+        'Longueur (cm)',
+        'Largeur (cm)',
+        'Hauteur (cm)',
+        'Épaisseur (cm)',
+        'Nombre de pièces',
+        "Date d'ajout",
+      ];
+
+  const today = new Date().toISOString().slice(0, 10);
+  const sampleRows: Array<Array<string | number>> = isAr
+    ? [
+        headers,
+        ['ANT-101', 'فانوس نحاسي منقوش', 'قطعة عتيقة أصلية', 'سوق النحاسين فاس', 1, 900, 100, 1800, 28, 28, 52, 0.3, 1, today],
+        ['VAS-204', 'مزهرية فخار أزرق', 'خزف تقليدي', 'ورشة آسفي', 2, 450, 50, 950, 22, 22, 36, 0.8, 1, today],
+      ]
+    : [
+        headers,
+        ['ANT-101', 'Lanterne en laiton ciselé', 'Pièce ancienne authentique', 'Souk Seffarine Fès', 1, 900, 100, 1800, 28, 28, 52, 0.3, 1, today],
+        ['VAS-204', 'Vase céramique bleu de Fès', 'Artisanat ancien', 'Atelier Safi', 2, 450, 50, 950, 22, 22, 36, 0.8, 1, today],
+      ];
+
+  const workbook = XLSX.utils.book_new();
+  if (isAr) {
+    workbook.Workbook = { Views: [{ RTL: true }] };
+  }
+  const sheet = XLSX.utils.aoa_to_sheet(sampleRows);
+  sheet['!cols'] = [
+    { wch: 14 },
+    { wch: 28 },
+    { wch: 32 },
+    { wch: 22 },
+    { wch: 10 },
+    { wch: 18 },
+    { wch: 14 },
+    { wch: 18 },
+    { wch: 13 },
+    { wch: 13 },
+    { wch: 13 },
+    { wch: 13 },
+    { wch: 15 },
+    { wch: 14 },
+  ];
+  XLSX.utils.book_append_sheet(workbook, sheet, isAr ? 'نموذج المنتجات' : 'Modèle Produits');
 
   const out = XLSX.write(workbook, {
     bookType: 'xlsx',

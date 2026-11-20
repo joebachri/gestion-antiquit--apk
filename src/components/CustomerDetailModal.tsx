@@ -12,7 +12,7 @@ import {
   MapPin,
   MessageCircle,
   Phone,
-  Plus,
+  QrCode,
   ShoppingBag,
   Trash2,
   X,
@@ -56,6 +56,7 @@ interface CustomerDetailModalProps {
   onDeletePurchase: (customerId: string, purchaseId: string) => Promise<void>;
   onSaveGalleryImages: (customerId: string, items: CustomerGalleryPayload[]) => Promise<void>;
   onDeleteGalleryImage: (customerId: string, imageId: string) => Promise<void>;
+  onOpenQrSellForCustomer?: (customer: Customer) => void;
 }
 
 const PAYMENT_METHODS: PurchasePaymentMethod[] = ['cash', 'transfer', 'check', 'card', 'other'];
@@ -83,10 +84,12 @@ export function CustomerDetailModal({
   onDeletePurchase,
   onSaveGalleryImages,
   onDeleteGalleryImage,
+  onOpenQrSellForCustomer,
 }: CustomerDetailModalProps) {
   const t = translations[lang];
   const [activeSection, setActiveSection] = useState<'purchases' | 'gallery'>(initialTab);
   const [formOpen, setFormOpen] = useState(false);
+  const [purchaseMethod, setPurchaseMethod] = useState<'manual' | 'qr'>('manual');
   const [editingPurchase, setEditingPurchase] = useState<CustomerPurchase | null>(null);
   const [selectedProductId, setSelectedProductId] = useState('');
   const [productCode, setProductCode] = useState('');
@@ -102,6 +105,7 @@ export function CustomerDetailModal({
 
   const resetPurchaseForm = () => {
     setEditingPurchase(null);
+    setPurchaseMethod('manual');
     setSelectedProductId('');
     setProductCode('');
     setProductName('');
@@ -144,6 +148,7 @@ export function CustomerDetailModal({
 
   const handleStartEditPurchase = (purchase: CustomerPurchase) => {
     setEditingPurchase(purchase);
+    setPurchaseMethod('manual');
     setSelectedProductId(purchase.productId || '');
     setProductCode(purchase.productCode || '');
     setProductName(purchase.productName);
@@ -386,10 +391,9 @@ export function CustomerDetailModal({
                     setFormOpen(true);
                   }
                 }}
-                className="flex min-h-[44px] items-center gap-1.5 rounded-xl bg-[#115E3B] px-4 text-xs font-semibold text-white hover:bg-[#0D4A2E] whitespace-nowrap dark:bg-[#10B981] dark:text-[#052E1C]"
+                className="flex min-h-[44px] items-center gap-1.5 rounded-xl bg-[#115E3B] px-4 text-xs font-bold text-white hover:bg-[#0D4A2E] whitespace-nowrap dark:bg-[#10B981] dark:text-[#052E1C]"
               >
-                <Plus className="h-4 w-4" />
-                <span>{t.customerAddPurchase}</span>
+                <span>{t.customerAddPurchase} +</span>
               </button>
 
               <button
@@ -453,33 +457,100 @@ export function CustomerDetailModal({
             />
           ) : (
             <>
-              {/* Add / Edit Purchase Form */}
+              {/* Add / Edit Purchase Section with Two Selling Methods */}
               {formOpen && (
-                <form
-                  onSubmit={(e) => void handleSubmitPurchase(e)}
-                  className="space-y-3 rounded-2xl border border-[#115E3B]/35 bg-[#ECF7F1]/55 p-4 dark:border-[#10B981]/30 dark:bg-[#132B20]/50"
-                >
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
-                  {editingPurchase ? t.customerEditPurchase : t.customerAddPurchase}
-                </h3>
-                <button
-                  type="button"
-                  onClick={() => {
-                    resetPurchaseForm();
-                    setFormOpen(false);
-                  }}
-                  className="text-xs font-semibold text-[#335947] hover:underline dark:text-[#9EC0AE]"
-                >
-                  {t.cancel}
-                </button>
-              </div>
+                <div className="space-y-3 rounded-2xl border border-[#115E3B]/35 bg-[#ECF7F1]/55 p-4 dark:border-[#10B981]/30 dark:bg-[#132B20]/50">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+                      {editingPurchase ? t.customerEditPurchase : `${t.customerAddPurchase} +`}
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        resetPurchaseForm();
+                        setFormOpen(false);
+                      }}
+                      className="text-xs font-semibold text-[#335947] hover:underline dark:text-[#9EC0AE]"
+                    >
+                      {t.cancel}
+                    </button>
+                  </div>
 
-              {error && (
-                <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
-                  {error}
-                </div>
-              )}
+                  {/* Two Selling Methods Switcher (Manual vs QR Scan) */}
+                  {!editingPurchase && (
+                    <div className="space-y-1.5">
+                      <p className="text-[11px] font-bold uppercase tracking-wider text-[#335947] dark:text-[#9EC0AE]">
+                        {t.customerPurchaseMethodLabel}
+                      </p>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <button
+                          type="button"
+                          onClick={() => setPurchaseMethod('manual')}
+                          className={`flex flex-col items-start gap-1 rounded-xl border p-3 text-start transition-colors ${
+                            purchaseMethod === 'manual'
+                              ? 'border-[#115E3B] bg-white text-[#0B1F16] shadow-xs dark:border-[#10B981] dark:bg-[#091611] dark:text-[#F2F9F5]'
+                              : 'border-[#DCE7E0] bg-white/60 text-[#335947] hover:border-[#115E3B]/40 dark:border-[#1E3A2D] dark:bg-[#091611]/55 dark:text-[#9EC0AE]'
+                          }`}
+                        >
+                          <span className="flex items-center gap-1.5 text-xs font-bold">
+                            <Edit3 className="h-3.5 w-3.5 text-[#115E3B] dark:text-[#34D399]" />
+                            {t.customerMethodManual}
+                          </span>
+                          <span className="text-[11px] leading-snug opacity-85">
+                            {t.customerMethodManualDesc}
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setPurchaseMethod('qr')}
+                          className={`flex flex-col items-start gap-1 rounded-xl border p-3 text-start transition-colors ${
+                            purchaseMethod === 'qr'
+                              ? 'border-amber-600 bg-white text-[#0B1F16] shadow-xs dark:border-amber-500 dark:bg-[#091611] dark:text-[#F2F9F5]'
+                              : 'border-[#DCE7E0] bg-white/60 text-[#335947] hover:border-amber-600/40 dark:border-[#1E3A2D] dark:bg-[#091611]/55 dark:text-[#9EC0AE]'
+                          }`}
+                        >
+                          <span className="flex items-center gap-1.5 text-xs font-bold">
+                            <QrCode className="h-3.5 w-3.5 text-amber-700 dark:text-amber-300" />
+                            {t.customerMethodQr}
+                          </span>
+                          <span className="text-[11px] leading-snug opacity-85">
+                            {t.customerMethodQrDesc}
+                          </span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {!editingPurchase && purchaseMethod === 'qr' ? (
+                    <div className="space-y-3 rounded-xl border border-amber-500/35 bg-white p-4 text-center dark:border-amber-500/30 dark:bg-[#091611]">
+                      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                        <QrCode className="h-6 w-6" />
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+                          {customer.code} · {customer.name}
+                        </p>
+                        <p className="mx-auto max-w-md text-xs text-[#335947] dark:text-[#9EC0AE]">
+                          {t.customerMethodQrDesc}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onOpenQrSellForCustomer?.(customer)}
+                        className="mx-auto inline-flex min-h-[46px] items-center justify-center gap-2 rounded-xl bg-[#115E3B] px-5 text-xs font-bold text-white hover:bg-[#0D4A2E] dark:bg-[#10B981] dark:text-[#052E1C]"
+                      >
+                        <QrCode className="h-4 w-4" />
+                        <span>{t.customerMethodQrLaunchButton}</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <form onSubmit={(e) => void handleSubmitPurchase(e)} className="space-y-3">
+                      {error && (
+                        <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
+                          {error}
+                        </div>
+                      )}
 
               {/* Pick from inventory */}
               {products.length > 0 && (
@@ -608,16 +679,18 @@ export function CustomerDetailModal({
                 </div>
               </div>
 
-              <button
-                type="submit"
-                disabled={saving}
-                className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-[#115E3B] text-xs font-semibold text-white hover:bg-[#0D4A2E] disabled:opacity-60 dark:bg-[#10B981] dark:text-[#052E1C]"
-              >
-                <Check className="h-4 w-4" />
-                <span>{saving ? t.saving : t.save}</span>
-              </button>
-            </form>
-          )}
+                      <button
+                        type="submit"
+                        disabled={saving}
+                        className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-[#115E3B] text-xs font-semibold text-white hover:bg-[#0D4A2E] disabled:opacity-60 dark:bg-[#10B981] dark:text-[#052E1C]"
+                      >
+                        <Check className="h-4 w-4" />
+                        <span>{saving ? t.saving : t.save}</span>
+                      </button>
+                    </form>
+                  )}
+                </div>
+              )}
 
           {/* Purchase History List */}
           <div>

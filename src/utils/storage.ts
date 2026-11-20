@@ -8,6 +8,8 @@ import type {
   CustomerPurchase,
   CustomerPurchasePayload,
   CustomerSummary,
+  ExcelImportMode,
+  ExcelImportResult,
   InventorySummary,
   PosInvoice,
   PosSalePayload,
@@ -336,13 +338,41 @@ export async function localNextCode(name: string, excludeId?: string): Promise<s
   return computeNextCode(all, name, excludeId);
 }
 
+function sanitizeCustomCode(raw: string): string {
+  return String(raw || '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^A-Z0-9\-_/.]/g, '')
+    .slice(0, 32);
+}
+
+function ensureUniqueCustomCode(
+  all: Product[],
+  candidate: string,
+  excludeId?: string
+): string {
+  const base = sanitizeCustomCode(candidate);
+  if (!base) return '';
+  let next = base;
+  let suffix = 2;
+  while (
+    all.some((p) => p.id !== excludeId && p.code.toUpperCase() === next.toUpperCase())
+  ) {
+    next = `${base}-${suffix}`;
+    suffix += 1;
+  }
+  return next;
+}
+
 export async function localCreateProduct(payload: ProductPayload): Promise<Product> {
   const db = await openDb();
   await ensureSeeded(db);
   const all = await getAllFromStore<Product>(db, STORE_PRODUCTS);
   const now = new Date().toISOString();
   const id = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
-  const code = computeNextCode(all, payload.name);
+  const customCode = payload.code ? ensureUniqueCustomCode(all, payload.code) : '';
+  const code = customCode || computeNextCode(all, payload.name);
   const supplier = (payload.supplier || '').trim();
   const initialQty = Math.max(0, payload.quantity ?? 1);
 
@@ -398,11 +428,18 @@ export async function localUpdateProduct(id: string, payload: ProductPayload): P
   if (!existing) throw new Error('Product not found');
 
   const now = new Date().toISOString();
+  const explicitCode = payload.code ? sanitizeCustomCode(payload.code) : '';
+  const isAutoFormatCode = /^[A-Z]\d{4}$/.test(existing.code);
   const shouldRegen =
     Boolean(payload.regenerateCode) ||
-    extractPrefixLetter(payload.name) !== extractPrefixLetter(existing.name);
-  const code = shouldRegen ? computeNextCode(all, payload.name, id) : existing.code;
-  const qrToken = shouldRegen ? `GA-QR-${code}` : existing.qrToken || `GA-QR-${code}`;
+    (isAutoFormatCode && extractPrefixLetter(payload.name) !== extractPrefixLetter(existing.name));
+  const code =
+    explicitCode && explicitCode !== existing.code
+      ? ensureUniqueCustomCode(all, explicitCode, id)
+      : shouldRegen
+        ? computeNextCode(all, payload.name, id)
+        : existing.code;
+  const qrToken = code !== existing.code ? `GA-QR-${code}` : existing.qrToken || `GA-QR-${code}`;
   const supplier = (payload.supplier ?? existing.supplier ?? '').trim();
   const nextQty = Math.max(0, payload.quantity ?? 1);
   const qtyDelta = nextQty - (Number(existing.quantity) || 0);
@@ -448,6 +485,121 @@ export async function localUpdateProduct(id: string, payload: ProductPayload): P
     createdAt: now,
   });
   return updated;
+}
+
+export async function localImportProducts(
+  items: ProductPayload[],
+  mode: ExcelImportMode = 'skip'
+): Promise<ExcelImportResult> {
+  const db = await openDb();
+  await ensureSeeded(db);
+  const all = (await getAllFromStore<Product>(db, STORE_PRODUCTS)).map(normalizeProductRecord);
+  const now = new Date().toISOString();
+
+  let addedCount = 0;
+  let updatedCount = 0;
+  let skippedCount = 0;
+
+  for (const rawItem of items) {
+    const cleanCode = sanitizeCustomCode(rawItem.code || '');
+    const cleanName = (rawItem.name || '').trim() || cleanCode;
+    if (!cleanName) {
+      skippedCount += 1;
+      continue;
+    }
+
+    const existing = cleanCode
+      ? all.find((p) => p.code.toUpperCase() === cleanCode.toUpperCase())
+      : undefined;
+
+    if (existing) {
+      if (mode === 'skip') {
+        skippedCount += 1;
+        continue;
+      }
+
+      const nextQty = Math.max(0, Math.floor(Number(rawItem.quantity ?? existing.quantity) || 0));
+      const qtyDelta = nextQty - (Number(existing.quantity) || 0);
+      const updated: Product = {
+        ...existing,
+        name: cleanName,
+        description: (rawItem.description ?? existing.description ?? '').trim(),
+        supplier: (rawItem.supplier ?? existing.supplier ?? '').trim(),
+        lengthCm: rawItem.lengthCm ?? existing.lengthCm,
+        widthCm: rawItem.widthCm ?? existing.widthCm,
+        heightCm: rawItem.heightCm ?? existing.heightCm,
+        thicknessCm: rawItem.thicknessCm ?? existing.thicknessCm,
+        piecesCount: Math.max(1, rawItem.piecesCount ?? existing.piecesCount),
+        quantity: nextQty,
+        referencePrice: rawItem.referencePrice ?? existing.referencePrice,
+        expenses: rawItem.expenses ?? existing.expenses,
+        sellingPrice: rawItem.sellingPrice ?? existing.sellingPrice,
+        addedDate: rawItem.addedDate || existing.addedDate,
+        updatedAt: now,
+      };
+      await putInStore(db, STORE_PRODUCTS, updated);
+      const idx = all.findIndex((p) => p.id === existing.id);
+      if (idx >= 0) all[idx] = updated;
+      await appendHistoryEvent(db, {
+        productId: existing.id,
+        eventType: qtyDelta > 0 ? 'restocked' : 'updated',
+        summary: `Import Excel (${existing.code})`,
+        details: qtyDelta !== 0 ? `Stock: ${existing.quantity} → ${nextQty}` : '',
+        quantityDelta: qtyDelta,
+        quantityAfter: nextQty,
+        createdAt: now,
+      });
+      updatedCount += 1;
+      continue;
+    }
+
+    const id = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+    const finalCode = cleanCode || computeNextCode(all, cleanName);
+    const initialQty = Math.max(0, Math.floor(Number(rawItem.quantity ?? 1) || 0));
+    const supplier = (rawItem.supplier || '').trim();
+    const created: Product = {
+      id,
+      code: finalCode,
+      qrToken: `GA-QR-${finalCode}`,
+      name: cleanName,
+      description: (rawItem.description || '').trim(),
+      supplier,
+      lengthCm: rawItem.lengthCm || 0,
+      widthCm: rawItem.widthCm || 0,
+      heightCm: rawItem.heightCm || 0,
+      thicknessCm: rawItem.thicknessCm || 0,
+      piecesCount: Math.max(1, rawItem.piecesCount || 1),
+      quantity: initialQty,
+      referencePrice: rawItem.referencePrice || 0,
+      expenses: rawItem.expenses || 0,
+      sellingPrice: rawItem.sellingPrice || 0,
+      addedDate: rawItem.addedDate || now.slice(0, 10),
+      createdAt: now,
+      updatedAt: now,
+      photos: [],
+    };
+    await putInStore(db, STORE_PRODUCTS, created);
+    all.unshift(created);
+    await appendHistoryEvent(db, {
+      productId: id,
+      eventType: 'created',
+      summary: `Import Excel (${finalCode})`,
+      details: supplier ? `Fournisseur: ${supplier}` : '',
+      quantityDelta: initialQty,
+      quantityAfter: initialQty,
+      createdAt: now,
+    });
+    addedCount += 1;
+  }
+
+  all.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return {
+    addedCount,
+    updatedCount,
+    skippedCount,
+    products: all,
+    summary: computeSummary(all),
+  };
 }
 
 export async function localDeleteProduct(id: string): Promise<void> {
