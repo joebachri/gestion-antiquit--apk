@@ -492,6 +492,14 @@ export const translations = {
     posCustomerCodeSearchPlaceholder: 'Entrer le code client, nom ou téléphone...',
     posNoMatchingProduct: 'Aucun produit disponible ne correspond à ce code.',
     posNoMatchingCustomer: 'Aucun client enregistré ne correspond à cette recherche.',
+    publicAppUrlLabel: 'Lien public de l’application (QR Client)',
+    publicAppUrlPlaceholder: 'https://votre-domaine.com (ou lien partagé AI Studio)',
+    publicAppUrlHint:
+      'Utilisé dans les QR codes imprimés pour que vos clients Android & iPhone (Safari) ouvrent la fiche sans passer par localhost. Assurez-vous que l’application est publiée/partagée sur ce lien.',
+    qrLinkPreviewLabel: 'Lien encodé dans ce QR :',
+    clientPortalTitle: 'Espace Client — Fiche Produit QR',
+    clientPortalSubtitle: 'Scannez le QR code d’un article avec votre caméra pour consulter sa fiche.',
+    clientPortalScanButton: 'Scanner un code QR',
   },
   ar: {
     brandName: 'إدارة التحف',
@@ -974,6 +982,14 @@ export const translations = {
     posCustomerCodeSearchPlaceholder: 'أدخل رمز العميل أو الاسم أو الهاتف...',
     posNoMatchingProduct: 'لا يوجد منتج متوفر يطابق هذا الرمز.',
     posNoMatchingCustomer: 'لا يوجد عميل مسجل يطابق هذا البحث.',
+    publicAppUrlLabel: 'الرابط العام للتطبيق (QR للعملاء)',
+    publicAppUrlPlaceholder: 'https://your-domain.com (أو رابط التطبيق المشارك)',
+    publicAppUrlHint:
+      'يُستخدم داخل رموز QR المطبوعة ليتمكن العملاء على Android و iPhone (Safari) من فتح بطاقة المنتج دون استخدام localhost. تأكد من نشر التطبيق على هذا الرابط.',
+    qrLinkPreviewLabel: 'الرابط داخل رمز QR:',
+    clientPortalTitle: 'واجهة العميل — بطاقة المنتج عبر QR',
+    clientPortalSubtitle: 'امسح رمز QR الخاص بالقطعة بالكاميرا لعرض بطاقتها الرقمية.',
+    clientPortalScanButton: 'مسح رمز QR',
   },
 } as const;
 

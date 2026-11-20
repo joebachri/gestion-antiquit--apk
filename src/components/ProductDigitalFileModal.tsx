@@ -50,6 +50,7 @@ interface ProductDigitalFileModalProps {
   currency: string;
   storeName?: string;
   whatsappPhone?: string;
+  publicAppUrl?: string;
   customers: Customer[];
   onClose: () => void;
   onEditProduct: (product: Product) => void;
@@ -67,6 +68,7 @@ export function ProductDigitalFileModal({
   currency,
   storeName = '',
   whatsappPhone = '',
+  publicAppUrl = '',
   customers,
   onClose,
   onEditProduct,
@@ -85,6 +87,7 @@ export function ProductDigitalFileModal({
   const [sellQty, setSellQty] = useState('1');
   const [sellPriceDisplay, setSellPriceDisplay] = useState('');
   const [sellCustomerId, setSellCustomerId] = useState('');
+  const [sellCustomerQuery, setSellCustomerQuery] = useState('');
   const [sellCustomerName, setSellCustomerName] = useState('');
   const [sellPayment, setSellPayment] = useState<PurchasePaymentMethod>('cash');
   const [sellNotes, setSellNotes] = useState('');
@@ -105,6 +108,7 @@ export function ProductDigitalFileModal({
       setSellQty('1');
       setSellPriceDisplay(String(convertFromMad(digitalFile.product.sellingPrice, currency)));
       setSellCustomerId('');
+      setSellCustomerQuery('');
       setSellCustomerName('');
       setSellPayment('cash');
       setSellNotes('');
@@ -117,7 +121,7 @@ export function ProductDigitalFileModal({
       return;
     }
     let active = true;
-    const url = buildProductQrUrl(digitalFile.product, { storeName, whatsappPhone });
+    const url = buildProductQrUrl(digitalFile.product, { storeName, whatsappPhone, publicAppUrl });
     void generateQrDataUrl(url, 260)
       .then((res) => {
         if (active) setQrDataUrl(res);
@@ -128,7 +132,7 @@ export function ProductDigitalFileModal({
     return () => {
       active = false;
     };
-  }, [digitalFile, storeName, whatsappPhone]);
+  }, [digitalFile, storeName, whatsappPhone, publicAppUrl]);
 
   if (!digitalFile) return null;
 
@@ -539,7 +543,8 @@ export function ProductDigitalFileModal({
                           storeName,
                           currency,
                           lang,
-                          whatsappPhone
+                          whatsappPhone,
+                          publicAppUrl
                         );
                         await saveOrShareBlob(
                           blob,
@@ -557,7 +562,7 @@ export function ProductDigitalFileModal({
                       type="button"
                       onClick={async () => {
                         await navigator.clipboard.writeText(
-                          buildProductQrUrl(product, { storeName, whatsappPhone })
+                          buildProductQrUrl(product, { storeName, whatsappPhone, publicAppUrl })
                         );
                         onNotify?.(t.qrLinkCopied);
                       }}
@@ -739,22 +744,54 @@ export function ProductDigitalFileModal({
                           <label className="mb-1 block text-[11px] font-semibold text-[#335947] dark:text-[#9EC0AE]">
                             {t.posSelectCustomer}
                           </label>
-                          <select
-                            value={sellCustomerId}
-                            onChange={(e) => {
-                              setSellCustomerId(e.target.value);
-                              const c = customers.find((x) => x.id === e.target.value);
-                              if (c) setSellCustomerName(c.name);
-                            }}
-                            className={inputClass}
-                          >
-                            <option value="">{t.posWalkInCustomer}</option>
-                            {customers.map((c) => (
-                              <option key={c.id} value={c.id}>
-                                {c.code} — {c.name}
-                              </option>
-                            ))}
-                          </select>
+                          <div className="space-y-1.5">
+                            <input
+                              type="text"
+                              value={sellCustomerQuery}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setSellCustomerQuery(val);
+                                const q = val.trim().toLowerCase();
+                                if (!q) return;
+                                const exact = customers.find((c) => c.code.toLowerCase() === q);
+                                if (exact) {
+                                  setSellCustomerId(exact.id);
+                                  setSellCustomerName(exact.name);
+                                }
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') e.preventDefault();
+                              }}
+                              placeholder={t.posCustomerCodeSearchPlaceholder}
+                              className={inputClass}
+                            />
+                            <select
+                              value={sellCustomerId}
+                              onChange={(e) => {
+                                setSellCustomerId(e.target.value);
+                                const c = customers.find((x) => x.id === e.target.value);
+                                if (c) setSellCustomerName(c.name);
+                              }}
+                              className={inputClass}
+                            >
+                              <option value="">{t.posWalkInCustomer}</option>
+                              {customers
+                                .filter((c) => {
+                                  const q = sellCustomerQuery.trim().toLowerCase();
+                                  if (!q) return true;
+                                  return (
+                                    c.code.toLowerCase().includes(q) ||
+                                    c.name.toLowerCase().includes(q) ||
+                                    (c.phone || '').toLowerCase().includes(q)
+                                  );
+                                })
+                                .map((c) => (
+                                  <option key={c.id} value={c.id}>
+                                    {c.code} — {c.name}
+                                  </option>
+                                ))}
+                            </select>
+                          </div>
                         </div>
                       </div>
 

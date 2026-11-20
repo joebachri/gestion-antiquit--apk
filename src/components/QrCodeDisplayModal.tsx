@@ -24,6 +24,7 @@ interface QrCodeDisplayModalProps {
   currency: string;
   storeName?: string;
   whatsappPhone?: string;
+  publicAppUrl?: string;
   printerMode?: PrinterMode;
   printerPaper?: PrinterPaperFormat;
   printerName?: string;
@@ -45,6 +46,7 @@ export function QrCodeDisplayModal({
   currency,
   storeName = '',
   whatsappPhone = '',
+  publicAppUrl = '',
   printerMode = 'pdf_system',
   printerPaper = 'a4',
   printerName = '',
@@ -70,7 +72,7 @@ export function QrCodeDisplayModal({
     }
     setPrintQty(Math.max(1, Math.min(100, Math.floor(Number(product.quantity) || 1))));
     let active = true;
-    const payload = buildProductQrUrl(product, { storeName, whatsappPhone });
+    const payload = buildProductQrUrl(product, { storeName, whatsappPhone, publicAppUrl });
     void generateQrDataUrl(payload, 360)
       .then((url) => {
         if (active) setQrDataUrl(url);
@@ -81,11 +83,12 @@ export function QrCodeDisplayModal({
     return () => {
       active = false;
     };
-  }, [product, storeName, whatsappPhone]);
+  }, [product, storeName, whatsappPhone, publicAppUrl]);
 
   if (!product) return null;
 
-  const qrUrl = buildProductQrUrl(product, { storeName, whatsappPhone });
+  const qrUrl = buildProductQrUrl(product, { storeName, whatsappPhone, publicAppUrl });
+  const qrBasePreview = qrUrl.split('#')[0];
   const safeQty = Math.max(1, Math.min(100, Math.floor(Number(printQty) || 1)));
 
   const handleCopyLink = async () => {
@@ -109,7 +112,8 @@ export function QrCodeDisplayModal({
         storeName,
         currency,
         lang,
-        whatsappPhone
+        whatsappPhone,
+        publicAppUrl
       );
       const suffix = safeQty > 1 ? `-x${safeQty}` : '';
       await saveOrShareBlob(
@@ -132,6 +136,7 @@ export function QrCodeDisplayModal({
         qrDataUrl,
         storeName,
         whatsappPhone,
+        publicAppUrl,
         currency,
         lang,
         printerMode,
@@ -205,6 +210,13 @@ export function QrCodeDisplayModal({
           </p>
           <p className="tabular-nums mt-1 text-base font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
             {formatCurrency(product.sellingPrice, currency, lang)}
+          </p>
+          <p
+            dir="ltr"
+            className="mt-2 max-w-full truncate rounded-lg border border-[#DCE7E0] bg-white px-2.5 py-1 text-[10px] font-mono-code text-[#335947] dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#9EC0AE]"
+            title={qrUrl}
+          >
+            {t.qrLinkPreviewLabel} {qrBasePreview}
           </p>
         </div>
 

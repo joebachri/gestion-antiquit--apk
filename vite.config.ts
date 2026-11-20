@@ -4,8 +4,16 @@ import path from 'path';
 import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
+  const rawAppUrl = (process.env.APP_URL || '').trim().replace(/\/+$/, '');
+  const defaultPublicAppUrl = rawAppUrl
+    ? rawAppUrl.replace(/^(https?:\/\/)ais-dev-/i, '$1ais-pre-')
+    : '';
+
   return {
     plugins: [react(), tailwindcss()],
+    define: {
+      __DEFAULT_PUBLIC_APP_URL__: JSON.stringify(defaultPublicAppUrl),
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

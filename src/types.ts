@@ -52,6 +52,7 @@ export interface ShopSettings {
   printerPaper?: PrinterPaperFormat;
   printerName?: string;
   printerLinked?: boolean;
+  publicAppUrl?: string;
 }
 
 export interface ProductPayload {

@@ -319,9 +319,10 @@ export function QrScannerModal({
         const video = videoRef.current;
         if (video) {
           // Essential iOS Safari inline playback attributes
-          video.setAttribute('playsinline', 'true');
-          video.setAttribute('webkit-playsinline', 'true');
-          video.setAttribute('muted', 'true');
+          video.setAttribute('playsinline', '');
+          video.setAttribute('webkit-playsinline', '');
+          video.setAttribute('muted', '');
+          video.defaultMuted = true;
           video.muted = true;
           video.autoplay = true;
           video.srcObject = stream;
@@ -339,6 +340,10 @@ export function QrScannerModal({
 
           try {
             await video.play();
+            if (video.paused && !fromUserTap && mountedRef.current) {
+              setCameraState('needs_tap');
+              return;
+            }
           } catch {
             // iOS Safari may block async play() outside direct gesture
             if (!fromUserTap && mountedRef.current) {
@@ -512,18 +517,13 @@ export function QrScannerModal({
     if (!file) return;
     setErrorMsg('');
     setProcessing(true);
+    const objectUrl = URL.createObjectURL(file);
     try {
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result || ''));
-        reader.onerror = () => reject(new Error('read error'));
-        reader.readAsDataURL(file);
-      });
       const img = new Image();
       await new Promise<void>((resolve, reject) => {
         img.onload = () => resolve();
         img.onerror = () => reject(new Error('img error'));
-        img.src = dataUrl;
+        img.src = objectUrl;
       });
 
       const decodedText = await decodeQrFromImageElement(img);
@@ -535,6 +535,7 @@ export function QrScannerModal({
     } catch {
       setErrorMsg(t.qrScannerNotFound);
     } finally {
+      URL.revokeObjectURL(objectUrl);
       setProcessing(false);
     }
   };

@@ -2,6 +2,8 @@ import QRCode from 'qrcode';
 import type { Language, PosInvoice, Product, ProductDigitalFile } from '../types';
 import { formatCurrency } from '../i18n';
 
+declare const __DEFAULT_PUBLIC_APP_URL__: string;
+
 interface CompactQrSnapshot {
   c: string; // code
   n?: string; // name
@@ -36,22 +38,61 @@ function fromBase64Url(encoded: string): string {
   return new TextDecoder().decode(bytes);
 }
 
-function getPublicQrOrigin(): string {
-  if (typeof window === 'undefined' || !/^https?:$/i.test(window.location.protocol)) {
+function isUnreachableLocalHost(hostname: string): boolean {
+  const h = (hostname || '').trim().toLowerCase();
+  return (
+    !h ||
+    h === 'localhost' ||
+    h === '127.0.0.1' ||
+    h === '0.0.0.0' ||
+    h === '::1' ||
+    h === '[::1]' ||
+    h.endsWith('.localhost') ||
+    h.endsWith('.local') ||
+    /^10\./.test(h) ||
+    /^192\.168\./.test(h) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(h)
+  );
+}
+
+function normalizePublicOrigin(rawUrl?: string): string {
+  const clean = (rawUrl || '').trim();
+  if (!clean) return '';
+  try {
+    const withProto = /^https?:\/\//i.test(clean) ? clean : `https://${clean}`;
+    const parsed = new URL(withProto);
+    if (!/^https?:$/i.test(parsed.protocol)) return '';
+    if (isUnreachableLocalHost(parsed.hostname)) return '';
+    // In AI Studio preview, `ais-dev-*` requires developer login whereas `ais-pre-*` is the public shared URL
+    const publicHost = parsed.host.startsWith('ais-dev-')
+      ? parsed.host.replace(/^ais-dev-/, 'ais-pre-')
+      : parsed.host;
+    return `${parsed.protocol}//${publicHost}`;
+  } catch {
     return '';
   }
-  const { protocol, host } = window.location;
-  // In AI Studio preview, `ais-dev-*` requires developer login whereas `ais-pre-*` is the public shared URL
-  const publicHost = host.startsWith('ais-dev-') ? host.replace(/^ais-dev-/, 'ais-pre-') : host;
-  return `${protocol}//${publicHost}`;
+}
+
+export function getPublicQrOrigin(customPublicUrl?: string): string {
+  const explicit = normalizePublicOrigin(customPublicUrl);
+  if (explicit) return explicit;
+
+  if (typeof window !== 'undefined' && /^https?:$/i.test(window.location.protocol)) {
+    const currentPublic = normalizePublicOrigin(window.location.origin);
+    if (currentPublic) return currentPublic;
+  }
+
+  return typeof __DEFAULT_PUBLIC_APP_URL__ !== 'undefined'
+    ? normalizePublicOrigin(__DEFAULT_PUBLIC_APP_URL__)
+    : '';
 }
 
 export function buildProductQrUrl(
   product: Pick<Product, 'id' | 'code' | 'qrToken'> & Partial<Product>,
-  extras?: { storeName?: string; whatsappPhone?: string }
+  extras?: { storeName?: string; whatsappPhone?: string; publicAppUrl?: string }
 ): string {
   const code = (product.code || product.id).trim();
-  const origin = getPublicQrOrigin();
+  const origin = getPublicQrOrigin(extras?.publicAppUrl);
   if (origin) {
     const base = `${origin}/?qr=${encodeURIComponent(code)}`;
     if (product.name) {
@@ -183,7 +224,7 @@ export async function generateQrDataUrl(text: string, size = 320): Promise<strin
   return QRCode.toDataURL(text, {
     width: size,
     margin: 2,
-    errorCorrectionLevel: 'M',
+    errorCorrectionLevel: text.length > 180 ? 'L' : 'M',
     color: {
       dark: '#0B1F16',
       light: '#FFFFFF',
@@ -196,9 +237,10 @@ export async function buildQrStickerBlob(
   storeName: string,
   currency: string,
   lang: Language,
-  whatsappPhone?: string
+  whatsappPhone?: string,
+  publicAppUrl?: string
 ): Promise<Blob> {
-  const qrPayload = buildProductQrUrl(product, { storeName, whatsappPhone });
+  const qrPayload = buildProductQrUrl(product, { storeName, whatsappPhone, publicAppUrl });
   const qrDataUrl = await generateQrDataUrl(qrPayload, 420);
 
   const canvas = document.createElement('canvas');
@@ -282,14 +324,22 @@ export async function buildQrStickerSheetBlob(
   storeName: string,
   currency: string,
   lang: Language,
-  whatsappPhone?: string
+  whatsappPhone?: string,
+  publicAppUrl?: string
 ): Promise<Blob> {
   const count = Math.max(1, Math.min(100, Math.floor(quantity || 1)));
   if (count === 1) {
-    return buildQrStickerBlob(product, storeName, currency, lang, whatsappPhone);
+    return buildQrStickerBlob(product, storeName, currency, lang, whatsappPhone, publicAppUrl);
   }
 
-  const singleBlob = await buildQrStickerBlob(product, storeName, currency, lang, whatsappPhone);
+  const singleBlob = await buildQrStickerBlob(
+    product,
+    storeName,
+    currency,
+    lang,
+    whatsappPhone,
+    publicAppUrl
+  );
   const singleUrl = URL.createObjectURL(singleBlob);
   try {
     const stickerImg = new Image();

@@ -581,6 +581,7 @@ function seedInitialData(): void {
     db.prepare("INSERT OR IGNORE INTO shop_settings (key, value) VALUES ('custom_logo', '')").run();
     db.prepare("INSERT OR IGNORE INTO shop_settings (key, value) VALUES ('store_name', '')").run();
     db.prepare("INSERT OR IGNORE INTO shop_settings (key, value) VALUES ('whatsapp_phone', '')").run();
+    db.prepare("INSERT OR IGNORE INTO shop_settings (key, value) VALUES ('public_app_url', '')").run();
   });
 
   transaction();
@@ -2061,6 +2062,7 @@ async function startServer() {
       printerPaper: map.get('printer_paper') || 'a4',
       printerName: map.get('printer_name') ?? '',
       printerLinked: map.get('printer_linked') === '1',
+      publicAppUrl: map.get('public_app_url') ?? '',
     });
   });
 
@@ -2076,6 +2078,7 @@ async function startServer() {
       printerPaper?: string;
       printerName?: string;
       printerLinked?: boolean;
+      publicAppUrl?: string;
     };
     if (typeof body.customLogo === 'string') {
       db.prepare("INSERT OR REPLACE INTO shop_settings (key, value) VALUES ('custom_logo', ?)").run(body.customLogo);
@@ -2128,6 +2131,11 @@ async function startServer() {
         body.printerLinked ? '1' : '0'
       );
     }
+    if (typeof body.publicAppUrl === 'string') {
+      db.prepare("INSERT OR REPLACE INTO shop_settings (key, value) VALUES ('public_app_url', ?)").run(
+        body.publicAppUrl.trim().replace(/\/+$/, '').slice(0, 240)
+      );
+    }
     const rows = db.prepare('SELECT key, value FROM shop_settings').all() as Array<{ key: string; value: string }>;
     const map = new Map(rows.map((r) => [r.key, r.value]));
     res.json({
@@ -2141,6 +2149,7 @@ async function startServer() {
       printerPaper: map.get('printer_paper') || 'a4',
       printerName: map.get('printer_name') ?? '',
       printerLinked: map.get('printer_linked') === '1',
+      publicAppUrl: map.get('public_app_url') ?? '',
     });
   });
 

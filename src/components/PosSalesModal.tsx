@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   BarChart3,
   CheckCircle2,
@@ -153,8 +153,13 @@ export function PosSalesModal({
     }
   };
 
+  const prevIsOpenRef = useRef(false);
+
   useEffect(() => {
-    if (!isOpen) return;
+    const justOpened = isOpen && !prevIsOpenRef.current;
+    prevIsOpenRef.current = isOpen;
+    if (!justOpened) return;
+
     setErrorMsg('');
     if (availableProducts.length > 0) {
       const first = availableProducts[0];
@@ -206,6 +211,8 @@ export function PosSalesModal({
     if (prod) {
       setUnitPriceDisplay(String(convertFromMad(prod.sellingPrice, currency)));
       setQuantity('1');
+    } else {
+      setUnitPriceDisplay('');
     }
   };
 
@@ -213,7 +220,7 @@ export function PosSalesModal({
     setProductSearchInput(val);
     const q = val.trim().toLowerCase();
     if (!q) {
-      if (!selectedProductId && availableProducts.length > 0) {
+      if (availableProducts.length > 0 && !availableProducts.some((p) => p.id === selectedProductId)) {
         handleSelectProduct(availableProducts[0].id);
       }
       return;
@@ -231,7 +238,9 @@ export function PosSalesModal({
         (p.qrToken || '').toLowerCase().includes(q) ||
         p.name.toLowerCase().includes(q)
     );
-    if (matches.length > 0 && !matches.some((p) => p.id === selectedProductId)) {
+    if (matches.length === 0) {
+      handleSelectProduct('');
+    } else if (!matches.some((p) => p.id === selectedProductId)) {
       handleSelectProduct(matches[0].id);
     }
   };
@@ -265,9 +274,11 @@ export function PosSalesModal({
         c.name.toLowerCase().includes(q) ||
         (c.phone || '').toLowerCase().includes(q)
     );
-    if (matches.length === 1) {
+    if (matches.length === 0) {
+      handleSelectCustomer('');
+    } else if (matches.length === 1) {
       handleSelectCustomer(matches[0].id);
-    } else if (matches.length > 0 && customerId && !matches.some((c) => c.id === customerId)) {
+    } else if (customerId && !matches.some((c) => c.id === customerId)) {
       handleSelectCustomer(matches[0].id);
     }
   };
@@ -625,6 +636,9 @@ export function PosSalesModal({
                             type="text"
                             value={productSearchInput}
                             onChange={(e) => handleProductSearchChange(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') e.preventDefault();
+                            }}
                             placeholder={t.posProductCodeSearchPlaceholder}
                             className={`${inputClass} ${
                               lang === 'ar' ? 'pl-9 pr-10' : 'pl-10 pr-9'
@@ -699,6 +713,9 @@ export function PosSalesModal({
                             type="text"
                             value={customerSearchInput}
                             onChange={(e) => handleCustomerSearchChange(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') e.preventDefault();
+                            }}
                             placeholder={t.posCustomerCodeSearchPlaceholder}
                             className={`${inputClass} ${
                               lang === 'ar' ? 'pl-9 pr-10' : 'pl-10 pr-9'

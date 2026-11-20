@@ -21,6 +21,7 @@ interface LogoModalProps {
   printerPaper?: PrinterPaperFormat;
   printerName?: string;
   printerLinked?: boolean;
+  publicAppUrl?: string;
   metaStatus: MetaAuthStatus;
   onRefreshMetaStatus: () => Promise<void>;
   onNotify?: (message: string) => void;
@@ -44,6 +45,7 @@ export function LogoModal({
   printerPaper = 'a4',
   printerName = '',
   printerLinked = false,
+  publicAppUrl = '',
   metaStatus,
   onRefreshMetaStatus,
   onNotify,
@@ -63,6 +65,7 @@ export function LogoModal({
   const [draftPrinterPaper, setDraftPrinterPaper] = useState<PrinterPaperFormat>(printerPaper);
   const [draftPrinterName, setDraftPrinterName] = useState(printerName);
   const [draftPrinterLinked, setDraftPrinterLinked] = useState(printerLinked);
+  const [draftPublicAppUrl, setDraftPublicAppUrl] = useState(publicAppUrl);
   const [saving, setSaving] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
 
@@ -78,6 +81,7 @@ export function LogoModal({
       setDraftPrinterPaper(printerPaper);
       setDraftPrinterName(printerName);
       setDraftPrinterLinked(printerLinked);
+      setDraftPublicAppUrl(publicAppUrl);
     }
   }, [
     isOpen,
@@ -91,6 +95,7 @@ export function LogoModal({
     printerPaper,
     printerName,
     printerLinked,
+    publicAppUrl,
   ]);
 
   if (!isOpen) return null;
@@ -127,6 +132,7 @@ export function LogoModal({
         printerPaper: draftPrinterPaper,
         printerName: draftPrinterName.trim(),
         printerLinked: draftPrinterLinked,
+        publicAppUrl: draftPublicAppUrl.trim().replace(/\/+$/, ''),
       });
 
       if (handlesChanged && (normalizedIg || cleanFb)) {
@@ -303,6 +309,25 @@ export function LogoModal({
             </p>
           </div>
 
+          {/* Public QR Base URL */}
+          <div className="mb-5">
+            <label className="mb-1.5 block text-xs font-semibold text-[#335947] dark:text-[#9EC0AE]">
+              {t.publicAppUrlLabel}
+            </label>
+            <input
+              type="url"
+              dir="ltr"
+              value={draftPublicAppUrl}
+              onChange={(e) => setDraftPublicAppUrl(e.target.value)}
+              placeholder={t.publicAppUrlPlaceholder}
+              maxLength={240}
+              className="min-h-[44px] w-full rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-3.5 text-sm text-[#0B1F16] placeholder:text-[#6B8A79] focus:border-[#115E3B] focus:bg-white focus:outline-none dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#F2F9F5] dark:placeholder:text-[#8FB39E] dark:focus:border-[#10B981] dark:focus:bg-[#0D1E16]"
+            />
+            <p className="mt-1 text-[11px] leading-relaxed text-[#335947] dark:text-[#9EC0AE]">
+              {t.publicAppUrlHint}
+            </p>
+          </div>
+
           {/* Printer Configuration & Linking */}
           <div className="mb-5">
             <PrinterSettingsCard
@@ -327,6 +352,7 @@ export function LogoModal({
                   printerPaper: next.printerPaper,
                   printerName: next.printerName,
                   printerLinked: next.printerLinked,
+                  publicAppUrl: draftPublicAppUrl.trim().replace(/\/+$/, ''),
                 });
               }}
               onNotify={onNotify}
@@ -359,6 +385,7 @@ export function LogoModal({
                   printerPaper: draftPrinterPaper,
                   printerName: draftPrinterName.trim(),
                   printerLinked: draftPrinterLinked,
+                  publicAppUrl: draftPublicAppUrl.trim().replace(/\/+$/, ''),
                 });
               }}
               onNotify={onNotify}

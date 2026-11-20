@@ -116,6 +116,7 @@ export default function App() {
     printerPaper: 'a4',
     printerName: '',
     printerLinked: false,
+    publicAppUrl: '',
   });
   const [metaStatus, setMetaStatus] = useState<MetaAuthStatus>({
     configured: false,
@@ -142,6 +143,12 @@ export default function App() {
   const [digitalFileData, setDigitalFileData] = useState<ProductDigitalFile | null>(null);
   const [digitalFileView, setDigitalFileView] = useState<'client' | 'management'>('client');
   const [digitalFileLockedClient, setDigitalFileLockedClient] = useState(false);
+  const [clientPortalMode, setClientPortalMode] = useState<boolean>(() => {
+    return (
+      typeof window !== 'undefined' &&
+      Boolean(extractQrParamFromLocation(window.location).qrCode)
+    );
+  });
   const [qrSnapshotExtras, setQrSnapshotExtras] = useState<{
     storeName?: string;
     whatsappPhone?: string;
@@ -293,6 +300,7 @@ export default function App() {
     if (!qrCode) return;
 
     qrHandledOnMountRef.current = true;
+    setClientPortalMode(true);
     const fullHref = window.location.href;
     const snapExtras = extractSnapshotExtrasFromQrInput(fullHref);
     if (snapExtras.storeName || snapExtras.whatsappPhone) {
@@ -306,13 +314,6 @@ export default function App() {
       })
       .catch(() => {
         showToast(translations[lang].qrScannerNotFound);
-      })
-      .finally(() => {
-        try {
-          window.history.replaceState({}, '', window.location.pathname);
-        } catch {
-          // ignore history error
-        }
       });
   }, [lang, showToast]);
 
@@ -733,6 +734,102 @@ export default function App() {
     if (inventoryFilter === 'sold') return (Number(p.quantity) || 0) <= 0;
     return true;
   });
+
+  if (clientPortalMode) {
+    const portalStoreName = (settings.storeName || qrSnapshotExtras.storeName || '').trim() || t.brandName;
+    return (
+      <div
+        dir={lang === 'ar' ? 'rtl' : 'ltr'}
+        className="flex min-h-screen flex-col items-center justify-center bg-[#F7FAF8] p-5 text-[#0B1F16] dark:bg-[#08130E] dark:text-[#F2F9F5]"
+      >
+        <div className="w-full max-w-md space-y-5 rounded-3xl border border-[#DCE7E0] bg-white p-6 text-center shadow-lg dark:border-[#1E3A2D] dark:bg-[#0F2119]">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border border-[#DCE7E0] bg-[#ECF7F1] text-[#115E3B] dark:border-[#1E3A2D] dark:bg-[#132B20] dark:text-[#34D399]">
+            {settings.customLogo ? (
+              <img src={settings.customLogo} alt={portalStoreName} className="h-full w-full object-cover" />
+            ) : (
+              <QrCode className="h-8 w-8" />
+            )}
+          </div>
+          <div className="space-y-1.5">
+            <h1 className="font-display text-xl font-bold">{portalStoreName}</h1>
+            <p className="text-xs font-semibold uppercase tracking-wider text-[#115E3B] dark:text-[#34D399]">
+              {t.clientPortalTitle}
+            </p>
+            <p className="text-xs leading-relaxed text-[#335947] dark:text-[#9EC0AE]">
+              {t.clientPortalSubtitle}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setQrScannerLockedCustomer(null);
+              setQrScannerInitialMode('view');
+              setQrScannerClientOnly(true);
+              setQrScannerOpen(true);
+            }}
+            className="flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-[#115E3B] px-5 text-sm font-bold text-white hover:bg-[#0D4A2E] dark:bg-[#10B981] dark:text-[#052E1C]"
+          >
+            <QrCode className="h-5 w-5" />
+            <span>{t.clientPortalScanButton}</span>
+          </button>
+        </div>
+
+        <QrScannerModal
+          isOpen={qrScannerOpen}
+          lang={lang}
+          currency={settings.currency}
+          storeName={settings.storeName || qrSnapshotExtras.storeName || ''}
+          initialMode="view"
+          clientOnly
+          onClose={() => {
+            setQrScannerOpen(false);
+            setQrScannerClientOnly(false);
+          }}
+          onLookupQr={lookupProductByQrApi}
+          onExecuteQrSale={handleExecuteQrSale}
+          onOpenDigitalFile={(file) => {
+            setDigitalFileLockedClient(true);
+            setDigitalFileView('client');
+            setDigitalFileData(file);
+          }}
+        />
+
+        <ProductDigitalFileModal
+          digitalFile={digitalFileData}
+          initialView="client"
+          lockedToClient
+          lang={lang}
+          currency={settings.currency}
+          storeName={settings.storeName || qrSnapshotExtras.storeName || ''}
+          whatsappPhone={settings.whatsappPhone || qrSnapshotExtras.whatsappPhone || ''}
+          publicAppUrl={settings.publicAppUrl}
+          customers={[]}
+          onClose={() => setDigitalFileData(null)}
+          onEditProduct={() => undefined}
+          onRecordSale={handleRecordPosSale}
+          onCancelInvoice={handleCancelPosInvoice}
+          onOpenClientQrScanner={() => {
+            setDigitalFileData(null);
+            setQrScannerLockedCustomer(null);
+            setQrScannerInitialMode('view');
+            setQrScannerClientOnly(true);
+            setQrScannerOpen(true);
+          }}
+          onNotify={showToast}
+        />
+
+        {toastMessage && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="fixed bottom-6 left-1/2 z-50 flex w-[calc(100%-2rem)] max-w-md -translate-x-1/2 items-center justify-between gap-3 rounded-2xl border border-[#10B981]/40 bg-[#115E3B] px-4 py-3 text-xs font-semibold text-white shadow-xl"
+          >
+            <span>{toastMessage}</span>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#F7FAF8] text-[#0B1F16] dark:bg-[#08130E] dark:text-[#F2F9F5]">
@@ -1509,6 +1606,7 @@ export default function App() {
         printerPaper={settings.printerPaper}
         printerName={settings.printerName}
         printerLinked={settings.printerLinked}
+        publicAppUrl={settings.publicAppUrl}
         metaStatus={metaStatus}
         onRefreshMetaStatus={refreshMetaStatus}
         onNotify={showToast}
@@ -1644,6 +1742,7 @@ export default function App() {
         currency={settings.currency}
         storeName={settings.storeName}
         whatsappPhone={settings.whatsappPhone}
+        publicAppUrl={settings.publicAppUrl}
         printerMode={settings.printerMode}
         printerPaper={settings.printerPaper}
         printerName={settings.printerName}
@@ -1667,6 +1766,7 @@ export default function App() {
         currency={settings.currency}
         storeName={settings.storeName || qrSnapshotExtras.storeName || ''}
         whatsappPhone={settings.whatsappPhone || qrSnapshotExtras.whatsappPhone || ''}
+        publicAppUrl={settings.publicAppUrl}
         customers={customers}
         onClose={() => {
           setDigitalFileData(null);

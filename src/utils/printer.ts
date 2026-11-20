@@ -141,7 +141,8 @@ async function renderMonochromeStickerRaster(
   currency: string,
   lang: Language,
   widthPx: number,
-  whatsappPhone?: string
+  whatsappPhone?: string,
+  publicAppUrl?: string
 ): Promise<{ widthBytes: number; height: number; data: Uint8Array }> {
   const heightPx = Math.round(widthPx * 1.15);
   const canvas = document.createElement('canvas');
@@ -153,7 +154,7 @@ async function renderMonochromeStickerRaster(
   ctx.fillStyle = '#FFFFFF';
   ctx.fillRect(0, 0, widthPx, heightPx);
 
-  const qrPayload = buildProductQrUrl(product, { storeName, whatsappPhone });
+  const qrPayload = buildProductQrUrl(product, { storeName, whatsappPhone, publicAppUrl });
   const qrSize = Math.round(widthPx * 0.66);
   const qrUrl = await generateQrDataUrl(qrPayload, qrSize);
   const qrImg = new Image();
@@ -209,7 +210,8 @@ export async function printQrLabelsBluetooth(
   currency: string,
   lang: Language,
   paperFormat: PrinterPaperFormat,
-  whatsappPhone?: string
+  whatsappPhone?: string,
+  publicAppUrl?: string
 ): Promise<void> {
   if (!activeBtCharacteristic || !activeBtDevice?.gatt?.connected) {
     throw new Error('BT_NOT_CONNECTED');
@@ -222,7 +224,8 @@ export async function printQrLabelsBluetooth(
     currency,
     lang,
     widthPx,
-    whatsappPhone
+    whatsappPhone,
+    publicAppUrl
   );
 
   const xL = raster.widthBytes & 0xff;
@@ -267,10 +270,18 @@ export async function buildQrLabelsPdfBlob(
   currency: string,
   lang: Language,
   paperFormat: PrinterPaperFormat = 'a4',
-  whatsappPhone?: string
+  whatsappPhone?: string,
+  publicAppUrl?: string
 ): Promise<Blob> {
   const count = Math.max(1, Math.min(100, Math.floor(qty || 1)));
-  const stickerBlob = await buildQrStickerBlob(product, storeName, currency, lang, whatsappPhone);
+  const stickerBlob = await buildQrStickerBlob(
+    product,
+    storeName,
+    currency,
+    lang,
+    whatsappPhone,
+    publicAppUrl
+  );
   const stickerDataUrl = await blobToDataUrl(stickerBlob);
 
   if (paperFormat === 'a4') {
@@ -478,6 +489,7 @@ export async function executeSmartQrPrint(options: {
   qrDataUrl: string;
   storeName: string;
   whatsappPhone?: string;
+  publicAppUrl?: string;
   currency: string;
   lang: Language;
   printerMode?: PrinterMode;
@@ -489,6 +501,7 @@ export async function executeSmartQrPrint(options: {
     qrDataUrl,
     storeName,
     whatsappPhone,
+    publicAppUrl,
     currency,
     lang,
     printerMode = 'pdf_system',
@@ -504,7 +517,8 @@ export async function executeSmartQrPrint(options: {
       currency,
       lang,
       printerPaper,
-      whatsappPhone
+      whatsappPhone,
+      publicAppUrl
     );
     return 'printed_bt';
   }
@@ -529,7 +543,8 @@ export async function executeSmartQrPrint(options: {
       currency,
       lang,
       printerPaper,
-      whatsappPhone
+      whatsappPhone,
+      publicAppUrl
     );
     await saveOrShareBlob(
       pdfBlob,
@@ -548,7 +563,8 @@ export async function executeSmartQrPrint(options: {
     currency,
     lang,
     printerPaper,
-    whatsappPhone
+    whatsappPhone,
+    publicAppUrl
   );
   await saveOrShareBlob(
     pdfBlob,

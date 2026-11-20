@@ -656,6 +656,11 @@ export async function localGetSettings(): Promise<ShopSettings> {
     STORE_SETTINGS,
     'printerLinked'
   );
+  const publicAppUrl = await getFromStore<{ key: string; value: string }>(
+    db,
+    STORE_SETTINGS,
+    'publicAppUrl'
+  );
   return {
     customLogo: logo?.value ?? '',
     storeName: storeName?.value ?? '',
@@ -667,6 +672,7 @@ export async function localGetSettings(): Promise<ShopSettings> {
     printerPaper: (printerPaper?.value as ShopSettings['printerPaper']) || 'a4',
     printerName: printerName?.value ?? '',
     printerLinked: printerLinked?.value === '1',
+    publicAppUrl: publicAppUrl?.value ?? '',
   };
 }
 
@@ -720,6 +726,12 @@ export async function localSaveSettings(settings: ShopSettings): Promise<ShopSet
     await putInStore(db, STORE_SETTINGS, {
       key: 'printerLinked',
       value: settings.printerLinked ? '1' : '0',
+    });
+  }
+  if (typeof settings.publicAppUrl === 'string') {
+    await putInStore(db, STORE_SETTINGS, {
+      key: 'publicAppUrl',
+      value: settings.publicAppUrl.trim().replace(/\/+$/, '').slice(0, 240),
     });
   }
   return localGetSettings();
