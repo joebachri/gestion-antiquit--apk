@@ -188,14 +188,15 @@ export function QrScannerModal({
               }
               if (!busyScanRef.current && canvasRef.current) {
                 const canvas = canvasRef.current;
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
+                const scale = Math.min(1, 960 / Math.max(video.videoWidth, video.videoHeight));
+                canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+                canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
                 const ctx = canvas.getContext('2d', { willReadFrequently: true });
                 if (ctx) {
                   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
                   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                   const decoded = jsQR(imageData.data, imageData.width, imageData.height, {
-                    inversionAttempts: 'dontInvert',
+                    inversionAttempts: 'attemptBoth',
                   });
                   if (decoded?.data) {
                     void handleDecodedCode(decoded.data);
@@ -250,19 +251,52 @@ export function QrScannerModal({
         img.onerror = () => reject(new Error('img error'));
         img.src = dataUrl;
       });
-      const canvas = document.createElement('canvas');
-      canvas.width = img.naturalWidth || img.width;
-      canvas.height = img.naturalHeight || img.height;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('no canvas');
-      ctx.drawImage(img, 0, 0);
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const decoded = jsQR(imageData.data, imageData.width, imageData.height);
-      if (!decoded?.data) {
+
+      let decodedText = '';
+      const winWithDetector = window as unknown as {
+        BarcodeDetector?: new (opts: { formats: string[] }) => BarcodeDetectorLike;
+      };
+      if (typeof winWithDetector.BarcodeDetector === 'function') {
+        try {
+          const detector = new winWithDetector.BarcodeDetector({ formats: ['qr_code'] });
+          const codes = await detector.detect(img);
+          decodedText = codes.find((c) => c.rawValue)?.rawValue || '';
+        } catch {
+          // fallback to jsQR passes below
+        }
+      }
+
+      if (!decodedText) {
+        const natW = img.naturalWidth || img.width;
+        const natH = img.naturalHeight || img.height;
+        const maxSide = Math.max(natW, natH);
+        const targetWidths = [1200, 800, 520];
+        for (const maxTarget of targetWidths) {
+          const scale = maxSide > maxTarget ? maxTarget / maxSide : 1;
+          const w = Math.max(1, Math.round(natW * scale));
+          const h = Math.max(1, Math.round(natH * scale));
+          const canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d', { willReadFrequently: true });
+          if (!ctx) continue;
+          ctx.drawImage(img, 0, 0, w, h);
+          const imageData = ctx.getImageData(0, 0, w, h);
+          const decoded = jsQR(imageData.data, imageData.width, imageData.height, {
+            inversionAttempts: 'attemptBoth',
+          });
+          if (decoded?.data) {
+            decodedText = decoded.data;
+            break;
+          }
+        }
+      }
+
+      if (!decodedText) {
         setErrorMsg(t.qrScannerNotFound);
         return;
       }
-      await handleDecodedCode(decoded.data);
+      await handleDecodedCode(decodedText);
     } catch {
       setErrorMsg(t.qrScannerNotFound);
     } finally {
@@ -532,7 +566,7 @@ export function QrScannerModal({
                         value={manualInput}
                         onChange={(e) => setManualInput(e.target.value)}
                         placeholder={t.qrScannerManualPlaceholder}
-                        className={`min-h-[44px] w-full rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] py-2 text-sm text-[#0B1F16] placeholder:text-[#6B8A79] focus:border-[#115E3B] focus:bg-white focus:outline-none dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#F2F9F5] ${
+                        className={`min-h-[44px] w-full rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] py-2 text-sm text-[#0B1F16] placeholder:text-[#6B8A79] focus:border-[#115E3B] focus:bg-white focus:outline-none dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#F2F9F5] dark:placeholder:text-[#8FB39E] dark:focus:border-[#10B981] dark:focus:bg-[#0D1E16] ${
                           lang === 'ar' ? 'pl-3 pr-9' : 'pl-9 pr-3'
                         }`}
                       />

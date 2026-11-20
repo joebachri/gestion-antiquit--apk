@@ -59,6 +59,7 @@ import {
 } from './utils/api';
 import { saveOrShareBlob } from './utils/download';
 import { isVideoMedia } from './utils/image';
+import { extractQrParamFromLocation } from './utils/qr';
 import { Header } from './components/Header';
 import { ProductFormModal } from './components/ProductFormModal';
 import { ProductDetailSheet } from './components/ProductDetailSheet';
@@ -134,7 +135,8 @@ export default function App() {
   const [calculatorOpen, setCalculatorOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState<boolean>(() => {
     const hasQrParam =
-      typeof window !== 'undefined' && Boolean(new URLSearchParams(window.location.search).get('qr'));
+      typeof window !== 'undefined' &&
+      Boolean(extractQrParamFromLocation(window.location).qrCode);
     if (hasQrParam) return false;
     return localStorage.getItem('babsaida_onboarding_done') !== '1';
   });
@@ -250,29 +252,38 @@ export default function App() {
     }
   }, []);
 
+  const qrHandledOnMountRef = useRef(false);
+
   useEffect(() => {
     void fetchSettings();
     void refreshMetaStatus();
     void fetchPosSales();
     void fetchExchangeRatesApi().then(() => setRatesVersion((v) => v + 1));
+  }, [fetchSettings, refreshMetaStatus, fetchPosSales]);
 
-    const qrParam = new URLSearchParams(window.location.search).get('qr');
-    if (qrParam) {
-      void lookupProductByQrApi(qrParam, true)
-        .then((file) => {
-          setDigitalFileView('client');
-          setDigitalFileData(file);
-        })
-        .catch(() => {
-          showToast(translations[lang].qrScannerNotFound);
-        });
-      try {
-        window.history.replaceState({}, '', window.location.pathname);
-      } catch {
-        // ignore history error
-      }
-    }
-  }, [fetchSettings, refreshMetaStatus, fetchPosSales, lang, showToast]);
+  useEffect(() => {
+    if (qrHandledOnMountRef.current) return;
+    const { qrCode } = extractQrParamFromLocation(window.location);
+    if (!qrCode) return;
+
+    qrHandledOnMountRef.current = true;
+    const fullHref = window.location.href;
+    void lookupProductByQrApi(fullHref, true)
+      .then((file) => {
+        setDigitalFileView('client');
+        setDigitalFileData(file);
+      })
+      .catch(() => {
+        showToast(translations[lang].qrScannerNotFound);
+      })
+      .finally(() => {
+        try {
+          window.history.replaceState({}, '', window.location.pathname);
+        } catch {
+          // ignore history error
+        }
+      });
+  }, [lang, showToast]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -749,7 +760,7 @@ export default function App() {
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={t.searchPlaceholder}
               aria-label={t.searchPlaceholder}
-              className={`min-h-[48px] w-full rounded-2xl border border-[#DCE7E0] bg-white py-2.5 text-sm text-[#0B1F16] placeholder:text-[#6B8A79] focus:border-[#115E3B] focus:outline-none dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5] dark:placeholder:text-[#5F8370] dark:focus:border-[#10B981] ${
+              className={`min-h-[48px] w-full rounded-2xl border border-[#DCE7E0] bg-white py-2.5 text-sm text-[#0B1F16] placeholder:text-[#6B8A79] focus:border-[#115E3B] focus:outline-none dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5] dark:placeholder:text-[#8FB39E] dark:focus:border-[#10B981] ${
                 lang === 'ar' ? 'pl-11 pr-10' : 'pl-10 pr-11'
               }`}
             />

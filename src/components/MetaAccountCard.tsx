@@ -322,7 +322,7 @@ export function MetaAccountCard({
                   });
                 }}
                 placeholder={t.socialInstagramHandlePlaceholder}
-                className="min-h-[40px] w-full rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs text-[#0B1F16] placeholder:text-[#6B8A79] focus:border-[#115E3B] focus:outline-none dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#F2F9F5] dark:placeholder:text-[#5F8370]"
+                className="min-h-[40px] w-full rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs text-[#0B1F16] placeholder:text-[#6B8A79] focus:border-[#115E3B] focus:outline-none dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#F2F9F5] dark:placeholder:text-[#8FB39E]"
               />
               <input
                 type="text"
@@ -335,7 +335,7 @@ export function MetaAccountCard({
                   });
                 }}
                 placeholder={t.socialFacebookHandlePlaceholder}
-                className="min-h-[40px] w-full rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs text-[#0B1F16] placeholder:text-[#6B8A79] focus:border-[#115E3B] focus:outline-none dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#F2F9F5] dark:placeholder:text-[#5F8370]"
+                className="min-h-[40px] w-full rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs text-[#0B1F16] placeholder:text-[#6B8A79] focus:border-[#115E3B] focus:outline-none dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#F2F9F5] dark:placeholder:text-[#8FB39E]"
               />
 
               {onSaveHandles && hasDraftHandle && (handlesDirty || !hasPersistedHandle || !compact) && (

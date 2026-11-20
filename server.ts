@@ -694,11 +694,20 @@ function resolveProductByQrInput(rawInput: string): ProductRow | undefined {
   try {
     if (/^https?:\/\//i.test(token)) {
       const parsed = new URL(token);
-      const qrParam = parsed.searchParams.get('qr') || parsed.searchParams.get('code') || parsed.searchParams.get('product');
+      let qrParam = parsed.searchParams.get('qr') || parsed.searchParams.get('code') || parsed.searchParams.get('product');
+      if (!qrParam && parsed.hash) {
+        const qIdx = parsed.hash.indexOf('?');
+        if (qIdx >= 0) {
+          const hp = new URLSearchParams(parsed.hash.slice(qIdx));
+          qrParam = hp.get('qr') || hp.get('code') || hp.get('product');
+        }
+      }
       if (qrParam) token = qrParam.trim();
     } else if (token.includes('?qr=')) {
       const idx = token.indexOf('?qr=');
-      const params = new URLSearchParams(token.slice(idx));
+      const qEnd = token.indexOf('#', idx);
+      const queryPart = qEnd >= 0 ? token.slice(idx, qEnd) : token.slice(idx);
+      const params = new URLSearchParams(queryPart);
       const qrParam = params.get('qr');
       if (qrParam) token = qrParam.trim();
     }
@@ -709,6 +718,7 @@ function resolveProductByQrInput(rawInput: string): ProductRow | undefined {
   if (token.toUpperCase().startsWith('GA-QR:')) {
     token = token.slice(6).trim();
   }
+  token = token.replace(/\/+$/, '');
   const strippedCode = token.toUpperCase().startsWith('GA-QR-') ? token.slice(6).trim() : token;
 
   const byId = db.prepare('SELECT * FROM products WHERE id = ?').get(token) as ProductRow | undefined;

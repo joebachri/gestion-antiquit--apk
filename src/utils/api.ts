@@ -412,15 +412,33 @@ export async function lookupProductByQrApi(
   logScan = false
 ): Promise<ProductDigitalFile> {
   if (isNative()) {
-    return localGetProductDigitalFileByQr(codeOrUrl, logScan);
+    try {
+      return await localGetProductDigitalFileByQr(codeOrUrl, logScan);
+    } catch {
+      const { buildDigitalFileFromQrSnapshot } = await import('./qr');
+      const snap = buildDigitalFileFromQrSnapshot(codeOrUrl);
+      if (snap) return snap;
+      throw new Error('QR_NOT_FOUND');
+    }
   }
-  const params = new URLSearchParams({ code: codeOrUrl });
-  if (logScan) params.set('logScan', '1');
-  const res = await fetch(`/api/products/by-qr?${params.toString()}`);
-  if (!res.ok) {
+  try {
+    const params = new URLSearchParams({ code: codeOrUrl });
+    if (logScan) params.set('logScan', '1');
+    const res = await fetch(`/api/products/by-qr?${params.toString()}`);
+    if (res.ok) {
+      return (await res.json()) as ProductDigitalFile;
+    }
+  } catch {
+    // fallback to local IndexedDB below
+  }
+  try {
+    return await localGetProductDigitalFileByQr(codeOrUrl, logScan);
+  } catch {
+    const { buildDigitalFileFromQrSnapshot } = await import('./qr');
+    const snap = buildDigitalFileFromQrSnapshot(codeOrUrl);
+    if (snap) return snap;
     throw new Error('QR_NOT_FOUND');
   }
-  return (await res.json()) as ProductDigitalFile;
 }
 
 export async function fetchProductDigitalFileApi(

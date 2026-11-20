@@ -785,14 +785,23 @@ function resolveQrTokenFromInput(rawInput: string): string {
   try {
     if (/^https?:\/\//i.test(token)) {
       const parsed = new URL(token);
-      const qrParam =
+      let qrParam =
         parsed.searchParams.get('qr') ||
         parsed.searchParams.get('code') ||
         parsed.searchParams.get('product');
+      if (!qrParam && parsed.hash) {
+        const qIdx = parsed.hash.indexOf('?');
+        if (qIdx >= 0) {
+          const hp = new URLSearchParams(parsed.hash.slice(qIdx));
+          qrParam = hp.get('qr') || hp.get('code') || hp.get('product');
+        }
+      }
       if (qrParam) token = qrParam.trim();
     } else if (token.includes('?qr=')) {
       const idx = token.indexOf('?qr=');
-      const params = new URLSearchParams(token.slice(idx));
+      const qEnd = token.indexOf('#', idx);
+      const queryPart = qEnd >= 0 ? token.slice(idx, qEnd) : token.slice(idx);
+      const params = new URLSearchParams(queryPart);
       const qrParam = params.get('qr');
       if (qrParam) token = qrParam.trim();
     }
@@ -802,7 +811,7 @@ function resolveQrTokenFromInput(rawInput: string): string {
   if (token.toUpperCase().startsWith('GA-QR:')) {
     token = token.slice(6).trim();
   }
-  return token;
+  return token.replace(/\/+$/, '');
 }
 
 async function buildLocalDigitalFile(db: IDBDatabase, rawProduct: Product): Promise<ProductDigitalFile> {
