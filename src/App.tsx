@@ -108,6 +108,10 @@ export default function App() {
     facebookHandle: '',
     instagramHandle: '',
     whatsappPhone: '',
+    printerMode: 'pdf_system',
+    printerPaper: 'a4',
+    printerName: '',
+    printerLinked: false,
   });
   const [metaStatus, setMetaStatus] = useState<MetaAuthStatus>({
     configured: false,
@@ -1444,6 +1448,10 @@ export default function App() {
         facebookHandle={settings.facebookHandle}
         instagramHandle={settings.instagramHandle}
         whatsappPhone={settings.whatsappPhone}
+        printerMode={settings.printerMode}
+        printerPaper={settings.printerPaper}
+        printerName={settings.printerName}
+        printerLinked={settings.printerLinked}
         metaStatus={metaStatus}
         onRefreshMetaStatus={refreshMetaStatus}
         onNotify={showToast}
@@ -1550,6 +1558,16 @@ export default function App() {
         lang={lang}
         currency={settings.currency}
         storeName={settings.storeName}
+        printerMode={settings.printerMode}
+        printerPaper={settings.printerPaper}
+        printerName={settings.printerName}
+        printerLinked={settings.printerLinked}
+        onSavePrinterSettings={async (next) => {
+          await handleSaveSettings({
+            ...settings,
+            ...next,
+          });
+        }}
         onClose={() => setQrCodeProduct(null)}
         onOpenDigitalFile={(prod) => void openDigitalFileForProduct(prod.id, 'management')}
         onNotify={showToast}

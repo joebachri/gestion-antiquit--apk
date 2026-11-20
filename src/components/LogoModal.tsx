@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { BookOpen, Camera, Check, RotateCcw, Store, Upload, X } from 'lucide-react';
-import type { Language, MetaAuthStatus, ShopSettings } from '../types';
+import type { Language, MetaAuthStatus, PrinterMode, PrinterPaperFormat, ShopSettings } from '../types';
 import { formatNumber, translations } from '../i18n';
 import { compressImageBlob } from '../utils/image';
 import { convertFromMad, SUPPORTED_CURRENCIES } from '../utils/currency';
 import { CameraModal } from './CameraModal';
 import { MetaAccountCard } from './MetaAccountCard';
+import { PrinterSettingsCard } from './PrinterSettingsCard';
 
 interface LogoModalProps {
   isOpen: boolean;
@@ -16,6 +17,10 @@ interface LogoModalProps {
   facebookHandle?: string;
   instagramHandle?: string;
   whatsappPhone?: string;
+  printerMode?: PrinterMode;
+  printerPaper?: PrinterPaperFormat;
+  printerName?: string;
+  printerLinked?: boolean;
   metaStatus: MetaAuthStatus;
   onRefreshMetaStatus: () => Promise<void>;
   onNotify?: (message: string) => void;
@@ -35,6 +40,10 @@ export function LogoModal({
   facebookHandle = '',
   instagramHandle = '',
   whatsappPhone = '',
+  printerMode = 'pdf_system',
+  printerPaper = 'a4',
+  printerName = '',
+  printerLinked = false,
   metaStatus,
   onRefreshMetaStatus,
   onNotify,
@@ -50,6 +59,10 @@ export function LogoModal({
   const [draftFacebookHandle, setDraftFacebookHandle] = useState(facebookHandle);
   const [draftInstagramHandle, setDraftInstagramHandle] = useState(instagramHandle);
   const [draftWhatsappPhone, setDraftWhatsappPhone] = useState(whatsappPhone);
+  const [draftPrinterMode, setDraftPrinterMode] = useState<PrinterMode>(printerMode);
+  const [draftPrinterPaper, setDraftPrinterPaper] = useState<PrinterPaperFormat>(printerPaper);
+  const [draftPrinterName, setDraftPrinterName] = useState(printerName);
+  const [draftPrinterLinked, setDraftPrinterLinked] = useState(printerLinked);
   const [saving, setSaving] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
 
@@ -61,8 +74,24 @@ export function LogoModal({
       setDraftFacebookHandle(facebookHandle);
       setDraftInstagramHandle(instagramHandle);
       setDraftWhatsappPhone(whatsappPhone);
+      setDraftPrinterMode(printerMode);
+      setDraftPrinterPaper(printerPaper);
+      setDraftPrinterName(printerName);
+      setDraftPrinterLinked(printerLinked);
     }
-  }, [isOpen, customLogo, storeName, currency, facebookHandle, instagramHandle, whatsappPhone]);
+  }, [
+    isOpen,
+    customLogo,
+    storeName,
+    currency,
+    facebookHandle,
+    instagramHandle,
+    whatsappPhone,
+    printerMode,
+    printerPaper,
+    printerName,
+    printerLinked,
+  ]);
 
   if (!isOpen) return null;
 
@@ -94,6 +123,10 @@ export function LogoModal({
         facebookHandle: cleanFb,
         instagramHandle: normalizedIg,
         whatsappPhone: draftWhatsappPhone.trim(),
+        printerMode: draftPrinterMode,
+        printerPaper: draftPrinterPaper,
+        printerName: draftPrinterName.trim(),
+        printerLinked: draftPrinterLinked,
       });
 
       if (handlesChanged && (normalizedIg || cleanFb)) {
@@ -270,6 +303,36 @@ export function LogoModal({
             </p>
           </div>
 
+          {/* Printer Configuration & Linking */}
+          <div className="mb-5">
+            <PrinterSettingsCard
+              lang={lang}
+              printerMode={draftPrinterMode}
+              printerPaper={draftPrinterPaper}
+              printerName={draftPrinterName}
+              printerLinked={draftPrinterLinked}
+              onSavePrinter={async (next) => {
+                setDraftPrinterMode(next.printerMode);
+                setDraftPrinterPaper(next.printerPaper);
+                setDraftPrinterName(next.printerName);
+                setDraftPrinterLinked(next.printerLinked);
+                await onSave({
+                  customLogo: draftLogo,
+                  storeName: draftStoreName.trim(),
+                  currency: draftCurrency,
+                  facebookHandle: draftFacebookHandle.trim(),
+                  instagramHandle: draftInstagramHandle.trim(),
+                  whatsappPhone: draftWhatsappPhone.trim(),
+                  printerMode: next.printerMode,
+                  printerPaper: next.printerPaper,
+                  printerName: next.printerName,
+                  printerLinked: next.printerLinked,
+                });
+              }}
+              onNotify={onNotify}
+            />
+          </div>
+
           {/* Facebook & Instagram Linking */}
           <div className="mb-6">
             <MetaAccountCard
@@ -292,6 +355,10 @@ export function LogoModal({
                   facebookHandle: next.facebookHandle,
                   instagramHandle: next.instagramHandle,
                   whatsappPhone: draftWhatsappPhone.trim(),
+                  printerMode: draftPrinterMode,
+                  printerPaper: draftPrinterPaper,
+                  printerName: draftPrinterName.trim(),
+                  printerLinked: draftPrinterLinked,
                 });
               }}
               onNotify={onNotify}

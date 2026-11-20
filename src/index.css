@@ -72,34 +72,3 @@ html[lang="ar"] .font-display {
   padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
 }
 
-#qr-print-root {
-  display: none;
-}
-
-@media print {
-  @page {
-    margin: 10mm;
-  }
-
-  #root {
-    display: none !important;
-  }
-
-  #qr-print-root {
-    display: block !important;
-    background: #ffffff !important;
-    color: #0b1f16 !important;
-  }
-
-  .qr-print-grid {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 10mm;
-  }
-
-  .qr-print-card {
-    break-inside: avoid;
-    page-break-inside: avoid;
-  }
-}
-

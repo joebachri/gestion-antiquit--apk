@@ -38,6 +38,9 @@ export interface InventorySummary {
   totalReferenceCost: number;
 }
 
+export type PrinterMode = 'pdf_system' | 'thermal_bt' | 'browser';
+export type PrinterPaperFormat = 'a4' | 'label_50x30' | 'label_40x30' | 'roll_58' | 'roll_80';
+
 export interface ShopSettings {
   customLogo: string;
   storeName?: string;
@@ -45,6 +48,10 @@ export interface ShopSettings {
   facebookHandle?: string;
   instagramHandle?: string;
   whatsappPhone?: string;
+  printerMode?: PrinterMode;
+  printerPaper?: PrinterPaperFormat;
+  printerName?: string;
+  printerLinked?: boolean;
 }
 
 export interface ProductPayload {

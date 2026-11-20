@@ -1845,6 +1845,10 @@ async function startServer() {
       facebookHandle: map.get('facebook_handle') ?? '',
       instagramHandle: map.get('instagram_handle') ?? '',
       whatsappPhone: map.get('whatsapp_phone') ?? '',
+      printerMode: map.get('printer_mode') || 'pdf_system',
+      printerPaper: map.get('printer_paper') || 'a4',
+      printerName: map.get('printer_name') ?? '',
+      printerLinked: map.get('printer_linked') === '1',
     });
   });
 
@@ -1856,6 +1860,10 @@ async function startServer() {
       facebookHandle?: string;
       instagramHandle?: string;
       whatsappPhone?: string;
+      printerMode?: string;
+      printerPaper?: string;
+      printerName?: string;
+      printerLinked?: boolean;
     };
     if (typeof body.customLogo === 'string') {
       db.prepare("INSERT OR REPLACE INTO shop_settings (key, value) VALUES ('custom_logo', ?)").run(body.customLogo);
@@ -1885,6 +1893,29 @@ async function startServer() {
         body.whatsappPhone.trim().slice(0, 40)
       );
     }
+    if (typeof body.printerMode === 'string' && ['pdf_system', 'thermal_bt', 'browser'].includes(body.printerMode)) {
+      db.prepare("INSERT OR REPLACE INTO shop_settings (key, value) VALUES ('printer_mode', ?)").run(
+        body.printerMode
+      );
+    }
+    if (
+      typeof body.printerPaper === 'string' &&
+      ['a4', 'label_50x30', 'label_40x30', 'roll_58', 'roll_80'].includes(body.printerPaper)
+    ) {
+      db.prepare("INSERT OR REPLACE INTO shop_settings (key, value) VALUES ('printer_paper', ?)").run(
+        body.printerPaper
+      );
+    }
+    if (typeof body.printerName === 'string') {
+      db.prepare("INSERT OR REPLACE INTO shop_settings (key, value) VALUES ('printer_name', ?)").run(
+        body.printerName.trim().slice(0, 80)
+      );
+    }
+    if (typeof body.printerLinked === 'boolean') {
+      db.prepare("INSERT OR REPLACE INTO shop_settings (key, value) VALUES ('printer_linked', ?)").run(
+        body.printerLinked ? '1' : '0'
+      );
+    }
     const rows = db.prepare('SELECT key, value FROM shop_settings').all() as Array<{ key: string; value: string }>;
     const map = new Map(rows.map((r) => [r.key, r.value]));
     res.json({
@@ -1894,6 +1925,10 @@ async function startServer() {
       facebookHandle: map.get('facebook_handle') ?? '',
       instagramHandle: map.get('instagram_handle') ?? '',
       whatsappPhone: map.get('whatsapp_phone') ?? '',
+      printerMode: map.get('printer_mode') || 'pdf_system',
+      printerPaper: map.get('printer_paper') || 'a4',
+      printerName: map.get('printer_name') ?? '',
+      printerLinked: map.get('printer_linked') === '1',
     });
   });
 

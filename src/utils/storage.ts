@@ -484,6 +484,26 @@ export async function localGetSettings(): Promise<ShopSettings> {
     STORE_SETTINGS,
     'whatsappPhone'
   );
+  const printerMode = await getFromStore<{ key: string; value: string }>(
+    db,
+    STORE_SETTINGS,
+    'printerMode'
+  );
+  const printerPaper = await getFromStore<{ key: string; value: string }>(
+    db,
+    STORE_SETTINGS,
+    'printerPaper'
+  );
+  const printerName = await getFromStore<{ key: string; value: string }>(
+    db,
+    STORE_SETTINGS,
+    'printerName'
+  );
+  const printerLinked = await getFromStore<{ key: string; value: string }>(
+    db,
+    STORE_SETTINGS,
+    'printerLinked'
+  );
   return {
     customLogo: logo?.value ?? '',
     storeName: storeName?.value ?? '',
@@ -491,6 +511,10 @@ export async function localGetSettings(): Promise<ShopSettings> {
     facebookHandle: facebookHandle?.value ?? '',
     instagramHandle: instagramHandle?.value ?? '',
     whatsappPhone: whatsappPhone?.value ?? '',
+    printerMode: (printerMode?.value as ShopSettings['printerMode']) || 'pdf_system',
+    printerPaper: (printerPaper?.value as ShopSettings['printerPaper']) || 'a4',
+    printerName: printerName?.value ?? '',
+    printerLinked: printerLinked?.value === '1',
   };
 }
 
@@ -522,7 +546,31 @@ export async function localSaveSettings(settings: ShopSettings): Promise<ShopSet
       value: settings.whatsappPhone.trim().slice(0, 40),
     });
   }
-  return settings;
+  if (settings.printerMode) {
+    await putInStore(db, STORE_SETTINGS, {
+      key: 'printerMode',
+      value: settings.printerMode,
+    });
+  }
+  if (settings.printerPaper) {
+    await putInStore(db, STORE_SETTINGS, {
+      key: 'printerPaper',
+      value: settings.printerPaper,
+    });
+  }
+  if (typeof settings.printerName === 'string') {
+    await putInStore(db, STORE_SETTINGS, {
+      key: 'printerName',
+      value: settings.printerName.trim().slice(0, 80),
+    });
+  }
+  if (typeof settings.printerLinked === 'boolean') {
+    await putInStore(db, STORE_SETTINGS, {
+      key: 'printerLinked',
+      value: settings.printerLinked ? '1' : '0',
+    });
+  }
+  return localGetSettings();
 }
 
 function computeNextCustomerCode(customers: Customer[]): string {
