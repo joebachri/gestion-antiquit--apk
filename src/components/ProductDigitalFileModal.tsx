@@ -45,6 +45,7 @@ import { saveOrShareBlob } from '../utils/download';
 interface ProductDigitalFileModalProps {
   digitalFile: ProductDigitalFile | null;
   initialView?: 'client' | 'management';
+  lockedToClient?: boolean;
   lang: Language;
   currency: string;
   storeName?: string;
@@ -60,6 +61,7 @@ interface ProductDigitalFileModalProps {
 export function ProductDigitalFileModal({
   digitalFile,
   initialView = 'client',
+  lockedToClient = false,
   lang,
   currency,
   storeName = '',
@@ -72,7 +74,9 @@ export function ProductDigitalFileModal({
   onNotify,
 }: ProductDigitalFileModalProps) {
   const t = translations[lang];
-  const [activeView, setActiveView] = useState<'client' | 'management'>(initialView);
+  const [activeView, setActiveView] = useState<'client' | 'management'>(
+    lockedToClient ? 'client' : initialView
+  );
   const [photoIdx, setPhotoIdx] = useState(0);
   const [qrDataUrl, setQrDataUrl] = useState('');
   const [showQuickSell, setShowQuickSell] = useState(false);
@@ -87,8 +91,8 @@ export function ProductDigitalFileModal({
   const [cancelingInvoiceId, setCancelingInvoiceId] = useState<string | null>(null);
 
   useEffect(() => {
-    setActiveView(initialView);
-  }, [initialView, digitalFile?.product.id]);
+    setActiveView(lockedToClient ? 'client' : initialView);
+  }, [initialView, lockedToClient, digitalFile?.product.id]);
 
   useEffect(() => {
     setPhotoIdx(0);
@@ -229,36 +233,38 @@ export function ProductDigitalFileModal({
           </button>
         </div>
 
-        {/* Dual Interface Switcher: Customer Interface vs User Management Interface */}
-        <div className="border-b border-[#DCE7E0] bg-[#F7FAF8] px-5 py-2.5 dark:border-[#1E3A2D] dark:bg-[#091611]">
-          <div className="grid grid-cols-2 gap-2 rounded-2xl border border-[#DCE7E0] bg-white p-1 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
-            <button
-              type="button"
-              onClick={() => setActiveView('client')}
-              className={`flex min-h-[42px] items-center justify-center gap-2 rounded-xl px-3 text-xs font-bold transition-colors sm:text-sm ${
-                activeView === 'client'
-                  ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
-                  : 'text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]'
-              }`}
-            >
-              <User className="h-4 w-4 shrink-0" />
-              <span>{t.digitalTabClient}</span>
-            </button>
+        {/* Dual Interface Switcher: hidden when opened externally by customer (?qr=) */}
+        {!lockedToClient && (
+          <div className="border-b border-[#DCE7E0] bg-[#F7FAF8] px-5 py-2.5 dark:border-[#1E3A2D] dark:bg-[#091611]">
+            <div className="grid grid-cols-2 gap-2 rounded-2xl border border-[#DCE7E0] bg-white p-1 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
+              <button
+                type="button"
+                onClick={() => setActiveView('client')}
+                className={`flex min-h-[42px] items-center justify-center gap-2 rounded-xl px-3 text-xs font-bold transition-colors sm:text-sm ${
+                  activeView === 'client'
+                    ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
+                    : 'text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]'
+                }`}
+              >
+                <User className="h-4 w-4 shrink-0" />
+                <span>{t.digitalTabClient}</span>
+              </button>
 
-            <button
-              type="button"
-              onClick={() => setActiveView('management')}
-              className={`flex min-h-[42px] items-center justify-center gap-2 rounded-xl px-3 text-xs font-bold transition-colors sm:text-sm ${
-                activeView === 'management'
-                  ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
-                  : 'text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]'
-              }`}
-            >
-              <ShieldCheck className="h-4 w-4 shrink-0" />
-              <span>{t.digitalTabManagement}</span>
-            </button>
+              <button
+                type="button"
+                onClick={() => setActiveView('management')}
+                className={`flex min-h-[42px] items-center justify-center gap-2 rounded-xl px-3 text-xs font-bold transition-colors sm:text-sm ${
+                  activeView === 'management'
+                    ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
+                    : 'text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]'
+                }`}
+              >
+                <ShieldCheck className="h-4 w-4 shrink-0" />
+                <span>{t.digitalTabManagement}</span>
+              </button>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Scrollable Content Body */}
         <div className="flex-1 space-y-5 overflow-y-auto p-5">
@@ -354,7 +360,7 @@ export function ProductDigitalFileModal({
             )}
           </div>
 
-          {activeView === 'client' ? (
+          {lockedToClient || activeView === 'client' ? (
             /* =====================================================================
                A / CUSTOMER INTERFACE
                Serial code, acquisition/purchase date, media, name & description,
@@ -604,6 +610,15 @@ export function ProductDigitalFileModal({
                     }`}
                   >
                     {formatNumber(product.quantity, lang)} {t.articlesUnit}
+                  </span>
+                  <span
+                    className={`mt-0.5 block text-[11px] font-semibold ${
+                      isAvailable
+                        ? 'text-[#115E3B] dark:text-[#34D399]'
+                        : 'text-amber-700 dark:text-amber-300'
+                    }`}
+                  >
+                    {isAvailable ? t.digitalStatusAvailable : t.digitalStatusSold}
                   </span>
                 </div>
 
@@ -917,7 +932,7 @@ export function ProductDigitalFileModal({
             {t.close}
           </button>
 
-          {activeView === 'management' && (
+          {!lockedToClient && activeView === 'management' && (
             <button
               type="button"
               onClick={() => {

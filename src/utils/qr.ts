@@ -238,6 +238,71 @@ export async function buildQrStickerBlob(
   });
 }
 
+export async function buildQrStickerSheetBlob(
+  product: Product,
+  quantity: number,
+  storeName: string,
+  currency: string,
+  lang: Language
+): Promise<Blob> {
+  const count = Math.max(1, Math.min(100, Math.floor(quantity || 1)));
+  if (count === 1) {
+    return buildQrStickerBlob(product, storeName, currency, lang);
+  }
+
+  const singleBlob = await buildQrStickerBlob(product, storeName, currency, lang);
+  const singleUrl = URL.createObjectURL(singleBlob);
+  try {
+    const stickerImg = new Image();
+    await new Promise<void>((resolve, reject) => {
+      stickerImg.onload = () => resolve();
+      stickerImg.onerror = () => reject(new Error('Sticker render failed'));
+      stickerImg.src = singleUrl;
+    });
+
+    const cols = count <= 2 ? count : count <= 18 ? 3 : count <= 40 ? 4 : 5;
+    const rows = Math.ceil(count / cols);
+    const cellW = cols >= 5 ? 300 : cols === 4 ? 340 : 400;
+    const cellH = Math.round(cellW * (820 / 640));
+    const gap = 24;
+    const margin = 36;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = margin * 2 + cols * cellW + (cols - 1) * gap;
+    canvas.height = margin * 2 + rows * cellH + (rows - 1) * gap;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas unavailable');
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    for (let i = 0; i < count; i += 1) {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const x = margin + col * (cellW + gap);
+      const y = margin + row * (cellH + gap);
+
+      ctx.drawImage(stickerImg, x, y, cellW, cellH);
+
+      ctx.save();
+      ctx.setLineDash([6, 6]);
+      ctx.strokeStyle = '#CBD5E1';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(x - 6, y - 6, cellW + 12, cellH + 12);
+      ctx.restore();
+    }
+
+    return await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error('PNG sheet export failed'));
+      }, 'image/png');
+    });
+  } finally {
+    URL.revokeObjectURL(singleUrl);
+  }
+}
+
 export async function buildInvoiceReceiptBlob(
   invoice: PosInvoice,
   storeName: string,

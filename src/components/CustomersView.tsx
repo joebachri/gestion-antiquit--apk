@@ -1,5 +1,8 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
+  BarChart3,
+  ChevronDown,
+  ChevronUp,
   Edit3,
   ExternalLink,
   Facebook,
@@ -27,6 +30,8 @@ import {
   getCustomerInstagramUrl,
   getCustomerWebsiteUrl,
 } from '../utils/socialLinks';
+import { buildPurchasesReportExcelBlob } from '../utils/excel';
+import { saveOrShareBlob } from '../utils/download';
 import { getCustomerCategoryLabel } from './CustomerFormModal';
 
 interface CustomersViewProps {
@@ -80,6 +85,77 @@ export function CustomersView({
 }: CustomersViewProps) {
   const t = translations[lang];
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [showPurchasesReport, setShowPurchasesReport] = useState(false);
+  const [exportingReport, setExportingReport] = useState(false);
+
+  const purchasesBreakdown = useMemo(() => {
+    let activeBuyers = 0;
+    let totalPurchases = 0;
+    let totalUnits = 0;
+    let totalAmountMad = 0;
+    const byPayment = new Map<string, { count: number; units: number; amountMad: number }>();
+    const byCategory = new Map<string, { count: number; units: number; amountMad: number }>();
+
+    for (const cust of customers) {
+      const list = cust.purchases || [];
+      if (list.length > 0) activeBuyers += 1;
+      for (const p of list) {
+        const qty = Number(p.quantity) || 0;
+        const amt = Number(p.totalPrice) || 0;
+        totalPurchases += 1;
+        totalUnits += qty;
+        totalAmountMad += amt;
+
+        const pKey = p.paymentMethod || 'cash';
+        const pEntry = byPayment.get(pKey) || { count: 0, units: 0, amountMad: 0 };
+        pEntry.count += 1;
+        pEntry.units += qty;
+        pEntry.amountMad += amt;
+        byPayment.set(pKey, pEntry);
+
+        const cKey = cust.category || 'other';
+        const cEntry = byCategory.get(cKey) || { count: 0, units: 0, amountMad: 0 };
+        cEntry.count += 1;
+        cEntry.units += qty;
+        cEntry.amountMad += amt;
+        byCategory.set(cKey, cEntry);
+      }
+    }
+
+    return {
+      activeBuyers,
+      totalPurchases,
+      totalUnits,
+      totalAmountMad,
+      avgPurchaseMad: totalPurchases > 0 ? totalAmountMad / totalPurchases : 0,
+      paymentRows: Array.from(byPayment.entries()),
+      categoryRows: Array.from(byCategory.entries()),
+    };
+  }, [customers]);
+
+  const paymentLabel = (method: string) => {
+    if (method === 'transfer') return t.paymentTransfer;
+    if (method === 'check') return t.paymentCheck;
+    if (method === 'card') return t.paymentCard;
+    if (method === 'other') return t.paymentOther;
+    return t.paymentCash;
+  };
+
+  const handleExportPurchasesReportExcel = async () => {
+    if (exportingReport) return;
+    setExportingReport(true);
+    try {
+      const blob = buildPurchasesReportExcelBlob(customers, currency, lang);
+      const dateStamp = new Date().toISOString().slice(0, 10);
+      await saveOrShareBlob(
+        blob,
+        `bilan-achats-clients-${dateStamp}.xlsx`,
+        t.purchasesReportTitle
+      );
+    } finally {
+      setExportingReport(false);
+    }
+  };
 
   return (
     <>
@@ -167,28 +243,172 @@ export function CustomersView({
         </div>
       </section>
 
-      {/* Category Filter Strip */}
-      <section className="mb-6 flex gap-2 overflow-x-auto pb-1">
-        {CATEGORY_FILTERS.map((cat) => {
-          const active = selectedCategory === cat;
-          const label =
-            cat === 'all' ? t.customerCategoryAll : getCustomerCategoryLabel(cat, lang);
-          return (
-            <button
-              key={cat}
-              type="button"
-              onClick={() => onChangeCategory(cat)}
-              className={`min-h-[40px] rounded-xl border px-3.5 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
-                active
-                  ? 'border-[#115E3B] bg-[#115E3B] text-white dark:border-[#10B981] dark:bg-[#10B981] dark:text-[#052E1C]'
-                  : 'border-[#DCE7E0] bg-white text-[#335947] hover:bg-[#ECF7F1] dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#9EC0AE]'
-              }`}
-            >
-              {label}
-            </button>
-          );
-        })}
+      {/* Category Filter Strip + Purchases Report Action */}
+      <section className="mb-5 flex flex-wrap items-center justify-between gap-2.5">
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {CATEGORY_FILTERS.map((cat) => {
+            const active = selectedCategory === cat;
+            const label =
+              cat === 'all' ? t.customerCategoryAll : getCustomerCategoryLabel(cat, lang);
+            return (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => onChangeCategory(cat)}
+                className={`min-h-[40px] rounded-xl border px-3.5 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
+                  active
+                    ? 'border-[#115E3B] bg-[#115E3B] text-white dark:border-[#10B981] dark:bg-[#10B981] dark:text-[#052E1C]'
+                    : 'border-[#DCE7E0] bg-white text-[#335947] hover:bg-[#ECF7F1] dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#9EC0AE]'
+                }`}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowPurchasesReport((v) => !v)}
+            className={`flex min-h-[40px] items-center gap-1.5 rounded-xl border px-3 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
+              showPurchasesReport
+                ? 'border-[#115E3B] bg-[#ECF7F1] text-[#115E3B] dark:border-[#10B981] dark:bg-[#132B20] dark:text-[#34D399]'
+                : 'border-[#DCE7E0] bg-white text-[#0B1F16] hover:bg-[#ECF7F1] dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5]'
+            }`}
+          >
+            <BarChart3 className="h-4 w-4" />
+            <span>{t.purchasesReportToggle}</span>
+            {showPurchasesReport ? (
+              <ChevronUp className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronDown className="h-3.5 w-3.5" />
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void handleExportPurchasesReportExcel()}
+            disabled={exportingReport || customers.length === 0}
+            className="flex min-h-[40px] items-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs font-semibold text-[#115E3B] hover:bg-[#ECF7F1] disabled:opacity-60 whitespace-nowrap shrink-0 dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#34D399]"
+          >
+            <FileSpreadsheet className="h-4 w-4" />
+            <span>{t.purchasesReportExportExcel}</span>
+          </button>
+        </div>
       </section>
+
+      {/* Detailed Customer Purchases Balance / Report */}
+      {showPurchasesReport && (
+        <section className="mb-6 space-y-4 rounded-2xl border border-[#115E3B]/25 bg-white p-4 sm:p-5 dark:border-[#10B981]/30 dark:bg-[#0F2119]">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#DCE7E0] pb-3 dark:border-[#1E3A2D]">
+            <h2 className="flex items-center gap-2 font-display text-base font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+              <BarChart3 className="h-4 w-4 text-[#115E3B] dark:text-[#34D399]" />
+              <span>{t.purchasesReportTitle}</span>
+            </h2>
+            <button
+              type="button"
+              onClick={() => void handleExportPurchasesReportExcel()}
+              disabled={exportingReport}
+              className="flex min-h-[38px] items-center gap-1.5 rounded-xl bg-[#115E3B] px-3 text-xs font-semibold text-white hover:bg-[#0D4A2E] disabled:opacity-60 dark:bg-[#10B981] dark:text-[#052E1C]"
+            >
+              <FileSpreadsheet className="h-3.5 w-3.5" />
+              <span>{t.purchasesReportExportExcel}</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] p-3 dark:border-[#1E3A2D] dark:bg-[#091611]">
+              <span className="block text-[11px] text-[#335947] dark:text-[#9EC0AE]">
+                {t.purchasesReportActiveCustomers}
+              </span>
+              <span className="tabular-nums mt-0.5 block text-base font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+                {formatNumber(purchasesBreakdown.activeBuyers, lang)} / {formatNumber(customers.length, lang)}
+              </span>
+            </div>
+            <div className="rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] p-3 dark:border-[#1E3A2D] dark:bg-[#091611]">
+              <span className="block text-[11px] text-[#335947] dark:text-[#9EC0AE]">
+                {t.purchasesReportTotalUnits}
+              </span>
+              <span className="tabular-nums mt-0.5 block text-base font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+                {formatNumber(purchasesBreakdown.totalUnits, lang)}
+              </span>
+            </div>
+            <div className="rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] p-3 dark:border-[#1E3A2D] dark:bg-[#091611]">
+              <span className="block text-[11px] text-[#335947] dark:text-[#9EC0AE]">
+                {t.totalCustomerRevenueLabel}
+              </span>
+              <span className="tabular-nums mt-0.5 block text-base font-bold text-[#115E3B] dark:text-[#34D399]">
+                {formatCurrency(purchasesBreakdown.totalAmountMad, currency, lang)}
+              </span>
+            </div>
+            <div className="rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] p-3 dark:border-[#1E3A2D] dark:bg-[#091611]">
+              <span className="block text-[11px] text-[#335947] dark:text-[#9EC0AE]">
+                {t.purchasesReportAvgPurchase}
+              </span>
+              <span className="tabular-nums mt-0.5 block text-base font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+                {formatCurrency(purchasesBreakdown.avgPurchaseMad, currency, lang)}
+              </span>
+            </div>
+          </div>
+
+          {purchasesBreakdown.paymentRows.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-bold uppercase tracking-wider text-[#335947] dark:text-[#9EC0AE]">
+                {t.purchasesReportByPayment}
+              </p>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                {purchasesBreakdown.paymentRows.map(([method, data]) => (
+                  <div
+                    key={method}
+                    className="flex items-center justify-between rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-3 py-2 text-xs dark:border-[#1E3A2D] dark:bg-[#091611]"
+                  >
+                    <div>
+                      <span className="block font-semibold text-[#0B1F16] dark:text-[#F2F9F5]">
+                        {paymentLabel(method)}
+                      </span>
+                      <span className="tabular-nums text-[11px] text-[#335947] dark:text-[#9EC0AE]">
+                        {formatNumber(data.count, lang)} · {formatNumber(data.units, lang)} {t.articlesUnit}
+                      </span>
+                    </div>
+                    <span className="tabular-nums font-bold text-[#115E3B] dark:text-[#34D399]">
+                      {formatCurrency(data.amountMad, currency, lang)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {purchasesBreakdown.categoryRows.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-bold uppercase tracking-wider text-[#335947] dark:text-[#9EC0AE]">
+                {t.purchasesReportByCategory}
+              </p>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                {purchasesBreakdown.categoryRows.map(([cat, data]) => (
+                  <div
+                    key={cat}
+                    className="rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-3 py-2 text-xs dark:border-[#1E3A2D] dark:bg-[#091611]"
+                  >
+                    <span className="block font-semibold text-[#0B1F16] dark:text-[#F2F9F5]">
+                      {getCustomerCategoryLabel(cat as CustomerCategory, lang)}
+                    </span>
+                    <div className="tabular-nums mt-1 flex items-center justify-between">
+                      <span className="text-[11px] text-[#335947] dark:text-[#9EC0AE]">
+                        {formatNumber(data.count, lang)} {t.customerPurchasesCount}
+                      </span>
+                      <span className="font-bold text-[#115E3B] dark:text-[#34D399]">
+                        {formatCurrency(data.amountMad, currency, lang)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Customer Cards List */}
       {loading ? (

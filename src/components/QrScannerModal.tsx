@@ -88,7 +88,7 @@ export function QrScannerModal({
           const digitalFile = await onLookupQr(clean, true);
           stopCamera();
           onClose();
-          onOpenDigitalFile(digitalFile, 'client');
+          onOpenDigitalFile(digitalFile, 'management');
         } else {
           const digitalFile = await onLookupQr(clean, false);
           if ((Number(digitalFile.product.quantity) || 0) <= 0) {

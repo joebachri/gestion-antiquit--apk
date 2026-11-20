@@ -40,6 +40,7 @@ import {
   localUpdatePurchase,
 } from './storage';
 import { getExchangeRates, setExchangeRates } from './currency';
+import { buildDigitalFileFromQrSnapshot } from './qr';
 
 const isNative = () => Capacitor.isNativePlatform();
 
@@ -76,14 +77,9 @@ export async function fetchNextCodeApi(name: string, excludeId?: string): Promis
   }
 }
 
-export async function saveProductApi(payload: ProductPayload, editingId?: string): Promise<void> {
+export async function saveProductApi(payload: ProductPayload, editingId?: string): Promise<Product> {
   if (isNative()) {
-    if (editingId) {
-      await localUpdateProduct(editingId, payload);
-    } else {
-      await localCreateProduct(payload);
-    }
-    return;
+    return editingId ? localUpdateProduct(editingId, payload) : localCreateProduct(payload);
   }
   const url = editingId ? `/api/products/${editingId}` : '/api/products';
   const method = editingId ? 'PUT' : 'POST';
@@ -95,6 +91,8 @@ export async function saveProductApi(payload: ProductPayload, editingId?: string
   if (!res.ok) {
     throw new Error('Save failed');
   }
+  const data = (await res.json()) as { product: Product };
+  return data.product;
 }
 
 export async function deleteProductApi(productId: string): Promise<void> {
@@ -415,7 +413,6 @@ export async function lookupProductByQrApi(
     try {
       return await localGetProductDigitalFileByQr(codeOrUrl, logScan);
     } catch {
-      const { buildDigitalFileFromQrSnapshot } = await import('./qr');
       const snap = buildDigitalFileFromQrSnapshot(codeOrUrl);
       if (snap) return snap;
       throw new Error('QR_NOT_FOUND');
@@ -434,7 +431,6 @@ export async function lookupProductByQrApi(
   try {
     return await localGetProductDigitalFileByQr(codeOrUrl, logScan);
   } catch {
-    const { buildDigitalFileFromQrSnapshot } = await import('./qr');
     const snap = buildDigitalFileFromQrSnapshot(codeOrUrl);
     if (snap) return snap;
     throw new Error('QR_NOT_FOUND');

@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  BarChart3,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Download,
+  FileSpreadsheet,
   FileText,
   Plus,
   Receipt,
@@ -21,6 +25,7 @@ import type {
 import { formatCurrency, formatNumber, translations } from '../i18n';
 import { convertFromMad, convertToMad } from '../utils/currency';
 import { buildInvoiceReceiptBlob } from '../utils/qr';
+import { buildSalesReportExcelBlob } from '../utils/excel';
 import { saveOrShareBlob } from '../utils/download';
 
 interface PosSalesModalProps {
@@ -64,6 +69,8 @@ export function PosSalesModal({
   );
 
   const [showNewSale, setShowNewSale] = useState(false);
+  const [showReport, setShowReport] = useState(false);
+  const [exportingSales, setExportingSales] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState('');
   const [quantity, setQuantity] = useState('1');
   const [unitPriceDisplay, setUnitPriceDisplay] = useState('');
@@ -76,6 +83,73 @@ export function PosSalesModal({
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [cancelingId, setCancelingId] = useState<string | null>(null);
+
+  const salesBreakdown = useMemo(() => {
+    let totalCostMad = 0;
+    const byPayment = new Map<string, { count: number; units: number; revenueMad: number }>();
+    const byProduct = new Map<
+      string,
+      { code: string; name: string; count: number; units: number; revenueMad: number; costMad: number }
+    >();
+
+    for (const inv of invoices) {
+      const qty = Number(inv.quantity) || 0;
+      const rev = Number(inv.totalPrice) || 0;
+      const cost = (Number(inv.purchasePrice) || 0) * qty;
+      totalCostMad += cost;
+
+      const pKey = inv.paymentMethod || 'cash';
+      const pEntry = byPayment.get(pKey) || { count: 0, units: 0, revenueMad: 0 };
+      pEntry.count += 1;
+      pEntry.units += qty;
+      pEntry.revenueMad += rev;
+      byPayment.set(pKey, pEntry);
+
+      const prodKey = inv.productCode || inv.productId;
+      const prodEntry = byProduct.get(prodKey) || {
+        code: inv.productCode,
+        name: inv.productName,
+        count: 0,
+        units: 0,
+        revenueMad: 0,
+        costMad: 0,
+      };
+      prodEntry.count += 1;
+      prodEntry.units += qty;
+      prodEntry.revenueMad += rev;
+      prodEntry.costMad += cost;
+      byProduct.set(prodKey, prodEntry);
+    }
+
+    const netProfitMad = summary.totalRevenueMad - totalCostMad;
+    const marginPct =
+      summary.totalRevenueMad > 0
+        ? Math.round((netProfitMad / summary.totalRevenueMad) * 1000) / 10
+        : 0;
+    const avgInvoiceMad =
+      summary.totalInvoices > 0 ? summary.totalRevenueMad / summary.totalInvoices : 0;
+
+    return {
+      totalCostMad,
+      netProfitMad,
+      marginPct,
+      avgInvoiceMad,
+      paymentRows: Array.from(byPayment.entries()),
+      productRows: Array.from(byProduct.values()).sort((a, b) => b.revenueMad - a.revenueMad),
+    };
+  }, [invoices, summary]);
+
+  const handleExportSalesExcel = async () => {
+    if (exportingSales) return;
+    setExportingSales(true);
+    try {
+      const blob = buildSalesReportExcelBlob(invoices, summary, currency, lang);
+      const dateStamp = new Date().toISOString().slice(0, 10);
+      await saveOrShareBlob(blob, `bilan-ventes-${dateStamp}.xlsx`, t.salesReportTitle);
+    } finally {
+      setExportingSales(false);
+    }
+  };
 
   useEffect(() => {
     if (!isOpen) return;
@@ -249,8 +323,8 @@ export function PosSalesModal({
             </div>
           </div>
 
-          {/* Toolbar: Search + New Sale Toggle */}
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          {/* Toolbar: Search + Report Toggle + Excel Export + New Sale Toggle */}
+          <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center">
             <div className="relative flex-1">
               <Search
                 className={`pointer-events-none absolute top-1/2 h-4 w-4 -translate-y-1/2 text-[#335947] dark:text-[#9EC0AE] ${
@@ -268,15 +342,158 @@ export function PosSalesModal({
               />
             </div>
 
-            <button
-              type="button"
-              onClick={() => setShowNewSale((v) => !v)}
-              className="flex min-h-[44px] items-center justify-center gap-2 rounded-xl bg-[#115E3B] px-4 text-sm font-semibold text-white hover:bg-[#0D4A2E] whitespace-nowrap shrink-0 dark:bg-[#10B981] dark:text-[#052E1C]"
-            >
-              <Plus className="h-4 w-4" />
-              <span>{t.posNewSale}</span>
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowReport((v) => !v)}
+                className={`flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl border px-3 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
+                  showReport
+                    ? 'border-[#115E3B] bg-[#ECF7F1] text-[#115E3B] dark:border-[#10B981] dark:bg-[#132B20] dark:text-[#34D399]'
+                    : 'border-[#DCE7E0] bg-white text-[#0B1F16] hover:bg-[#ECF7F1] dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#F2F9F5]'
+                }`}
+              >
+                <BarChart3 className="h-4 w-4" />
+                <span>{t.salesReportToggle}</span>
+                {showReport ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void handleExportSalesExcel()}
+                disabled={exportingSales}
+                className="flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs font-semibold text-[#115E3B] hover:bg-[#ECF7F1] disabled:opacity-60 whitespace-nowrap shrink-0 dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#34D399]"
+              >
+                <FileSpreadsheet className="h-4 w-4" />
+                <span>{t.salesReportExportExcel}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowNewSale((v) => !v)}
+                className="flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-xl bg-[#115E3B] px-4 text-sm font-semibold text-white hover:bg-[#0D4A2E] whitespace-nowrap shrink-0 sm:flex-initial dark:bg-[#10B981] dark:text-[#052E1C]"
+              >
+                <Plus className="h-4 w-4" />
+                <span>{t.posNewSale}</span>
+              </button>
+            </div>
           </div>
+
+          {/* Detailed Sales Balance / Report Card */}
+          {showReport && (
+            <section className="space-y-4 rounded-2xl border border-[#115E3B]/25 bg-[#F7FAF8] p-4 dark:border-[#10B981]/30 dark:bg-[#091611]">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#DCE7E0] pb-3 dark:border-[#1E3A2D]">
+                <h3 className="flex items-center gap-2 text-sm font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+                  <BarChart3 className="h-4 w-4 text-[#115E3B] dark:text-[#34D399]" />
+                  <span>{t.salesReportTitle}</span>
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => void handleExportSalesExcel()}
+                  disabled={exportingSales}
+                  className="flex min-h-[38px] items-center gap-1.5 rounded-xl bg-[#115E3B] px-3 text-xs font-semibold text-white hover:bg-[#0D4A2E] disabled:opacity-60 dark:bg-[#10B981] dark:text-[#052E1C]"
+                >
+                  <FileSpreadsheet className="h-3.5 w-3.5" />
+                  <span>{t.salesReportExportExcel}</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+                <div className="rounded-xl border border-[#DCE7E0] bg-white p-3 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
+                  <span className="block text-[11px] text-[#335947] dark:text-[#9EC0AE]">
+                    {t.salesReportCostTotal}
+                  </span>
+                  <span className="tabular-nums mt-0.5 block text-sm font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+                    {formatCurrency(salesBreakdown.totalCostMad, currency, lang)}
+                  </span>
+                </div>
+                <div className="rounded-xl border border-[#DCE7E0] bg-white p-3 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
+                  <span className="block text-[11px] text-[#335947] dark:text-[#9EC0AE]">
+                    {t.posTotalProfit}
+                  </span>
+                  <span className="tabular-nums mt-0.5 block text-sm font-bold text-[#115E3B] dark:text-[#34D399]">
+                    {formatCurrency(salesBreakdown.netProfitMad, currency, lang)}
+                  </span>
+                </div>
+                <div className="rounded-xl border border-[#DCE7E0] bg-white p-3 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
+                  <span className="block text-[11px] text-[#335947] dark:text-[#9EC0AE]">
+                    {t.salesReportMarginRate}
+                  </span>
+                  <span className="tabular-nums mt-0.5 block text-sm font-bold text-[#115E3B] dark:text-[#34D399]">
+                    {formatNumber(salesBreakdown.marginPct, lang)}%
+                  </span>
+                </div>
+                <div className="rounded-xl border border-[#DCE7E0] bg-white p-3 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
+                  <span className="block text-[11px] text-[#335947] dark:text-[#9EC0AE]">
+                    {t.salesReportAvgInvoice}
+                  </span>
+                  <span className="tabular-nums mt-0.5 block text-sm font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+                    {formatCurrency(salesBreakdown.avgInvoiceMad, currency, lang)}
+                  </span>
+                </div>
+              </div>
+
+              {salesBreakdown.paymentRows.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-bold uppercase tracking-wider text-[#335947] dark:text-[#9EC0AE]">
+                    {t.salesReportByPayment}
+                  </p>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                    {salesBreakdown.paymentRows.map(([method, data]) => (
+                      <div
+                        key={method}
+                        className="flex items-center justify-between rounded-xl border border-[#DCE7E0] bg-white px-3 py-2 text-xs dark:border-[#1E3A2D] dark:bg-[#0F2119]"
+                      >
+                        <div>
+                          <span className="block font-semibold text-[#0B1F16] dark:text-[#F2F9F5]">
+                            {paymentLabel(method)}
+                          </span>
+                          <span className="tabular-nums text-[11px] text-[#335947] dark:text-[#9EC0AE]">
+                            {formatNumber(data.count, lang)} · {formatNumber(data.units, lang)} {t.articlesUnit}
+                          </span>
+                        </div>
+                        <span className="tabular-nums font-bold text-[#115E3B] dark:text-[#34D399]">
+                          {formatCurrency(data.revenueMad, currency, lang)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {salesBreakdown.productRows.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-bold uppercase tracking-wider text-[#335947] dark:text-[#9EC0AE]">
+                    {t.salesReportByProduct}
+                  </p>
+                  <div className="divide-y divide-[#DCE7E0] rounded-xl border border-[#DCE7E0] bg-white dark:divide-[#1E3A2D] dark:border-[#1E3A2D] dark:bg-[#0F2119]">
+                    {salesBreakdown.productRows.map((row) => (
+                      <div
+                        key={row.code}
+                        className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-xs"
+                      >
+                        <div className="min-w-0">
+                          <span className="font-mono-code font-bold text-[#115E3B] dark:text-[#34D399]">
+                            {row.code}
+                          </span>{' '}
+                          <span className="font-semibold text-[#0B1F16] dark:text-[#F2F9F5]">
+                            {row.name}
+                          </span>
+                        </div>
+                        <div className="tabular-nums flex items-center gap-3 text-[#335947] dark:text-[#9EC0AE]">
+                          <span>
+                            {formatNumber(row.units, lang)} {t.articlesUnit}
+                          </span>
+                          <span className="font-bold text-[#115E3B] dark:text-[#34D399]">
+                            {formatCurrency(row.revenueMad, currency, lang)}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
 
           {/* New POS Sale Form */}
           {showNewSale && (

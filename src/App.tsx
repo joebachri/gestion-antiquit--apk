@@ -1,6 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  BarChart3,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Edit3,
   FileSpreadsheet,
   Image as ImageIcon,
@@ -35,7 +38,11 @@ import type {
   ShopSettings,
 } from './types';
 import { formatCurrency, formatNumber, translations } from './i18n';
-import { buildCustomersExcelBlob, buildExcelBlob } from './utils/excel';
+import {
+  buildCustomersExcelBlob,
+  buildExcelBlob,
+  buildStockPurchasesExcelBlob,
+} from './utils/excel';
 import {
   createPosSaleApi,
   deleteCustomerApi,
@@ -122,6 +129,9 @@ export default function App() {
   const [qrScannerOpen, setQrScannerOpen] = useState(false);
   const [digitalFileData, setDigitalFileData] = useState<ProductDigitalFile | null>(null);
   const [digitalFileView, setDigitalFileView] = useState<'client' | 'management'>('client');
+  const [digitalFileLockedClient, setDigitalFileLockedClient] = useState(false);
+  const [showStockPurchasesReport, setShowStockPurchasesReport] = useState(false);
+  const [exportingStockPurchases, setExportingStockPurchases] = useState(false);
   const [posModalOpen, setPosModalOpen] = useState(false);
   const [posInvoices, setPosInvoices] = useState<PosInvoice[]>([]);
   const [posSummary, setPosSummary] = useState({
@@ -270,6 +280,7 @@ export default function App() {
     const fullHref = window.location.href;
     void lookupProductByQrApi(fullHref, true)
       .then((file) => {
+        setDigitalFileLockedClient(true);
         setDigitalFileView('client');
         setDigitalFileData(file);
       })
@@ -430,8 +441,12 @@ export default function App() {
   };
 
   const handleSaveProduct = async (payload: ProductPayload, editingId?: string) => {
-    await saveProductApi(payload, editingId);
+    const savedProduct = await saveProductApi(payload, editingId);
     await fetchProducts(searchQuery);
+    if (!editingId && savedProduct) {
+      setQrCodeProduct(savedProduct);
+      showToast(`${t.qrGeneratedToast} (${savedProduct.code})`);
+    }
     if (editingId && digitalFileData?.product.id === editingId) {
       try {
         const refreshed = await fetchProductDigitalFileApi(editingId, false);
@@ -458,6 +473,7 @@ export default function App() {
     async (productId: string, view: 'client' | 'management' = 'management') => {
       try {
         const file = await fetchProductDigitalFileApi(productId, false);
+        setDigitalFileLockedClient(false);
         setDigitalFileView(view);
         setDigitalFileData(file);
       } catch {
@@ -611,6 +627,72 @@ export default function App() {
       setExporting(false);
     }
   };
+
+  const handleExportStockPurchasesExcel = async () => {
+    if (exportingStockPurchases) return;
+    setExportingStockPurchases(true);
+    try {
+      let targetProducts = products;
+      if (searchQuery.trim()) {
+        try {
+          const full = await fetchProductsApi('');
+          targetProducts = full.products;
+        } catch {
+          // use current products
+        }
+      }
+      const blob = buildStockPurchasesExcelBlob(targetProducts, settings.currency, lang);
+      const dateStamp = new Date().toISOString().slice(0, 10);
+      await saveOrShareBlob(
+        blob,
+        `bilan-achats-stock-${dateStamp}.xlsx`,
+        t.stockPurchasesReportTitle
+      );
+    } finally {
+      setExportingStockPurchases(false);
+    }
+  };
+
+  const stockPurchasesSummary = useMemo(() => {
+    let baseCostMad = 0;
+    let expensesMad = 0;
+    let totalInvestedMad = 0;
+    let sellingValueMad = 0;
+    const bySupplier = new Map<
+      string,
+      { refs: number; units: number; totalCostMad: number }
+    >();
+
+    for (const prod of products) {
+      const qty = Math.max(0, Number(prod.quantity) || 0);
+      const refUnit = Number(prod.referencePrice) || 0;
+      const expUnit = Number(prod.expenses) || 0;
+      const unitCost = refUnit + expUnit;
+      const calcQty = qty > 0 ? qty : 1;
+
+      baseCostMad += refUnit * qty;
+      expensesMad += expUnit * qty;
+      totalInvestedMad += unitCost * qty;
+      sellingValueMad += (Number(prod.sellingPrice) || 0) * qty;
+
+      const supName = (prod.supplier || '').trim() || t.digitalMgmtNotSpecified;
+      const supEntry = bySupplier.get(supName) || { refs: 0, units: 0, totalCostMad: 0 };
+      supEntry.refs += 1;
+      supEntry.units += qty;
+      supEntry.totalCostMad += unitCost * calcQty;
+      bySupplier.set(supName, supEntry);
+    }
+
+    return {
+      baseCostMad,
+      expensesMad,
+      totalInvestedMad,
+      sellingValueMad,
+      supplierRows: Array.from(bySupplier.entries()).sort(
+        (a, b) => b[1].totalCostMad - a[1].totalCostMad
+      ),
+    };
+  }, [products, t.digitalMgmtNotSpecified]);
 
   const inStockCount = products.filter((p) => (Number(p.quantity) || 0) > 0).length;
   const soldCount = products.filter((p) => (Number(p.quantity) || 0) <= 0).length;
@@ -803,8 +885,8 @@ export default function App() {
           </div>
         </section>
 
-        {/* Inventory Stock Status Filter (En stock / Vendus / Tous) */}
-        <section className="mb-5 flex flex-wrap items-center justify-between gap-2">
+        {/* Inventory Stock Status Filter (En stock / Vendus / Tous) + Stock Purchases Report */}
+        <section className="mb-5 flex flex-wrap items-center justify-between gap-2.5">
           <div className="inline-flex rounded-xl border border-[#DCE7E0] bg-white p-1 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
             <button
               type="button"
@@ -843,7 +925,122 @@ export default function App() {
               <span className="tabular-nums opacity-80">({formatNumber(products.length, lang)})</span>
             </button>
           </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowStockPurchasesReport((v) => !v)}
+              className={`flex min-h-[40px] items-center gap-1.5 rounded-xl border px-3 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
+                showStockPurchasesReport
+                  ? 'border-[#115E3B] bg-[#ECF7F1] text-[#115E3B] dark:border-[#10B981] dark:bg-[#132B20] dark:text-[#34D399]'
+                  : 'border-[#DCE7E0] bg-white text-[#0B1F16] hover:bg-[#ECF7F1] dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5]'
+              }`}
+            >
+              <BarChart3 className="h-4 w-4" />
+              <span>{t.stockPurchasesReportToggle}</span>
+              {showStockPurchasesReport ? (
+                <ChevronUp className="h-3.5 w-3.5" />
+              ) : (
+                <ChevronDown className="h-3.5 w-3.5" />
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => void handleExportStockPurchasesExcel()}
+              disabled={exportingStockPurchases || products.length === 0}
+              className="flex min-h-[40px] items-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs font-semibold text-[#115E3B] hover:bg-[#ECF7F1] disabled:opacity-60 whitespace-nowrap shrink-0 dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#34D399]"
+            >
+              <FileSpreadsheet className="h-4 w-4" />
+              <span>{t.stockPurchasesExportExcel}</span>
+            </button>
+          </div>
         </section>
+
+        {/* Detailed Inventory Stock Purchases Balance / Report */}
+        {showStockPurchasesReport && (
+          <section className="mb-6 space-y-4 rounded-2xl border border-[#115E3B]/25 bg-white p-4 sm:p-5 dark:border-[#10B981]/30 dark:bg-[#0F2119]">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#DCE7E0] pb-3 dark:border-[#1E3A2D]">
+              <h2 className="flex items-center gap-2 font-display text-base font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+                <BarChart3 className="h-4 w-4 text-[#115E3B] dark:text-[#34D399]" />
+                <span>{t.stockPurchasesReportTitle}</span>
+              </h2>
+              <button
+                type="button"
+                onClick={() => void handleExportStockPurchasesExcel()}
+                disabled={exportingStockPurchases}
+                className="flex min-h-[38px] items-center gap-1.5 rounded-xl bg-[#115E3B] px-3 text-xs font-semibold text-white hover:bg-[#0D4A2E] disabled:opacity-60 dark:bg-[#10B981] dark:text-[#052E1C]"
+              >
+                <FileSpreadsheet className="h-3.5 w-3.5" />
+                <span>{t.stockPurchasesExportExcel}</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] p-3 dark:border-[#1E3A2D] dark:bg-[#091611]">
+                <span className="block text-[11px] text-[#335947] dark:text-[#9EC0AE]">
+                  {t.stockPurchasesBaseCost}
+                </span>
+                <span className="tabular-nums mt-0.5 block text-base font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+                  {formatCurrency(stockPurchasesSummary.baseCostMad, settings.currency, lang)}
+                </span>
+              </div>
+              <div className="rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] p-3 dark:border-[#1E3A2D] dark:bg-[#091611]">
+                <span className="block text-[11px] text-[#335947] dark:text-[#9EC0AE]">
+                  {t.stockPurchasesExpenses}
+                </span>
+                <span className="tabular-nums mt-0.5 block text-base font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+                  {formatCurrency(stockPurchasesSummary.expensesMad, settings.currency, lang)}
+                </span>
+              </div>
+              <div className="rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] p-3 dark:border-[#1E3A2D] dark:bg-[#091611]">
+                <span className="block text-[11px] text-[#335947] dark:text-[#9EC0AE]">
+                  {t.stockPurchasesTotalInvested}
+                </span>
+                <span className="tabular-nums mt-0.5 block text-base font-bold text-[#115E3B] dark:text-[#34D399]">
+                  {formatCurrency(stockPurchasesSummary.totalInvestedMad, settings.currency, lang)}
+                </span>
+              </div>
+              <div className="rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] p-3 dark:border-[#1E3A2D] dark:bg-[#091611]">
+                <span className="block text-[11px] text-[#335947] dark:text-[#9EC0AE]">
+                  {t.stockPurchasesSellingValue}
+                </span>
+                <span className="tabular-nums mt-0.5 block text-base font-bold text-[#115E3B] dark:text-[#34D399]">
+                  {formatCurrency(stockPurchasesSummary.sellingValueMad, settings.currency, lang)}
+                </span>
+              </div>
+            </div>
+
+            {stockPurchasesSummary.supplierRows.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-bold uppercase tracking-wider text-[#335947] dark:text-[#9EC0AE]">
+                  {t.stockPurchasesBySupplier}
+                </p>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {stockPurchasesSummary.supplierRows.map(([supplierName, data]) => (
+                    <div
+                      key={supplierName}
+                      className="flex items-center justify-between gap-2 rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-3 py-2 text-xs dark:border-[#1E3A2D] dark:bg-[#091611]"
+                    >
+                      <div className="min-w-0">
+                        <span className="block truncate font-semibold text-[#0B1F16] dark:text-[#F2F9F5]">
+                          {supplierName}
+                        </span>
+                        <span className="tabular-nums text-[11px] text-[#335947] dark:text-[#9EC0AE]">
+                          {formatNumber(data.refs, lang)} {t.referencesUnit} ·{' '}
+                          {formatNumber(data.units, lang)} {t.articlesUnit}
+                        </span>
+                      </div>
+                      <span className="tabular-nums shrink-0 font-bold text-[#115E3B] dark:text-[#34D399]">
+                        {formatCurrency(data.totalCostMad, settings.currency, lang)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
+        )}
 
         {/* States */}
         {error && (
@@ -1342,6 +1539,7 @@ export default function App() {
         onLookupQr={lookupProductByQrApi}
         onExecuteQrSale={handleExecuteQrSale}
         onOpenDigitalFile={(file, view) => {
+          setDigitalFileLockedClient(false);
           setDigitalFileView(view);
           setDigitalFileData(file);
         }}
@@ -1360,14 +1558,19 @@ export default function App() {
       <ProductDigitalFileModal
         digitalFile={digitalFileData}
         initialView={digitalFileView}
+        lockedToClient={digitalFileLockedClient}
         lang={lang}
         currency={settings.currency}
         storeName={settings.storeName}
         whatsappPhone={settings.whatsappPhone}
         customers={customers}
-        onClose={() => setDigitalFileData(null)}
+        onClose={() => {
+          setDigitalFileData(null);
+          setDigitalFileLockedClient(false);
+        }}
         onEditProduct={(prod) => {
           setDigitalFileData(null);
+          setDigitalFileLockedClient(false);
           setEditingProduct(prod);
           setFormOpen(true);
         }}
