@@ -9,7 +9,10 @@ import type {
   InstagramPublishPayload,
   InventorySummary,
   MetaAuthStatus,
+  PosInvoice,
+  PosSalePayload,
   Product,
+  ProductDigitalFile,
   ProductPayload,
   ShopSettings,
 } from '../types';
@@ -17,13 +20,18 @@ import {
   localAddCustomerGalleryImages,
   localAddPurchase,
   localCreateCustomer,
+  localCreatePosSale,
   localCreateProduct,
   localDeleteCustomer,
   localDeleteCustomerGalleryImage,
+  localDeletePosSale,
   localDeleteProduct,
   localDeletePurchase,
+  localGetProductDigitalFile,
+  localGetProductDigitalFileByQr,
   localGetSettings,
   localListCustomers,
+  localListPosSales,
   localListProducts,
   localNextCode,
   localSaveSettings,
@@ -397,5 +405,101 @@ export async function deleteCustomerGalleryImageApi(
   if (!res.ok) throw new Error('Gallery delete failed');
   const data = (await res.json()) as { customer: Customer };
   return data.customer;
+}
+
+export async function lookupProductByQrApi(
+  codeOrUrl: string,
+  logScan = false
+): Promise<ProductDigitalFile> {
+  if (isNative()) {
+    return localGetProductDigitalFileByQr(codeOrUrl, logScan);
+  }
+  const params = new URLSearchParams({ code: codeOrUrl });
+  if (logScan) params.set('logScan', '1');
+  const res = await fetch(`/api/products/by-qr?${params.toString()}`);
+  if (!res.ok) {
+    throw new Error('QR_NOT_FOUND');
+  }
+  return (await res.json()) as ProductDigitalFile;
+}
+
+export async function fetchProductDigitalFileApi(
+  productId: string,
+  logScan = false
+): Promise<ProductDigitalFile> {
+  if (isNative()) {
+    return localGetProductDigitalFile(productId, logScan);
+  }
+  const params = new URLSearchParams();
+  if (logScan) params.set('logScan', '1');
+  const res = await fetch(`/api/products/${productId}/digital-file?${params.toString()}`);
+  if (!res.ok) {
+    throw new Error('NOT_FOUND');
+  }
+  return (await res.json()) as ProductDigitalFile;
+}
+
+export async function fetchPosSalesApi(): Promise<{
+  invoices: PosInvoice[];
+  summary: {
+    totalInvoices: number;
+    totalUnitsSold: number;
+    totalRevenueMad: number;
+    totalProfitMad: number;
+  };
+}> {
+  if (isNative()) {
+    return localListPosSales();
+  }
+  try {
+    const res = await fetch('/api/pos/sales');
+    if (!res.ok) throw new Error('HTTP error');
+    return (await res.json()) as {
+      invoices: PosInvoice[];
+      summary: {
+        totalInvoices: number;
+        totalUnitsSold: number;
+        totalRevenueMad: number;
+        totalProfitMad: number;
+      };
+    };
+  } catch {
+    return localListPosSales();
+  }
+}
+
+export async function createPosSaleApi(payload: PosSalePayload): Promise<{
+  invoice: PosInvoice;
+  digitalFile: ProductDigitalFile;
+  summary: InventorySummary;
+}> {
+  if (isNative()) {
+    return localCreatePosSale(payload);
+  }
+  const res = await fetch('/api/pos/sales', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (res.status === 409) {
+    throw new Error('OUT_OF_STOCK');
+  }
+  if (!res.ok) {
+    throw new Error('POS_SALE_FAILED');
+  }
+  return (await res.json()) as {
+    invoice: PosInvoice;
+    digitalFile: ProductDigitalFile;
+    summary: InventorySummary;
+  };
+}
+
+export async function deletePosSaleApi(invoiceId: string): Promise<void> {
+  if (isNative()) {
+    await localDeletePosSale(invoiceId);
+    return;
+  }
+  const res = await fetch(`/api/pos/sales/${invoiceId}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Delete invoice failed');
 }
 

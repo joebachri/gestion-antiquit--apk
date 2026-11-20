@@ -39,6 +39,7 @@ export function ProductFormModal({
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [supplier, setSupplier] = useState('');
   const [lengthCm, setLengthCm] = useState('');
   const [widthCm, setWidthCm] = useState('');
   const [heightCm, setHeightCm] = useState('');
@@ -83,6 +84,7 @@ export function ProductFormModal({
       };
       setName(editingProduct.name);
       setDescription(editingProduct.description);
+      setSupplier(editingProduct.supplier || '');
       setLengthCm(String(editingProduct.lengthCm || ''));
       setWidthCm(String(editingProduct.widthCm || ''));
       setHeightCm(String(editingProduct.heightCm || ''));
@@ -109,6 +111,7 @@ export function ProductFormModal({
       };
       setName('');
       setDescription('');
+      setSupplier('');
       setLengthCm('');
       setWidthCm('');
       setHeightCm('');
@@ -228,6 +231,7 @@ export function ProductFormModal({
         {
           name: trimmedName,
           description: description.trim(),
+          supplier: supplier.trim(),
           lengthCm: Number(lengthCm) || 0,
           widthCm: Number(widthCm) || 0,
           heightCm: Number(heightCm) || 0,
@@ -469,6 +473,24 @@ export function ProductFormModal({
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder={t.descriptionPlaceholder}
+                className={inputClass}
+              />
+            </div>
+
+            {/* Supplier */}
+            <div>
+              <label
+                htmlFor="product-supplier"
+                className="mb-1.5 block text-sm font-semibold text-[#0B1F16] dark:text-[#F2F9F5]"
+              >
+                {t.supplierLabel}
+              </label>
+              <input
+                id="product-supplier"
+                type="text"
+                value={supplier}
+                onChange={(e) => setSupplier(e.target.value)}
+                placeholder={t.supplierPlaceholder}
                 className={inputClass}
               />
             </div>

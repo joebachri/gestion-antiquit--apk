@@ -11,8 +11,10 @@ import * as XLSX from 'xlsx';
 interface ProductRow {
   id: string;
   code: string;
+  qr_token: string;
   name: string;
   description: string;
+  supplier: string;
   length_cm: number;
   width_cm: number;
   height_cm: number;
@@ -44,6 +46,7 @@ interface PhotoInput {
 interface ProductInput {
   name: string;
   description?: string;
+  supplier?: string;
   lengthCm?: number;
   widthCm?: number;
   heightCm?: number;
@@ -56,6 +59,36 @@ interface ProductInput {
   addedDate?: string;
   photos?: PhotoInput[];
   regenerateCode?: boolean;
+}
+
+interface SalesInvoiceRow {
+  id: string;
+  invoice_number: string;
+  product_id: string;
+  product_code: string;
+  product_name: string;
+  customer_id: string;
+  customer_name: string;
+  customer_phone: string;
+  quantity: number;
+  unit_price: number;
+  total_price: number;
+  purchase_price: number;
+  payment_method: string;
+  sale_date: string;
+  notes: string;
+  created_at: string;
+}
+
+interface ProductHistoryRow {
+  id: string;
+  product_id: string;
+  event_type: string;
+  summary: string;
+  details: string;
+  quantity_delta: number;
+  quantity_after: number;
+  created_at: string;
 }
 
 const DATA_DIR = path.join(process.cwd(), 'data');
@@ -160,7 +193,49 @@ db.exec(`
     created_at TEXT NOT NULL,
     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS sales_invoices (
+    id TEXT PRIMARY KEY,
+    invoice_number TEXT UNIQUE NOT NULL,
+    product_id TEXT NOT NULL,
+    product_code TEXT NOT NULL DEFAULT '',
+    product_name TEXT NOT NULL,
+    customer_id TEXT NOT NULL DEFAULT '',
+    customer_name TEXT NOT NULL DEFAULT '',
+    customer_phone TEXT NOT NULL DEFAULT '',
+    quantity INTEGER NOT NULL DEFAULT 1,
+    unit_price REAL NOT NULL DEFAULT 0,
+    total_price REAL NOT NULL DEFAULT 0,
+    purchase_price REAL NOT NULL DEFAULT 0,
+    payment_method TEXT NOT NULL DEFAULT 'cash',
+    sale_date TEXT NOT NULL,
+    notes TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS product_history (
+    id TEXT PRIMARY KEY,
+    product_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    summary TEXT NOT NULL DEFAULT '',
+    details TEXT NOT NULL DEFAULT '',
+    quantity_delta INTEGER NOT NULL DEFAULT 0,
+    quantity_after INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+  );
 `);
+
+const productTableColumns = (
+  db.prepare('PRAGMA table_info(products)').all() as Array<{ name: string }>
+).map((col) => col.name);
+if (!productTableColumns.includes('supplier')) {
+  db.exec("ALTER TABLE products ADD COLUMN supplier TEXT NOT NULL DEFAULT ''");
+}
+if (!productTableColumns.includes('qr_token')) {
+  db.exec("ALTER TABLE products ADD COLUMN qr_token TEXT NOT NULL DEFAULT ''");
+}
+db.exec("UPDATE products SET qr_token = 'GA-QR-' || code WHERE qr_token = ''");
 
 const customerTableColumns = (
   db.prepare('PRAGMA table_info(customers)').all() as Array<{ name: string }>
@@ -350,6 +425,7 @@ function seedInitialData(): void {
       name: 'Lanterne Fassi en Cuivre Cisélé',
       description:
         "Lanterne octogonale ancienne en laiton et cuivre ajouré à motifs géométriques traditionnels de Fès, patine authentique d'époque.",
+      supplier: 'Atelier Dinanderie Fès',
       lengthCm: 28,
       widthCm: 28,
       heightCm: 62,
@@ -366,6 +442,7 @@ function seedInitialData(): void {
       name: 'Coffre Berbère en Bois de Cèdre Sculpté',
       description:
         'Coffre de mariage ancien du Moyen-Atlas en bois de cèdre massif sculpté à la main, ferrures et moraillon en laiton oxydé.',
+      supplier: 'Artisanat Moyen-Atlas',
       lengthCm: 94,
       widthCm: 48,
       heightCm: 52,
@@ -382,6 +459,7 @@ function seedInitialData(): void {
       name: 'Plat Ancien en Céramique de Fès',
       description:
         'Grand plat décoratif ancien de Fès émaillé vert émeraude et bleu de cobalt, motif floral étoilé peint à la main.',
+      supplier: 'Poterie Traditionnelle Fès',
       lengthCm: 42,
       widthCm: 42,
       heightCm: 8,
@@ -398,6 +476,7 @@ function seedInitialData(): void {
       name: 'Service à Thé Royal en Argent Ciselé',
       description:
         "Théière ancienne gravée à la main sur plateau circulaire ciselé en maillechort argenté, accompagnée de son sucrier d'époque.",
+      supplier: 'Orfèvrerie Bab Guissa',
       lengthCm: 46,
       widthCm: 46,
       heightCm: 29,
@@ -414,11 +493,11 @@ function seedInitialData(): void {
 
   const insertProduct = db.prepare(`
     INSERT INTO products (
-      id, code, name, description,
+      id, code, qr_token, name, description, supplier,
       length_cm, width_cm, height_cm, thickness_cm, pieces_count,
       quantity, reference_price, expenses, selling_price,
       added_date, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const insertPhoto = db.prepare(`
@@ -426,15 +505,23 @@ function seedInitialData(): void {
     VALUES (?, ?, ?, ?, ?, ?)
   `);
 
+  const insertHistory = db.prepare(`
+    INSERT INTO product_history (id, product_id, event_type, summary, details, quantity_delta, quantity_after, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
   const transaction = db.transaction(() => {
     for (const item of initialItems) {
       const id = crypto.randomUUID();
       const code = generateNextProductCode(item.name);
+      const qrToken = `GA-QR-${code}`;
       insertProduct.run(
         id,
         code,
+        qrToken,
         item.name,
         item.description,
+        item.supplier,
         item.lengthCm,
         item.widthCm,
         item.heightCm,
@@ -449,17 +536,119 @@ function seedInitialData(): void {
         now
       );
       insertPhoto.run(crypto.randomUUID(), id, buildPhotoCode(code, 0), item.image, 0, now);
+      insertHistory.run(
+        crypto.randomUUID(),
+        id,
+        'created',
+        `Fiche créée (${code})`,
+        item.supplier ? `Fournisseur: ${item.supplier}` : '',
+        item.quantity,
+        item.quantity,
+        now
+      );
     }
     db.prepare("INSERT OR REPLACE INTO shop_settings (key, value) VALUES ('seeded', '1')").run();
     db.prepare("INSERT OR IGNORE INTO shop_settings (key, value) VALUES ('currency', 'MAD')").run();
     db.prepare("INSERT OR IGNORE INTO shop_settings (key, value) VALUES ('custom_logo', '')").run();
     db.prepare("INSERT OR IGNORE INTO shop_settings (key, value) VALUES ('store_name', '')").run();
+    db.prepare("INSERT OR IGNORE INTO shop_settings (key, value) VALUES ('whatsapp_phone', '')").run();
   });
 
   transaction();
 }
 
 seedInitialData();
+
+function backfillInitialProductHistory(): void {
+  const existingProducts = db.prepare('SELECT * FROM products').all() as ProductRow[];
+  const countStmt = db.prepare('SELECT COUNT(*) as cnt FROM product_history WHERE product_id = ?');
+  const insertHist = db.prepare(
+    `INSERT INTO product_history (id, product_id, event_type, summary, details, quantity_delta, quantity_after, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  for (const row of existingProducts) {
+    const cnt = (countStmt.get(row.id) as { cnt: number }).cnt;
+    if (cnt === 0) {
+      insertHist.run(
+        crypto.randomUUID(),
+        row.id,
+        'created',
+        `Fiche initialisée (${row.code})`,
+        row.supplier ? `Fournisseur: ${row.supplier}` : '',
+        row.quantity,
+        row.quantity,
+        row.created_at || new Date().toISOString()
+      );
+    }
+  }
+}
+
+backfillInitialProductHistory();
+
+function logProductHistory(
+  productId: string,
+  eventType: string,
+  summary: string,
+  details: string,
+  quantityDelta: number,
+  quantityAfter: number,
+  createdAt = new Date().toISOString()
+): void {
+  db.prepare(
+    `INSERT INTO product_history (
+      id, product_id, event_type, summary, details, quantity_delta, quantity_after, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(crypto.randomUUID(), productId, eventType, summary, details, quantityDelta, quantityAfter, createdAt);
+}
+
+function generateNextInvoiceNumber(): string {
+  const rows = db.prepare("SELECT invoice_number FROM sales_invoices WHERE invoice_number LIKE 'FAC-%'").all() as Array<{
+    invoice_number: string;
+  }>;
+  let maxNum = 0;
+  for (const row of rows) {
+    const suffix = row.invoice_number.slice(4);
+    if (/^\d+$/.test(suffix)) {
+      const parsed = Number.parseInt(suffix, 10);
+      if (parsed > maxNum) maxNum = parsed;
+    }
+  }
+  return `FAC-${String(maxNum + 1).padStart(4, '0')}`;
+}
+
+function mapSalesInvoiceRow(row: SalesInvoiceRow) {
+  return {
+    id: row.id,
+    invoiceNumber: row.invoice_number,
+    productId: row.product_id,
+    productCode: row.product_code,
+    productName: row.product_name,
+    customerId: row.customer_id || '',
+    customerName: row.customer_name || '',
+    customerPhone: row.customer_phone || '',
+    quantity: row.quantity,
+    unitPrice: row.unit_price,
+    totalPrice: row.total_price,
+    purchasePrice: row.purchase_price,
+    paymentMethod: row.payment_method || 'cash',
+    saleDate: row.sale_date,
+    notes: row.notes || '',
+    createdAt: row.created_at,
+  };
+}
+
+function mapProductHistoryRow(row: ProductHistoryRow) {
+  return {
+    id: row.id,
+    productId: row.product_id,
+    eventType: row.event_type,
+    summary: row.summary,
+    details: row.details || '',
+    quantityDelta: row.quantity_delta,
+    quantityAfter: row.quantity_after,
+    createdAt: row.created_at,
+  };
+}
 
 function mapProductsWithPhotos(rows: ProductRow[]) {
   const photosStmt = db.prepare(
@@ -477,8 +666,10 @@ function mapProductsWithPhotos(rows: ProductRow[]) {
     return {
       id: row.id,
       code: row.code,
+      qrToken: row.qr_token || `GA-QR-${row.code}`,
       name: row.name,
       description: row.description,
+      supplier: row.supplier || '',
       lengthCm: row.length_cm,
       widthCm: row.width_cm,
       heightCm: row.height_cm,
@@ -496,6 +687,84 @@ function mapProductsWithPhotos(rows: ProductRow[]) {
   });
 }
 
+function resolveProductByQrInput(rawInput: string): ProductRow | undefined {
+  let token = (rawInput || '').trim();
+  if (!token) return undefined;
+
+  try {
+    if (/^https?:\/\//i.test(token)) {
+      const parsed = new URL(token);
+      const qrParam = parsed.searchParams.get('qr') || parsed.searchParams.get('code') || parsed.searchParams.get('product');
+      if (qrParam) token = qrParam.trim();
+    } else if (token.includes('?qr=')) {
+      const idx = token.indexOf('?qr=');
+      const params = new URLSearchParams(token.slice(idx));
+      const qrParam = params.get('qr');
+      if (qrParam) token = qrParam.trim();
+    }
+  } catch {
+    // keep raw token
+  }
+
+  if (token.toUpperCase().startsWith('GA-QR:')) {
+    token = token.slice(6).trim();
+  }
+  const strippedCode = token.toUpperCase().startsWith('GA-QR-') ? token.slice(6).trim() : token;
+
+  const byId = db.prepare('SELECT * FROM products WHERE id = ?').get(token) as ProductRow | undefined;
+  if (byId) return byId;
+
+  const byQrToken = db
+    .prepare('SELECT * FROM products WHERE qr_token = ? COLLATE NOCASE')
+    .get(token) as ProductRow | undefined;
+  if (byQrToken) return byQrToken;
+
+  const byCode = db
+    .prepare('SELECT * FROM products WHERE code = ? COLLATE NOCASE')
+    .get(strippedCode) as ProductRow | undefined;
+  if (byCode) return byCode;
+
+  const byPhoto = db
+    .prepare(
+      `SELECT p.* FROM products p
+       JOIN product_photos ph ON ph.product_id = p.id
+       WHERE ph.photo_code = ? COLLATE NOCASE
+       LIMIT 1`
+    )
+    .get(strippedCode) as ProductRow | undefined;
+  return byPhoto;
+}
+
+function buildProductDigitalFile(row: ProductRow) {
+  const product = mapProductsWithPhotos([row])[0];
+  const invoices = (
+    db
+      .prepare('SELECT * FROM sales_invoices WHERE product_id = ? ORDER BY created_at DESC')
+      .all(row.id) as SalesInvoiceRow[]
+  ).map(mapSalesInvoiceRow);
+  const history = (
+    db
+      .prepare('SELECT * FROM product_history WHERE product_id = ? ORDER BY created_at DESC')
+      .all(row.id) as ProductHistoryRow[]
+  ).map(mapProductHistoryRow);
+
+  const totalUnitsSold = invoices.reduce((sum, inv) => sum + (Number(inv.quantity) || 0), 0);
+  const totalRevenueMad = invoices.reduce((sum, inv) => sum + (Number(inv.totalPrice) || 0), 0);
+  const lastSaleDate = invoices[0]?.saleDate || '';
+
+  return {
+    product,
+    invoices,
+    history,
+    salesStats: {
+      totalUnitsSold,
+      totalRevenueMad,
+      totalInvoices: invoices.length,
+      lastSaleDate,
+    },
+  };
+}
+
 function getInventorySummary() {
   const allProducts = db.prepare('SELECT quantity, reference_price, expenses, selling_price FROM products').all() as Array<{
     quantity: number;
@@ -504,19 +773,21 @@ function getInventorySummary() {
     selling_price: number;
   }>;
 
+  let activeReferences = 0;
   let totalUnits = 0;
   let totalSellingValue = 0;
   let totalReferenceCost = 0;
 
   for (const item of allProducts) {
     const qty = Math.max(0, Number(item.quantity) || 0);
+    if (qty > 0) activeReferences += 1;
     totalUnits += qty;
     totalSellingValue += qty * (Number(item.selling_price) || 0);
     totalReferenceCost += qty * ((Number(item.reference_price) || 0) + (Number(item.expenses) || 0));
   }
 
   return {
-    totalReferences: allProducts.length,
+    totalReferences: activeReferences,
     totalUnits,
     totalSellingValue,
     totalReferenceCost,
@@ -1069,10 +1340,12 @@ async function startServer() {
            LEFT JOIN product_photos ph ON ph.product_id = p.id
            WHERE p.name LIKE ? COLLATE NOCASE
               OR p.code LIKE ? COLLATE NOCASE
+              OR p.supplier LIKE ? COLLATE NOCASE
+              OR p.qr_token LIKE ? COLLATE NOCASE
               OR ph.photo_code LIKE ? COLLATE NOCASE
            ORDER BY p.created_at DESC`
         )
-        .all(pattern, pattern, pattern) as ProductRow[];
+        .all(pattern, pattern, pattern, pattern, pattern) as ProductRow[];
     } else {
       rows = db.prepare('SELECT * FROM products ORDER BY created_at DESC').all() as ProductRow[];
     }
@@ -1094,18 +1367,21 @@ async function startServer() {
     const now = new Date().toISOString();
     const id = crypto.randomUUID();
     const code = generateNextProductCode(name);
+    const qrToken = `GA-QR-${code}`;
     const addedDate =
       typeof body.addedDate === 'string' && body.addedDate.trim() ? body.addedDate.trim() : now.slice(0, 10);
+    const supplier = typeof body.supplier === 'string' ? body.supplier.trim() : '';
+    const initialQty = toInt(body.quantity, 1);
 
     const photos = Array.isArray(body.photos) ? body.photos.filter((p) => p && typeof p.imageData === 'string' && p.imageData) : [];
 
     const insertProduct = db.prepare(`
       INSERT INTO products (
-        id, code, name, description,
+        id, code, qr_token, name, description, supplier,
         length_cm, width_cm, height_cm, thickness_cm, pieces_count,
         quantity, reference_price, expenses, selling_price,
         added_date, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertPhoto = db.prepare(`
@@ -1117,14 +1393,16 @@ async function startServer() {
       insertProduct.run(
         id,
         code,
+        qrToken,
         name,
         typeof body.description === 'string' ? body.description.trim() : '',
+        supplier,
         toNumber(body.lengthCm, 0),
         toNumber(body.widthCm, 0),
         toNumber(body.heightCm, 0),
         toNumber(body.thicknessCm, 0),
         Math.max(1, toInt(body.piecesCount, 1)),
-        toInt(body.quantity, 1),
+        initialQty,
         toNumber(body.referencePrice, 0),
         toNumber(body.expenses, 0),
         toNumber(body.sellingPrice, 0),
@@ -1143,6 +1421,16 @@ async function startServer() {
           now
         );
       });
+
+      logProductHistory(
+        id,
+        'created',
+        `Article créé (${code})`,
+        supplier ? `Fournisseur: ${supplier}` : '',
+        initialQty,
+        initialQty,
+        now
+      );
     });
 
     transaction();
@@ -1173,6 +1461,11 @@ async function startServer() {
     const shouldRegen =
       Boolean(body.regenerateCode) || extractPrefixLetter(name) !== extractPrefixLetter(existing.name);
     const code = shouldRegen ? generateNextProductCode(name, productId) : existing.code;
+    const qrToken = shouldRegen ? `GA-QR-${code}` : existing.qr_token || `GA-QR-${code}`;
+    const supplier =
+      typeof body.supplier === 'string' ? body.supplier.trim() : existing.supplier || '';
+    const nextQty = toInt(body.quantity, 1);
+    const qtyDelta = nextQty - existing.quantity;
 
     const addedDate =
       typeof body.addedDate === 'string' && body.addedDate.trim() ? body.addedDate.trim() : existing.added_date;
@@ -1182,8 +1475,10 @@ async function startServer() {
     const updateProduct = db.prepare(`
       UPDATE products SET
         code = ?,
+        qr_token = ?,
         name = ?,
         description = ?,
+        supplier = ?,
         length_cm = ?,
         width_cm = ?,
         height_cm = ?,
@@ -1207,14 +1502,16 @@ async function startServer() {
     const transaction = db.transaction(() => {
       updateProduct.run(
         code,
+        qrToken,
         name,
         typeof body.description === 'string' ? body.description.trim() : '',
+        supplier,
         toNumber(body.lengthCm, 0),
         toNumber(body.widthCm, 0),
         toNumber(body.heightCm, 0),
         toNumber(body.thicknessCm, 0),
         Math.max(1, toInt(body.piecesCount, 1)),
-        toInt(body.quantity, 1),
+        nextQty,
         toNumber(body.referencePrice, 0),
         toNumber(body.expenses, 0),
         toNumber(body.sellingPrice, 0),
@@ -1234,6 +1531,20 @@ async function startServer() {
           now
         );
       });
+
+      const eventType = qtyDelta > 0 ? 'restocked' : 'updated';
+      const detailParts: string[] = [];
+      if (supplier && supplier !== existing.supplier) detailParts.push(`Fournisseur: ${supplier}`);
+      if (qtyDelta !== 0) detailParts.push(`Stock: ${existing.quantity} → ${nextQty}`);
+      logProductHistory(
+        productId,
+        eventType,
+        qtyDelta > 0 ? `Réapprovisionnement (+${qtyDelta})` : `Fiche mise à jour (${code})`,
+        detailParts.join(' · '),
+        qtyDelta,
+        nextQty,
+        now
+      );
     });
 
     transaction();
@@ -1243,6 +1554,266 @@ async function startServer() {
       product: mapProductsWithPhotos([updatedRow])[0],
       summary: getInventorySummary(),
     });
+  });
+
+  app.get('/api/products/by-qr', (req: Request, res: Response) => {
+    const code = typeof req.query.code === 'string' ? req.query.code : '';
+    const logScan = req.query.logScan === '1';
+    const row = resolveProductByQrInput(code);
+    if (!row) {
+      res.status(404).json({ error: 'Product not found for QR code' });
+      return;
+    }
+    if (logScan) {
+      logProductHistory(
+        row.id,
+        'qr_scanned',
+        `QR scanné (consultation ${row.code})`,
+        '',
+        0,
+        row.quantity
+      );
+    }
+    res.json(buildProductDigitalFile(row));
+  });
+
+  app.get('/api/products/:id/digital-file', (req: Request, res: Response) => {
+    const row = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id) as ProductRow | undefined;
+    if (!row) {
+      res.status(404).json({ error: 'Product not found' });
+      return;
+    }
+    if (req.query.logScan === '1') {
+      logProductHistory(
+        row.id,
+        'qr_scanned',
+        `Fiche numérique ouverte (${row.code})`,
+        '',
+        0,
+        row.quantity
+      );
+    }
+    res.json(buildProductDigitalFile(row));
+  });
+
+  app.get('/api/pos/sales', (_req: Request, res: Response) => {
+    const rows = db.prepare('SELECT * FROM sales_invoices ORDER BY created_at DESC').all() as SalesInvoiceRow[];
+    const invoices = rows.map(mapSalesInvoiceRow);
+    const totalRevenueMad = invoices.reduce((sum, inv) => sum + (Number(inv.totalPrice) || 0), 0);
+    const totalCostMad = invoices.reduce(
+      (sum, inv) => sum + (Number(inv.purchasePrice) || 0) * (Number(inv.quantity) || 1),
+      0
+    );
+    const totalUnitsSold = invoices.reduce((sum, inv) => sum + (Number(inv.quantity) || 0), 0);
+    res.json({
+      invoices,
+      summary: {
+        totalInvoices: invoices.length,
+        totalUnitsSold,
+        totalRevenueMad,
+        totalProfitMad: totalRevenueMad - totalCostMad,
+      },
+    });
+  });
+
+  app.post('/api/pos/sales', (req: Request, res: Response) => {
+    const body = req.body as {
+      productId?: string;
+      qrCode?: string;
+      quantity?: number;
+      unitPrice?: number;
+      customerId?: string;
+      customerName?: string;
+      customerPhone?: string;
+      paymentMethod?: string;
+      saleDate?: string;
+      notes?: string;
+      source?: string;
+    };
+
+    const targetRow =
+      typeof body?.productId === 'string' && body.productId.trim()
+        ? (db.prepare('SELECT * FROM products WHERE id = ?').get(body.productId.trim()) as ProductRow | undefined)
+        : typeof body?.qrCode === 'string' && body.qrCode.trim()
+          ? resolveProductByQrInput(body.qrCode.trim())
+          : undefined;
+
+    if (!targetRow) {
+      res.status(404).json({ error: 'Product not found' });
+      return;
+    }
+
+    const saleQty = Math.max(1, toInt(body.quantity, 1));
+    if (targetRow.quantity < saleQty) {
+      res.status(409).json({
+        error: 'OUT_OF_STOCK',
+        availableQuantity: targetRow.quantity,
+      });
+      return;
+    }
+
+    const unitPrice =
+      typeof body.unitPrice === 'number' && Number.isFinite(body.unitPrice) && body.unitPrice >= 0
+        ? body.unitPrice
+        : targetRow.selling_price;
+    const totalPrice = Math.round(saleQty * unitPrice * 100) / 100;
+    const purchasePrice = (Number(targetRow.reference_price) || 0) + (Number(targetRow.expenses) || 0);
+    const now = new Date().toISOString();
+    const saleDate =
+      typeof body.saleDate === 'string' && body.saleDate.trim() ? body.saleDate.trim() : now.slice(0, 10);
+    const validPayments = new Set(['cash', 'transfer', 'check', 'card', 'other']);
+    const paymentMethod =
+      typeof body.paymentMethod === 'string' && validPayments.has(body.paymentMethod)
+        ? body.paymentMethod
+        : 'cash';
+
+    let customerId = typeof body.customerId === 'string' ? body.customerId.trim() : '';
+    let customerName = typeof body.customerName === 'string' ? body.customerName.trim() : '';
+    let customerPhone = typeof body.customerPhone === 'string' ? body.customerPhone.trim() : '';
+
+    if (customerId) {
+      const cust = db.prepare('SELECT * FROM customers WHERE id = ?').get(customerId) as CustomerRow | undefined;
+      if (cust) {
+        if (!customerName) customerName = cust.name;
+        if (!customerPhone) customerPhone = cust.phone;
+      } else {
+        customerId = '';
+      }
+    }
+
+    const invoiceId = crypto.randomUUID();
+    const invoiceNumber = generateNextInvoiceNumber();
+    const nextQty = Math.max(0, targetRow.quantity - saleQty);
+    const notes = typeof body.notes === 'string' ? body.notes.trim() : '';
+    const sourceLabel = body.source === 'qr_scan' ? 'Vente instantanée QR' : 'Vente POS';
+
+    const tx = db.transaction(() => {
+      db.prepare('UPDATE products SET quantity = ?, updated_at = ? WHERE id = ?').run(
+        nextQty,
+        now,
+        targetRow.id
+      );
+
+      db.prepare(
+        `INSERT INTO sales_invoices (
+          id, invoice_number, product_id, product_code, product_name,
+          customer_id, customer_name, customer_phone,
+          quantity, unit_price, total_price, purchase_price,
+          payment_method, sale_date, notes, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        invoiceId,
+        invoiceNumber,
+        targetRow.id,
+        targetRow.code,
+        targetRow.name,
+        customerId,
+        customerName,
+        customerPhone,
+        saleQty,
+        unitPrice,
+        totalPrice,
+        purchasePrice,
+        paymentMethod,
+        saleDate,
+        notes,
+        now
+      );
+
+      if (customerId) {
+        db.prepare(
+          `INSERT INTO customer_purchases (
+            id, customer_id, product_id, product_code, product_name,
+            quantity, unit_price, total_price, purchase_date, payment_method, notes, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(
+          crypto.randomUUID(),
+          customerId,
+          targetRow.id,
+          targetRow.code,
+          targetRow.name,
+          saleQty,
+          unitPrice,
+          totalPrice,
+          saleDate,
+          paymentMethod,
+          notes ? `${invoiceNumber} · ${notes}` : invoiceNumber,
+          now
+        );
+        db.prepare('UPDATE customers SET updated_at = ? WHERE id = ?').run(now, customerId);
+      }
+
+      logProductHistory(
+        targetRow.id,
+        'sold',
+        `${sourceLabel} — ${saleQty} u. (${invoiceNumber})`,
+        customerName ? `Client: ${customerName} · ${totalPrice} MAD` : `${totalPrice} MAD`,
+        -saleQty,
+        nextQty,
+        now
+      );
+
+      logProductHistory(
+        targetRow.id,
+        'invoice_created',
+        `Facture ${invoiceNumber} générée`,
+        `Montant: ${totalPrice} MAD · Paiement: ${paymentMethod}`,
+        0,
+        nextQty,
+        now
+      );
+    });
+
+    tx();
+
+    const updatedRow = db.prepare('SELECT * FROM products WHERE id = ?').get(targetRow.id) as ProductRow;
+    const invoiceRow = db
+      .prepare('SELECT * FROM sales_invoices WHERE id = ?')
+      .get(invoiceId) as SalesInvoiceRow;
+
+    res.status(201).json({
+      invoice: mapSalesInvoiceRow(invoiceRow),
+      digitalFile: buildProductDigitalFile(updatedRow),
+      summary: getInventorySummary(),
+    });
+  });
+
+  app.delete('/api/pos/sales/:invoiceId', (req: Request, res: Response) => {
+    const invoice = db
+      .prepare('SELECT * FROM sales_invoices WHERE id = ?')
+      .get(req.params.invoiceId) as SalesInvoiceRow | undefined;
+    if (!invoice) {
+      res.status(404).json({ error: 'Invoice not found' });
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const tx = db.transaction(() => {
+      db.prepare('DELETE FROM sales_invoices WHERE id = ?').run(invoice.id);
+      const product = db
+        .prepare('SELECT * FROM products WHERE id = ?')
+        .get(invoice.product_id) as ProductRow | undefined;
+      if (product) {
+        const restoredQty = product.quantity + (Number(invoice.quantity) || 1);
+        db.prepare('UPDATE products SET quantity = ?, updated_at = ? WHERE id = ?').run(
+          restoredQty,
+          now,
+          product.id
+        );
+        logProductHistory(
+          product.id,
+          'restocked',
+          `Annulation facture ${invoice.invoice_number}`,
+          `Stock restauré (+${invoice.quantity})`,
+          Number(invoice.quantity) || 1,
+          restoredQty,
+          now
+        );
+      }
+    });
+
+    tx();
+    res.json({ ok: true, summary: getInventorySummary() });
   });
 
   app.delete('/api/products/:id', (req: Request, res: Response) => {
@@ -1263,6 +1834,7 @@ async function startServer() {
       currency: map.get('currency') || 'MAD',
       facebookHandle: map.get('facebook_handle') ?? '',
       instagramHandle: map.get('instagram_handle') ?? '',
+      whatsappPhone: map.get('whatsapp_phone') ?? '',
     });
   });
 
@@ -1273,6 +1845,7 @@ async function startServer() {
       currency?: string;
       facebookHandle?: string;
       instagramHandle?: string;
+      whatsappPhone?: string;
     };
     if (typeof body.customLogo === 'string') {
       db.prepare("INSERT OR REPLACE INTO shop_settings (key, value) VALUES ('custom_logo', ?)").run(body.customLogo);
@@ -1297,6 +1870,11 @@ async function startServer() {
         body.instagramHandle.trim().slice(0, 120)
       );
     }
+    if (typeof body.whatsappPhone === 'string') {
+      db.prepare("INSERT OR REPLACE INTO shop_settings (key, value) VALUES ('whatsapp_phone', ?)").run(
+        body.whatsappPhone.trim().slice(0, 40)
+      );
+    }
     const rows = db.prepare('SELECT key, value FROM shop_settings').all() as Array<{ key: string; value: string }>;
     const map = new Map(rows.map((r) => [r.key, r.value]));
     res.json({
@@ -1305,6 +1883,7 @@ async function startServer() {
       currency: map.get('currency') || 'MAD',
       facebookHandle: map.get('facebook_handle') ?? '',
       instagramHandle: map.get('instagram_handle') ?? '',
+      whatsappPhone: map.get('whatsapp_phone') ?? '',
     });
   });
 
@@ -1921,7 +2500,9 @@ async function startServer() {
       lang === 'ar'
         ? [
             'الرمز',
+            'رمز QR',
             'اسم المنتج',
+            'المورد',
             'الوصف',
             'الطول (سم)',
             'العرض (سم)',
@@ -1938,7 +2519,9 @@ async function startServer() {
           ]
         : [
             'Code',
+            'Code QR',
             'Nom',
+            'Fournisseur',
             'Description',
             'Longueur (cm)',
             'Largeur (cm)',
@@ -1961,7 +2544,9 @@ async function startServer() {
       totalPhotos += item.photos.length;
       sheetRows.push([
         item.code,
+        item.qrToken || `GA-QR-${item.code}`,
         item.name,
+        item.supplier || '',
         item.description || '',
         item.lengthCm,
         item.widthCm,
@@ -1980,7 +2565,9 @@ async function startServer() {
 
     sheetRows.push([
       lang === 'ar' ? 'المجموع' : 'TOTAL',
+      '',
       lang === 'ar' ? `${summary.totalReferences} أصناف` : `${summary.totalReferences} références`,
+      '',
       '',
       '',
       '',
@@ -2004,7 +2591,9 @@ async function startServer() {
     const worksheet = XLSX.utils.aoa_to_sheet(sheetRows);
     worksheet['!cols'] = [
       { wch: 12 },
+      { wch: 16 },
       { wch: 32 },
+      { wch: 24 },
       { wch: 44 },
       { wch: 14 },
       { wch: 14 },

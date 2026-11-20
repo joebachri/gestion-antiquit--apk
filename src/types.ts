@@ -12,8 +12,10 @@ export interface ProductPhoto {
 export interface Product {
   id: string;
   code: string;
+  qrToken?: string;
   name: string;
   description: string;
+  supplier?: string;
   lengthCm: number;
   widthCm: number;
   heightCm: number;
@@ -42,11 +44,13 @@ export interface ShopSettings {
   currency: string;
   facebookHandle?: string;
   instagramHandle?: string;
+  whatsappPhone?: string;
 }
 
 export interface ProductPayload {
   name: string;
   description: string;
+  supplier?: string;
   lengthCm: number;
   widthCm: number;
   heightCm: number;
@@ -59,6 +63,69 @@ export interface ProductPayload {
   addedDate: string;
   photos: Array<{ id?: string; imageData: string }>;
   regenerateCode?: boolean;
+}
+
+export type ProductHistoryEventType =
+  | 'created'
+  | 'updated'
+  | 'qr_scanned'
+  | 'sold'
+  | 'restocked'
+  | 'invoice_created';
+
+export interface ProductHistoryEvent {
+  id: string;
+  productId: string;
+  eventType: ProductHistoryEventType;
+  summary: string;
+  details: string;
+  quantityDelta: number;
+  quantityAfter: number;
+  createdAt: string;
+}
+
+export interface PosInvoice {
+  id: string;
+  invoiceNumber: string;
+  productId: string;
+  productCode: string;
+  productName: string;
+  customerId: string;
+  customerName: string;
+  customerPhone: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+  purchasePrice: number;
+  paymentMethod: PurchasePaymentMethod;
+  saleDate: string;
+  notes: string;
+  createdAt: string;
+}
+
+export interface PosSalePayload {
+  productId: string;
+  quantity?: number;
+  unitPrice?: number;
+  customerId?: string;
+  customerName?: string;
+  customerPhone?: string;
+  paymentMethod?: PurchasePaymentMethod;
+  saleDate?: string;
+  notes?: string;
+  source?: 'qr_scan' | 'pos_manual';
+}
+
+export interface ProductDigitalFile {
+  product: Product;
+  invoices: PosInvoice[];
+  history: ProductHistoryEvent[];
+  salesStats: {
+    totalUnitsSold: number;
+    totalRevenueMad: number;
+    totalInvoices: number;
+    lastSaleDate: string;
+  };
 }
 
 export interface MetaIgAccount {

@@ -6,6 +6,7 @@ import {
   Copy,
   Download,
   Edit3,
+  Eye,
   FileSpreadsheet,
   Film,
   Globe,
@@ -17,8 +18,11 @@ import {
   MessageCircle,
   Moon,
   Plus,
+  QrCode,
+  Receipt,
   Search,
   Share2,
+  ShoppingBag,
   Sparkles,
   Upload,
   UserPlus,
@@ -43,7 +47,8 @@ export type GuideSectionId =
   | 'search-export'
   | 'calculator'
   | 'customers'
-  | 'customer-gallery';
+  | 'customer-gallery'
+  | 'qr-pos';
 
 interface ArrowDef {
   step: 1 | 2 | 3;
@@ -125,6 +130,11 @@ const SECTION_ARROWS: Record<GuideSectionId, ArrowDef[]> = {
     { step: 1, fromX: 256, fromY: 36, ctrlX: 274, ctrlY: 46, toX: 288, toY: 66, badgeX: 238, badgeY: 36 },
     { step: 2, fromX: 98, fromY: 222, ctrlX: 146, ctrlY: 228, toX: 204, toY: 234, badgeX: 82, badgeY: 222 },
     { step: 3, fromX: 396, fromY: 352, ctrlX: 452, ctrlY: 344, toX: 506, toY: 320, badgeX: 380, badgeY: 352 },
+  ],
+  'qr-pos': [
+    { step: 1, fromX: 120, fromY: 34, ctrlX: 175, ctrlY: 44, toX: 230, toY: 66, badgeX: 102, badgeY: 34 },
+    { step: 2, fromX: 100, fromY: 214, ctrlX: 150, ctrlY: 222, toX: 204, toY: 230, badgeX: 82, badgeY: 214 },
+    { step: 3, fromX: 392, fromY: 348, ctrlX: 450, ctrlY: 340, toX: 504, toY: 312, badgeX: 374, badgeY: 348 },
   ],
 };
 
@@ -1086,6 +1096,94 @@ function renderCanvasContent(sectionId: GuideSectionId, lang: Language, activeSt
               >
                 <Download className="h-3 w-3" />
                 <span>{t.customerGalleryDownloadDevice}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+
+    case 'qr-pos':
+      return (
+        <div className="flex h-full flex-col justify-between gap-2 p-3 sm:p-4">
+          {/* Top Bar: Scanner 2 Modes */}
+          <div className="flex items-center justify-between gap-2 rounded-xl border border-[#DCE7E0] bg-white px-3 py-2 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
+            <div className="flex items-center gap-1.5 text-[9px] font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+              <QrCode className="h-3.5 w-3.5 text-[#115E3B] dark:text-[#34D399]" />
+              <span>{t.qrScanButtonLabel}</span>
+            </div>
+
+            <div className={`flex items-center gap-1.5 rounded-lg p-0.5 transition-all ${hi(1)}`}>
+              <span className="flex items-center gap-1 rounded-lg border border-[#DCE7E0] bg-[#F7FAF8] px-2 py-1 text-[8px] font-bold text-[#115E3B] dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#34D399]">
+                <Eye className="h-3 w-3" />
+                <span>{t.qrModeViewTitle}</span>
+              </span>
+              <span className="flex items-center gap-1 rounded-lg bg-[#115E3B] px-2 py-1 text-[8px] font-bold text-white dark:bg-[#10B981] dark:text-[#052E1C]">
+                <ShoppingBag className="h-3 w-3" />
+                <span>{t.qrModeSellTitle}</span>
+              </span>
+            </div>
+          </div>
+
+          {/* Body: Left = Dual Digital File (Client vs Management) | Right = POS Invoice & Stock Auto-Update */}
+          <div dir={dir} className="grid flex-1 grid-cols-12 gap-2.5">
+            <div className="col-span-6 flex flex-col justify-between rounded-xl border border-[#DCE7E0] bg-white p-2.5 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
+              <div className={`grid grid-cols-2 gap-1 rounded-lg bg-[#F7FAF8] p-1 transition-all dark:bg-[#091611] ${hi(2)}`}>
+                <span className="rounded-md bg-[#115E3B] px-1.5 py-1 text-center text-[8px] font-bold text-white dark:bg-[#10B981] dark:text-[#052E1C]">
+                  {t.digitalTabClient}
+                </span>
+                <span className="rounded-md px-1.5 py-1 text-center text-[8px] font-semibold text-[#335947] dark:text-[#9EC0AE]">
+                  {t.digitalTabManagement}
+                </span>
+              </div>
+
+              <div className="my-1.5 flex items-center gap-2 rounded-lg border border-[#DCE7E0] bg-[#F7FAF8] p-1.5 dark:border-[#1E3A2D] dark:bg-[#091611]">
+                <img
+                  src={lanternImg}
+                  alt="L0001"
+                  referrerPolicy="no-referrer"
+                  className="h-10 w-10 shrink-0 rounded-md object-cover"
+                />
+                <div className="min-w-0 flex-1 text-[8px]">
+                  <span className="font-mono-code block font-bold text-[#115E3B] dark:text-[#34D399]">
+                    L0001 · 3 200 MAD
+                  </span>
+                  <span className="block truncate font-semibold text-[#0B1F16] dark:text-[#F2F9F5]">
+                    Lanterne Fassi
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-center gap-1 rounded-lg bg-[#16A34A] py-1.5 text-[8px] font-bold text-white">
+                <MessageCircle className="h-3 w-3" />
+                <span>{t.digitalWhatsappContact}</span>
+              </div>
+            </div>
+
+            <div className="col-span-6 flex flex-col justify-between rounded-xl border border-[#DCE7E0] bg-white p-2.5 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
+              <div className="flex items-center justify-between text-[8.5px] font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+                <span className="flex items-center gap-1">
+                  <Receipt className="h-3 w-3 text-[#115E3B] dark:text-[#34D399]" />
+                  <span>{t.posTabLabel}</span>
+                </span>
+                <span className="font-mono-code text-[#115E3B] dark:text-[#34D399]">FAC-0001</span>
+              </div>
+
+              <div className="space-y-1 rounded-lg border border-[#DCE7E0] bg-[#F7FAF8] p-2 text-[8px] dark:border-[#1E3A2D] dark:bg-[#091611]">
+                <div className="flex items-center justify-between text-[#335947] dark:text-[#9EC0AE]">
+                  <span>{t.digitalMgmtSupplier}:</span>
+                  <span className="font-semibold text-[#0B1F16] dark:text-[#F2F9F5]">Fès</span>
+                </div>
+                <div className="flex items-center justify-between text-[#335947] dark:text-[#9EC0AE]">
+                  <span>{t.posRemainingStock}:</span>
+                  <span className="font-bold text-red-600 dark:text-red-400">0</span>
+                </div>
+              </div>
+
+              <div
+                className={`flex items-center justify-center gap-1 rounded-lg border border-[#115E3B] bg-[#ECF7F1] py-1.5 text-[8px] font-bold text-[#115E3B] transition-all dark:border-[#10B981] dark:bg-[#132B20] dark:text-[#34D399] ${hi(3)}`}
+              >
+                <Download className="h-3 w-3" />
+                <span>{t.posDownloadReceipt}</span>
               </div>
             </div>
           </div>

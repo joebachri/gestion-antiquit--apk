@@ -3,8 +3,10 @@ import {
   ChevronLeft,
   ChevronRight,
   Edit3,
+  FileText,
   Image as ImageIcon,
   Play,
+  QrCode,
   Share2,
   Trash2,
   X,
@@ -21,6 +23,8 @@ interface ProductDetailSheetProps {
   onEdit: (product: Product) => void;
   onDelete: (productId: string) => Promise<void>;
   onShare: (product: Product) => void;
+  onOpenQrLabel?: (product: Product) => void;
+  onOpenDigitalFile?: (product: Product) => void;
 }
 
 export function ProductDetailSheet({
@@ -31,6 +35,8 @@ export function ProductDetailSheet({
   onEdit,
   onDelete,
   onShare,
+  onOpenQrLabel,
+  onOpenDigitalFile,
 }: ProductDetailSheetProps) {
   const t = translations[lang];
   const [photoIdx, setPhotoIdx] = useState(0);
@@ -258,6 +264,17 @@ export function ProductDetailSheet({
             </div>
           )}
 
+          {product.supplier && (
+            <div className="flex items-center justify-between rounded-xl border border-[#DCE7E0] px-4 py-2.5 text-xs dark:border-[#1E3A2D]">
+              <span className="font-semibold text-[#335947] dark:text-[#9EC0AE]">
+                {t.digitalMgmtSupplier}
+              </span>
+              <span className="font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+                {product.supplier}
+              </span>
+            </div>
+          )}
+
           {/* Dimensions Grid */}
           <div className="rounded-2xl border border-[#DCE7E0] bg-[#F7FAF8] p-4 dark:border-[#1E3A2D] dark:bg-[#091611]">
             <h3 className="mb-3 text-xs font-semibold text-[#115E3B] dark:text-[#34D399]">
@@ -383,7 +400,33 @@ export function ProductDetailSheet({
         </div>
 
         {/* Sticky Sheet Action Bar */}
-        <div className="pb-safe flex flex-wrap items-center gap-2.5 border-t border-[#DCE7E0] bg-white px-5 py-3.5 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
+        <div className="pb-safe flex flex-wrap items-center gap-2 border-t border-[#DCE7E0] bg-white px-5 py-3.5 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
+          {onOpenDigitalFile && (
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onOpenDigitalFile(product);
+              }}
+              className="flex min-h-[48px] items-center justify-center gap-2 rounded-xl border border-[#DCE7E0] bg-[#ECF7F1] px-3.5 text-xs font-semibold text-[#115E3B] hover:bg-[#DCF0E4] dark:border-[#1E3A2D] dark:bg-[#132B20] dark:text-[#34D399]"
+            >
+              <FileText className="h-4 w-4" />
+              <span className="whitespace-nowrap">{t.qrDigitalFileButton}</span>
+            </button>
+          )}
+
+          {onOpenQrLabel && (
+            <button
+              type="button"
+              onClick={() => onOpenQrLabel(product)}
+              aria-label={t.qrLabelButton}
+              title={t.qrLabelButton}
+              className="flex min-h-[48px] min-w-[48px] items-center justify-center rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-3 text-[#115E3B] hover:bg-[#ECF7F1] dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#34D399]"
+            >
+              <QrCode className="h-4 w-4" />
+            </button>
+          )}
+
           <button
             type="button"
             onClick={() => onShare(product)}

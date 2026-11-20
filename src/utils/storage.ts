@@ -9,7 +9,12 @@ import type {
   CustomerPurchasePayload,
   CustomerSummary,
   InventorySummary,
+  PosInvoice,
+  PosSalePayload,
   Product,
+  ProductDigitalFile,
+  ProductHistoryEvent,
+  ProductHistoryEventType,
   ProductPayload,
   ProductPhoto,
   PurchasePaymentMethod,
@@ -22,10 +27,12 @@ import ceramicImg from '../assets/images/antique_fez_ceramic_1794787509914.jpg';
 import teaServiceImg from '../assets/images/antique_silver_tea_service_1794787510384.jpg';
 
 const DB_NAME = 'gestion_antiquites_db';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE_PRODUCTS = 'products';
 const STORE_SETTINGS = 'settings';
 const STORE_CUSTOMERS = 'customers';
+const STORE_INVOICES = 'sales_invoices';
+const STORE_HISTORY = 'product_history';
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -40,6 +47,12 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(STORE_CUSTOMERS)) {
         db.createObjectStore(STORE_CUSTOMERS, { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains(STORE_INVOICES)) {
+        db.createObjectStore(STORE_INVOICES, { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains(STORE_HISTORY)) {
+        db.createObjectStore(STORE_HISTORY, { keyPath: 'id' });
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -105,22 +118,40 @@ function computeNextCode(products: Product[], name: string, excludeId?: string):
 }
 
 function computeSummary(products: Product[]): InventorySummary {
+  let activeReferences = 0;
   let totalUnits = 0;
   let totalSellingValue = 0;
   let totalReferenceCost = 0;
 
   for (const item of products) {
     const qty = Math.max(0, Number(item.quantity) || 0);
+    if (qty > 0) activeReferences += 1;
     totalUnits += qty;
     totalSellingValue += qty * (Number(item.sellingPrice) || 0);
     totalReferenceCost += qty * ((Number(item.referencePrice) || 0) + (Number(item.expenses) || 0));
   }
 
   return {
-    totalReferences: products.length,
+    totalReferences: activeReferences,
     totalUnits,
     totalSellingValue,
     totalReferenceCost,
+  };
+}
+
+async function appendHistoryEvent(
+  db: IDBDatabase,
+  event: Omit<ProductHistoryEvent, 'id'>
+): Promise<void> {
+  const id = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+  await putInStore<ProductHistoryEvent>(db, STORE_HISTORY, { id, ...event });
+}
+
+function normalizeProductRecord(p: Product): Product {
+  return {
+    ...p,
+    qrToken: p.qrToken || `GA-QR-${p.code}`,
+    supplier: p.supplier || '',
   };
 }
 
@@ -140,6 +171,7 @@ async function ensureSeeded(db: IDBDatabase): Promise<void> {
   const seeds: Array<{
     name: string;
     description: string;
+    supplier: string;
     lengthCm: number;
     widthCm: number;
     heightCm: number;
@@ -155,6 +187,7 @@ async function ensureSeeded(db: IDBDatabase): Promise<void> {
       name: 'Lanterne Fassi en Cuivre Cisélé',
       description:
         "Lanterne octogonale ancienne en laiton et cuivre ajouré à motifs géométriques traditionnels de Fès, patine authentique d'époque.",
+      supplier: 'Atelier Dinanderie Fès',
       lengthCm: 28,
       widthCm: 28,
       heightCm: 62,
@@ -170,6 +203,7 @@ async function ensureSeeded(db: IDBDatabase): Promise<void> {
       name: 'Coffre Berbère en Bois de Cèdre Sculpté',
       description:
         'Coffre de mariage ancien du Moyen-Atlas en bois de cèdre massif sculpté à la main, ferrures et moraillon en laiton oxydé.',
+      supplier: 'Artisanat Moyen-Atlas',
       lengthCm: 94,
       widthCm: 48,
       heightCm: 52,
@@ -185,6 +219,7 @@ async function ensureSeeded(db: IDBDatabase): Promise<void> {
       name: 'Plat Ancien en Céramique de Fès',
       description:
         'Grand plat décoratif ancien de Fès émaillé vert émeraude et bleu de cobalt, motif floral étoilé peint à la main.',
+      supplier: 'Poterie Traditionnelle Fès',
       lengthCm: 42,
       widthCm: 42,
       heightCm: 8,
@@ -200,6 +235,7 @@ async function ensureSeeded(db: IDBDatabase): Promise<void> {
       name: 'Service à Thé Royal en Argent Ciselé',
       description:
         "Théière ancienne gravée à la main sur plateau circulaire ciselé en maillechort argenté, accompagnée de son sucrier d'époque.",
+      supplier: 'Orfèvrerie Bab Guissa',
       lengthCm: 46,
       widthCm: 46,
       heightCm: 29,
@@ -220,8 +256,10 @@ async function ensureSeeded(db: IDBDatabase): Promise<void> {
     const product: Product = {
       id,
       code,
+      qrToken: `GA-QR-${code}`,
       name: s.name,
       description: s.description,
+      supplier: s.supplier,
       lengthCm: s.lengthCm,
       widthCm: s.widthCm,
       heightCm: s.heightCm,
@@ -247,12 +285,22 @@ async function ensureSeeded(db: IDBDatabase): Promise<void> {
     };
     createdList.push(product);
     await putInStore(db, STORE_PRODUCTS, product);
+    await appendHistoryEvent(db, {
+      productId: id,
+      eventType: 'created',
+      summary: `Article créé (${code})`,
+      details: s.supplier ? `Fournisseur: ${s.supplier}` : '',
+      quantityDelta: s.quantity,
+      quantityAfter: s.quantity,
+      createdAt: now,
+    });
   }
 
   await putInStore(db, STORE_SETTINGS, { key: 'seeded', value: '1' });
   await putInStore(db, STORE_SETTINGS, { key: 'currency', value: 'MAD' });
   await putInStore(db, STORE_SETTINGS, { key: 'customLogo', value: '' });
   await putInStore(db, STORE_SETTINGS, { key: 'storeName', value: '' });
+  await putInStore(db, STORE_SETTINGS, { key: 'whatsappPhone', value: '' });
 }
 
 export async function localListProducts(
@@ -260,7 +308,7 @@ export async function localListProducts(
 ): Promise<{ products: Product[]; summary: InventorySummary }> {
   const db = await openDb();
   await ensureSeeded(db);
-  const all = await getAllFromStore<Product>(db, STORE_PRODUCTS);
+  const all = (await getAllFromStore<Product>(db, STORE_PRODUCTS)).map(normalizeProductRecord);
   all.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
   const q = query.trim().toLowerCase();
@@ -269,6 +317,8 @@ export async function localListProducts(
         (p) =>
           p.name.toLowerCase().includes(q) ||
           p.code.toLowerCase().includes(q) ||
+          (p.supplier || '').toLowerCase().includes(q) ||
+          (p.qrToken || '').toLowerCase().includes(q) ||
           p.photos.some((ph) => ph.photoCode.toLowerCase().includes(q))
       )
     : all;
@@ -293,6 +343,8 @@ export async function localCreateProduct(payload: ProductPayload): Promise<Produ
   const now = new Date().toISOString();
   const id = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
   const code = computeNextCode(all, payload.name);
+  const supplier = (payload.supplier || '').trim();
+  const initialQty = Math.max(0, payload.quantity ?? 1);
 
   const photos: ProductPhoto[] = (payload.photos || []).map((p, idx) => ({
     id: p.id || (crypto.randomUUID ? crypto.randomUUID() : `${id}-p${idx}`),
@@ -306,14 +358,16 @@ export async function localCreateProduct(payload: ProductPayload): Promise<Produ
   const product: Product = {
     id,
     code,
+    qrToken: `GA-QR-${code}`,
     name: payload.name.trim(),
     description: payload.description.trim(),
+    supplier,
     lengthCm: payload.lengthCm || 0,
     widthCm: payload.widthCm || 0,
     heightCm: payload.heightCm || 0,
     thicknessCm: payload.thicknessCm || 0,
     piecesCount: Math.max(1, payload.piecesCount || 1),
-    quantity: Math.max(0, payload.quantity ?? 1),
+    quantity: initialQty,
     referencePrice: payload.referencePrice || 0,
     expenses: payload.expenses || 0,
     sellingPrice: payload.sellingPrice || 0,
@@ -324,6 +378,15 @@ export async function localCreateProduct(payload: ProductPayload): Promise<Produ
   };
 
   await putInStore(db, STORE_PRODUCTS, product);
+  await appendHistoryEvent(db, {
+    productId: id,
+    eventType: 'created',
+    summary: `Article créé (${code})`,
+    details: supplier ? `Fournisseur: ${supplier}` : '',
+    quantityDelta: initialQty,
+    quantityAfter: initialQty,
+    createdAt: now,
+  });
   return product;
 }
 
@@ -339,6 +402,10 @@ export async function localUpdateProduct(id: string, payload: ProductPayload): P
     Boolean(payload.regenerateCode) ||
     extractPrefixLetter(payload.name) !== extractPrefixLetter(existing.name);
   const code = shouldRegen ? computeNextCode(all, payload.name, id) : existing.code;
+  const qrToken = shouldRegen ? `GA-QR-${code}` : existing.qrToken || `GA-QR-${code}`;
+  const supplier = (payload.supplier ?? existing.supplier ?? '').trim();
+  const nextQty = Math.max(0, payload.quantity ?? 1);
+  const qtyDelta = nextQty - (Number(existing.quantity) || 0);
 
   const photos: ProductPhoto[] = (payload.photos || []).map((p, idx) => ({
     id: p.id || (crypto.randomUUID ? crypto.randomUUID() : `${id}-p${idx}`),
@@ -352,14 +419,16 @@ export async function localUpdateProduct(id: string, payload: ProductPayload): P
   const updated: Product = {
     ...existing,
     code,
+    qrToken,
     name: payload.name.trim(),
     description: payload.description.trim(),
+    supplier,
     lengthCm: payload.lengthCm || 0,
     widthCm: payload.widthCm || 0,
     heightCm: payload.heightCm || 0,
     thicknessCm: payload.thicknessCm || 0,
     piecesCount: Math.max(1, payload.piecesCount || 1),
-    quantity: Math.max(0, payload.quantity ?? 1),
+    quantity: nextQty,
     referencePrice: payload.referencePrice || 0,
     expenses: payload.expenses || 0,
     sellingPrice: payload.sellingPrice || 0,
@@ -369,6 +438,15 @@ export async function localUpdateProduct(id: string, payload: ProductPayload): P
   };
 
   await putInStore(db, STORE_PRODUCTS, updated);
+  await appendHistoryEvent(db, {
+    productId: id,
+    eventType: qtyDelta > 0 ? 'restocked' : 'updated',
+    summary: qtyDelta > 0 ? `Réapprovisionnement (+${qtyDelta})` : `Fiche mise à jour (${code})`,
+    details: qtyDelta !== 0 ? `Stock: ${existing.quantity} → ${nextQty}` : '',
+    quantityDelta: qtyDelta,
+    quantityAfter: nextQty,
+    createdAt: now,
+  });
   return updated;
 }
 
@@ -401,12 +479,18 @@ export async function localGetSettings(): Promise<ShopSettings> {
     STORE_SETTINGS,
     'instagramHandle'
   );
+  const whatsappPhone = await getFromStore<{ key: string; value: string }>(
+    db,
+    STORE_SETTINGS,
+    'whatsappPhone'
+  );
   return {
     customLogo: logo?.value ?? '',
     storeName: storeName?.value ?? '',
     currency: currency?.value || 'MAD',
     facebookHandle: facebookHandle?.value ?? '',
     instagramHandle: instagramHandle?.value ?? '',
+    whatsappPhone: whatsappPhone?.value ?? '',
   };
 }
 
@@ -430,6 +514,12 @@ export async function localSaveSettings(settings: ShopSettings): Promise<ShopSet
     await putInStore(db, STORE_SETTINGS, {
       key: 'instagramHandle',
       value: settings.instagramHandle.trim(),
+    });
+  }
+  if (typeof settings.whatsappPhone === 'string') {
+    await putInStore(db, STORE_SETTINGS, {
+      key: 'whatsappPhone',
+      value: settings.whatsappPhone.trim().slice(0, 40),
     });
   }
   return settings;
@@ -687,5 +777,297 @@ export async function localDeleteCustomerGalleryImage(
   };
   await putInStore(db, STORE_CUSTOMERS, updated);
   return updated;
+}
+
+function resolveQrTokenFromInput(rawInput: string): string {
+  let token = (rawInput || '').trim();
+  if (!token) return '';
+  try {
+    if (/^https?:\/\//i.test(token)) {
+      const parsed = new URL(token);
+      const qrParam =
+        parsed.searchParams.get('qr') ||
+        parsed.searchParams.get('code') ||
+        parsed.searchParams.get('product');
+      if (qrParam) token = qrParam.trim();
+    } else if (token.includes('?qr=')) {
+      const idx = token.indexOf('?qr=');
+      const params = new URLSearchParams(token.slice(idx));
+      const qrParam = params.get('qr');
+      if (qrParam) token = qrParam.trim();
+    }
+  } catch {
+    // ignore URL parse error
+  }
+  if (token.toUpperCase().startsWith('GA-QR:')) {
+    token = token.slice(6).trim();
+  }
+  return token;
+}
+
+async function buildLocalDigitalFile(db: IDBDatabase, rawProduct: Product): Promise<ProductDigitalFile> {
+  const product = normalizeProductRecord(rawProduct);
+  const allInvoices = await getAllFromStore<PosInvoice>(db, STORE_INVOICES);
+  const invoices = allInvoices
+    .filter((inv) => inv.productId === product.id)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+  const allHistory = await getAllFromStore<ProductHistoryEvent>(db, STORE_HISTORY);
+  let history = allHistory
+    .filter((ev) => ev.productId === product.id)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+  if (history.length === 0) {
+    const fallbackEv: ProductHistoryEvent = {
+      id: `${product.id}-init`,
+      productId: product.id,
+      eventType: 'created',
+      summary: `Article initialisé (${product.code})`,
+      details: product.supplier ? `Fournisseur: ${product.supplier}` : '',
+      quantityDelta: product.quantity,
+      quantityAfter: product.quantity,
+      createdAt: product.createdAt,
+    };
+    history = [fallbackEv];
+  }
+
+  return {
+    product,
+    invoices,
+    history,
+    salesStats: {
+      totalUnitsSold: invoices.reduce((s, inv) => s + (Number(inv.quantity) || 0), 0),
+      totalRevenueMad: invoices.reduce((s, inv) => s + (Number(inv.totalPrice) || 0), 0),
+      totalInvoices: invoices.length,
+      lastSaleDate: invoices[0]?.saleDate || '',
+    },
+  };
+}
+
+export async function localGetProductDigitalFileByQr(
+  qrInput: string,
+  logScan = false
+): Promise<ProductDigitalFile> {
+  const db = await openDb();
+  await ensureSeeded(db);
+  const token = resolveQrTokenFromInput(qrInput);
+  const stripped = token.toUpperCase().startsWith('GA-QR-') ? token.slice(6).trim() : token;
+  const all = (await getAllFromStore<Product>(db, STORE_PRODUCTS)).map(normalizeProductRecord);
+  const found = all.find(
+    (p) =>
+      p.id === token ||
+      (p.qrToken || '').toLowerCase() === token.toLowerCase() ||
+      p.code.toLowerCase() === stripped.toLowerCase() ||
+      p.photos.some((ph) => ph.photoCode.toLowerCase() === stripped.toLowerCase())
+  );
+  if (!found) throw new Error('Product not found for QR code');
+  if (logScan) {
+    await appendHistoryEvent(db, {
+      productId: found.id,
+      eventType: 'qr_scanned' as ProductHistoryEventType,
+      summary: `QR scanné (consultation ${found.code})`,
+      details: '',
+      quantityDelta: 0,
+      quantityAfter: found.quantity,
+      createdAt: new Date().toISOString(),
+    });
+  }
+  return buildLocalDigitalFile(db, found);
+}
+
+export async function localGetProductDigitalFile(
+  productId: string,
+  logScan = false
+): Promise<ProductDigitalFile> {
+  const db = await openDb();
+  await ensureSeeded(db);
+  const found = await getFromStore<Product>(db, STORE_PRODUCTS, productId);
+  if (!found) throw new Error('Product not found');
+  if (logScan) {
+    await appendHistoryEvent(db, {
+      productId: found.id,
+      eventType: 'qr_scanned' as ProductHistoryEventType,
+      summary: `Fiche numérique ouverte (${found.code})`,
+      details: '',
+      quantityDelta: 0,
+      quantityAfter: found.quantity,
+      createdAt: new Date().toISOString(),
+    });
+  }
+  return buildLocalDigitalFile(db, found);
+}
+
+export async function localListPosSales(): Promise<{
+  invoices: PosInvoice[];
+  summary: {
+    totalInvoices: number;
+    totalUnitsSold: number;
+    totalRevenueMad: number;
+    totalProfitMad: number;
+  };
+}> {
+  const db = await openDb();
+  await ensureSeeded(db);
+  const invoices = await getAllFromStore<PosInvoice>(db, STORE_INVOICES);
+  invoices.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const totalRevenueMad = invoices.reduce((s, inv) => s + (Number(inv.totalPrice) || 0), 0);
+  const totalCostMad = invoices.reduce(
+    (s, inv) => s + (Number(inv.purchasePrice) || 0) * (Number(inv.quantity) || 1),
+    0
+  );
+  const totalUnitsSold = invoices.reduce((s, inv) => s + (Number(inv.quantity) || 0), 0);
+  return {
+    invoices,
+    summary: {
+      totalInvoices: invoices.length,
+      totalUnitsSold,
+      totalRevenueMad,
+      totalProfitMad: totalRevenueMad - totalCostMad,
+    },
+  };
+}
+
+export async function localCreatePosSale(payload: PosSalePayload): Promise<{
+  invoice: PosInvoice;
+  digitalFile: ProductDigitalFile;
+  summary: InventorySummary;
+}> {
+  const db = await openDb();
+  await ensureSeeded(db);
+  const allProducts = (await getAllFromStore<Product>(db, STORE_PRODUCTS)).map(normalizeProductRecord);
+  const product = allProducts.find((p) => p.id === payload.productId);
+  if (!product) throw new Error('Product not found');
+
+  const qty = Math.max(1, Math.floor(Number(payload.quantity) || 1));
+  if (product.quantity < qty) {
+    throw new Error('OUT_OF_STOCK');
+  }
+
+  const allInvoices = await getAllFromStore<PosInvoice>(db, STORE_INVOICES);
+  let maxInv = 0;
+  for (const inv of allInvoices) {
+    if (inv.invoiceNumber.startsWith('FAC-')) {
+      const n = Number.parseInt(inv.invoiceNumber.slice(4), 10);
+      if (Number.isFinite(n) && n > maxInv) maxInv = n;
+    }
+  }
+  const invoiceNumber = `FAC-${String(maxInv + 1).padStart(4, '0')}`;
+  const now = new Date().toISOString();
+  const unitPrice =
+    typeof payload.unitPrice === 'number' && Number.isFinite(payload.unitPrice)
+      ? Math.max(0, payload.unitPrice)
+      : product.sellingPrice;
+  const totalPrice = Math.round(qty * unitPrice * 100) / 100;
+  const purchasePrice = (Number(product.referencePrice) || 0) + (Number(product.expenses) || 0);
+  const nextQty = Math.max(0, product.quantity - qty);
+
+  let customerName = (payload.customerName || '').trim();
+  let customerPhone = (payload.customerPhone || '').trim();
+  const customerId = (payload.customerId || '').trim();
+  if (customerId) {
+    const cust = await getFromStore<Customer>(db, STORE_CUSTOMERS, customerId);
+    if (cust) {
+      if (!customerName) customerName = cust.name;
+      if (!customerPhone) customerPhone = cust.phone;
+      const purchase: CustomerPurchase = {
+        id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
+        customerId,
+        productId: product.id,
+        productCode: product.code,
+        productName: product.name,
+        quantity: qty,
+        unitPrice,
+        totalPrice,
+        purchaseDate: payload.saleDate || now.slice(0, 10),
+        paymentMethod: (payload.paymentMethod || 'cash') as PurchasePaymentMethod,
+        notes: payload.notes ? `${invoiceNumber} · ${payload.notes}` : invoiceNumber,
+        createdAt: now,
+      };
+      await putInStore<Customer>(db, STORE_CUSTOMERS, {
+        ...cust,
+        updatedAt: now,
+        purchases: [purchase, ...(cust.purchases || [])],
+      });
+    }
+  }
+
+  const updatedProduct: Product = {
+    ...product,
+    quantity: nextQty,
+    updatedAt: now,
+  };
+  await putInStore(db, STORE_PRODUCTS, updatedProduct);
+
+  const invoice: PosInvoice = {
+    id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
+    invoiceNumber,
+    productId: product.id,
+    productCode: product.code,
+    productName: product.name,
+    customerId,
+    customerName,
+    customerPhone,
+    quantity: qty,
+    unitPrice,
+    totalPrice,
+    purchasePrice,
+    paymentMethod: (payload.paymentMethod || 'cash') as PurchasePaymentMethod,
+    saleDate: payload.saleDate || now.slice(0, 10),
+    notes: (payload.notes || '').trim(),
+    createdAt: now,
+  };
+  await putInStore(db, STORE_INVOICES, invoice);
+
+  await appendHistoryEvent(db, {
+    productId: product.id,
+    eventType: 'sold',
+    summary: `${payload.source === 'qr_scan' ? 'Vente instantanée QR' : 'Vente POS'} — ${qty} u. (${invoiceNumber})`,
+    details: customerName ? `Client: ${customerName} · ${totalPrice} MAD` : `${totalPrice} MAD`,
+    quantityDelta: -qty,
+    quantityAfter: nextQty,
+    createdAt: now,
+  });
+  await appendHistoryEvent(db, {
+    productId: product.id,
+    eventType: 'invoice_created',
+    summary: `Facture ${invoiceNumber} générée`,
+    details: `Montant: ${totalPrice} MAD`,
+    quantityDelta: 0,
+    quantityAfter: nextQty,
+    createdAt: now,
+  });
+
+  const nextProducts = allProducts.map((p) => (p.id === updatedProduct.id ? updatedProduct : p));
+  return {
+    invoice,
+    digitalFile: await buildLocalDigitalFile(db, updatedProduct),
+    summary: computeSummary(nextProducts),
+  };
+}
+
+export async function localDeletePosSale(invoiceId: string): Promise<void> {
+  const db = await openDb();
+  const inv = await getFromStore<PosInvoice>(db, STORE_INVOICES, invoiceId);
+  if (!inv) return;
+  await deleteFromStore(db, STORE_INVOICES, invoiceId);
+  const product = await getFromStore<Product>(db, STORE_PRODUCTS, inv.productId);
+  if (product) {
+    const restoredQty = (Number(product.quantity) || 0) + (Number(inv.quantity) || 1);
+    const now = new Date().toISOString();
+    await putInStore(db, STORE_PRODUCTS, {
+      ...product,
+      quantity: restoredQty,
+      updatedAt: now,
+    });
+    await appendHistoryEvent(db, {
+      productId: product.id,
+      eventType: 'restocked',
+      summary: `Annulation facture ${inv.invoiceNumber}`,
+      details: `Stock restauré (+${inv.quantity})`,
+      quantityDelta: Number(inv.quantity) || 1,
+      quantityAfter: restoredQty,
+      createdAt: now,
+    });
+  }
 }
 

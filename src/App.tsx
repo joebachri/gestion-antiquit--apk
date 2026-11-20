@@ -7,6 +7,8 @@ import {
   Package,
   Play,
   Plus,
+  QrCode,
+  Receipt,
   Search,
   Share2,
   Trash2,
@@ -25,22 +27,30 @@ import type {
   InventorySummary,
   Language,
   MetaAuthStatus,
+  PosInvoice,
+  PosSalePayload,
   Product,
+  ProductDigitalFile,
   ProductPayload,
   ShopSettings,
 } from './types';
 import { formatCurrency, formatNumber, translations } from './i18n';
 import { buildCustomersExcelBlob, buildExcelBlob } from './utils/excel';
 import {
+  createPosSaleApi,
   deleteCustomerApi,
   deleteCustomerGalleryImageApi,
   deleteCustomerPurchaseApi,
+  deletePosSaleApi,
   deleteProductApi,
   fetchCustomersApi,
   fetchExchangeRatesApi,
   fetchMetaAuthStatusApi,
+  fetchPosSalesApi,
+  fetchProductDigitalFileApi,
   fetchProductsApi,
   fetchSettingsApi,
+  lookupProductByQrApi,
   saveCustomerApi,
   saveCustomerGalleryImagesApi,
   saveCustomerPurchaseApi,
@@ -60,6 +70,10 @@ import { CustomersView } from './components/CustomersView';
 import { CustomerFormModal } from './components/CustomerFormModal';
 import { CustomerDetailModal } from './components/CustomerDetailModal';
 import { CalculatorModal } from './components/CalculatorModal';
+import { QrScannerModal } from './components/QrScannerModal';
+import { ProductDigitalFileModal } from './components/ProductDigitalFileModal';
+import { QrCodeDisplayModal } from './components/QrCodeDisplayModal';
+import { PosSalesModal } from './components/PosSalesModal';
 
 export default function App() {
   const [lang, setLang] = useState<Language>(() => {
@@ -85,6 +99,7 @@ export default function App() {
     currency: 'MAD',
     facebookHandle: '',
     instagramHandle: '',
+    whatsappPhone: '',
   });
   const [metaStatus, setMetaStatus] = useState<MetaAuthStatus>({
     configured: false,
@@ -94,6 +109,7 @@ export default function App() {
   });
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [inventoryFilter, setInventoryFilter] = useState<'in_stock' | 'sold' | 'all'>('in_stock');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -101,10 +117,25 @@ export default function App() {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
   const [shareProduct, setShareProduct] = useState<Product | null>(null);
+  const [qrCodeProduct, setQrCodeProduct] = useState<Product | null>(null);
+  const [qrScannerOpen, setQrScannerOpen] = useState(false);
+  const [digitalFileData, setDigitalFileData] = useState<ProductDigitalFile | null>(null);
+  const [digitalFileView, setDigitalFileView] = useState<'client' | 'management'>('client');
+  const [posModalOpen, setPosModalOpen] = useState(false);
+  const [posInvoices, setPosInvoices] = useState<PosInvoice[]>([]);
+  const [posSummary, setPosSummary] = useState({
+    totalInvoices: 0,
+    totalUnitsSold: 0,
+    totalRevenueMad: 0,
+    totalProfitMad: 0,
+  });
   const [logoModalOpen, setLogoModalOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [calculatorOpen, setCalculatorOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState<boolean>(() => {
+    const hasQrParam =
+      typeof window !== 'undefined' && Boolean(new URLSearchParams(window.location.search).get('qr'));
+    if (hasQrParam) return false;
     return localStorage.getItem('babsaida_onboarding_done') !== '1';
   });
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
@@ -209,11 +240,39 @@ export default function App() {
     [lang]
   );
 
+  const fetchPosSales = useCallback(async () => {
+    try {
+      const data = await fetchPosSalesApi();
+      setPosInvoices(data.invoices);
+      setPosSummary(data.summary);
+    } catch {
+      // keep existing invoices
+    }
+  }, []);
+
   useEffect(() => {
     void fetchSettings();
     void refreshMetaStatus();
+    void fetchPosSales();
     void fetchExchangeRatesApi().then(() => setRatesVersion((v) => v + 1));
-  }, [fetchSettings, refreshMetaStatus]);
+
+    const qrParam = new URLSearchParams(window.location.search).get('qr');
+    if (qrParam) {
+      void lookupProductByQrApi(qrParam, true)
+        .then((file) => {
+          setDigitalFileView('client');
+          setDigitalFileData(file);
+        })
+        .catch(() => {
+          showToast(translations[lang].qrScannerNotFound);
+        });
+      try {
+        window.history.replaceState({}, '', window.location.pathname);
+      } catch {
+        // ignore history error
+      }
+    }
+  }, [fetchSettings, refreshMetaStatus, fetchPosSales, lang, showToast]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -362,6 +421,14 @@ export default function App() {
   const handleSaveProduct = async (payload: ProductPayload, editingId?: string) => {
     await saveProductApi(payload, editingId);
     await fetchProducts(searchQuery);
+    if (editingId && digitalFileData?.product.id === editingId) {
+      try {
+        const refreshed = await fetchProductDigitalFileApi(editingId, false);
+        setDigitalFileData(refreshed);
+      } catch {
+        // ignore
+      }
+    }
   };
 
   const handleDeleteProduct = async (productId: string) => {
@@ -370,8 +437,117 @@ export default function App() {
     if (detailProduct?.id === productId) {
       setDetailProduct(null);
     }
+    if (digitalFileData?.product.id === productId) {
+      setDigitalFileData(null);
+    }
     await fetchProducts(searchQuery);
   };
+
+  const openDigitalFileForProduct = useCallback(
+    async (productId: string, view: 'client' | 'management' = 'management') => {
+      try {
+        const file = await fetchProductDigitalFileApi(productId, false);
+        setDigitalFileView(view);
+        setDigitalFileData(file);
+      } catch {
+        showToast(t.qrScannerNotFound);
+      }
+    },
+    [showToast, t.qrScannerNotFound]
+  );
+
+  const handleRecordPosSale = useCallback(
+    async (payload: PosSalePayload): Promise<PosInvoice | null> => {
+      const result = await createPosSaleApi(payload);
+      await Promise.all([
+        fetchProducts(searchQuery),
+        fetchPosSales(),
+        fetchCustomers(customerSearch, customerCategory),
+      ]);
+      if (digitalFileData?.product.id === payload.productId) {
+        setDigitalFileData(result.digitalFile);
+      }
+      showToast(`${t.qrScannerSoldSuccess} ${result.invoice.invoiceNumber}`);
+      return result.invoice;
+    },
+    [
+      fetchProducts,
+      searchQuery,
+      fetchPosSales,
+      fetchCustomers,
+      customerSearch,
+      customerCategory,
+      digitalFileData?.product.id,
+      showToast,
+      t.qrScannerSoldSuccess,
+    ]
+  );
+
+  const handleExecuteQrSale = useCallback(
+    async (productId: string) => {
+      const result = await createPosSaleApi({
+        productId,
+        quantity: 1,
+        paymentMethod: 'cash',
+        source: 'qr_scan',
+      });
+      await Promise.all([
+        fetchProducts(searchQuery),
+        fetchPosSales(),
+        fetchCustomers(customerSearch, customerCategory),
+      ]);
+      if (digitalFileData?.product.id === productId) {
+        setDigitalFileData(result.digitalFile);
+      }
+      showToast(`${t.qrScannerSoldSuccess} ${result.invoice.invoiceNumber}`);
+      return {
+        invoice: result.invoice,
+        digitalFile: result.digitalFile,
+      };
+    },
+    [
+      fetchProducts,
+      searchQuery,
+      fetchPosSales,
+      fetchCustomers,
+      customerSearch,
+      customerCategory,
+      digitalFileData?.product.id,
+      showToast,
+      t.qrScannerSoldSuccess,
+    ]
+  );
+
+  const handleCancelPosInvoice = useCallback(
+    async (invoiceId: string) => {
+      await deletePosSaleApi(invoiceId);
+      await Promise.all([
+        fetchProducts(searchQuery),
+        fetchPosSales(),
+        fetchCustomers(customerSearch, customerCategory),
+      ]);
+      if (digitalFileData) {
+        try {
+          const refreshed = await fetchProductDigitalFileApi(digitalFileData.product.id, false);
+          setDigitalFileData(refreshed);
+        } catch {
+          // ignore
+        }
+      }
+      showToast(t.posInvoiceCanceledToast);
+    },
+    [
+      fetchProducts,
+      searchQuery,
+      fetchPosSales,
+      fetchCustomers,
+      customerSearch,
+      customerCategory,
+      digitalFileData,
+      showToast,
+      t.posInvoiceCanceledToast,
+    ]
+  );
 
   const handleSaveSettings = async (nextSettings: ShopSettings) => {
     const updated = await saveSettingsApi(nextSettings);
@@ -425,6 +601,14 @@ export default function App() {
     }
   };
 
+  const inStockCount = products.filter((p) => (Number(p.quantity) || 0) > 0).length;
+  const soldCount = products.filter((p) => (Number(p.quantity) || 0) <= 0).length;
+  const displayedProducts = products.filter((p) => {
+    if (inventoryFilter === 'in_stock') return (Number(p.quantity) || 0) > 0;
+    if (inventoryFilter === 'sold') return (Number(p.quantity) || 0) <= 0;
+    return true;
+  });
+
   return (
     <div className="min-h-screen bg-[#F7FAF8] text-[#0B1F16] dark:bg-[#08130E] dark:text-[#F2F9F5]">
       <Header
@@ -438,44 +622,57 @@ export default function App() {
         onOpenLogoSettings={() => setLogoModalOpen(true)}
         onOpenGuide={() => setGuideOpen(true)}
         onOpenCalculator={() => setCalculatorOpen(true)}
+        onOpenQrScanner={() => setQrScannerOpen(true)}
       />
 
       <main
         dir={lang === 'ar' ? 'rtl' : 'ltr'}
         className="mx-auto max-w-7xl px-4 pb-28 pt-5 sm:px-6 sm:pb-12"
       >
-        {/* Top Module Switcher: Inventory vs Customers & Purchases */}
+        {/* Top Module Switcher: Inventory | Customers & Purchases | POS & Invoices */}
         <nav
           aria-label="Sections"
-          className="mb-5 grid grid-cols-2 gap-2 rounded-2xl border border-[#DCE7E0] bg-white p-1.5 sm:inline-grid sm:w-auto dark:border-[#1E3A2D] dark:bg-[#0F2119]"
+          className="mb-5 grid grid-cols-3 gap-1.5 rounded-2xl border border-[#DCE7E0] bg-white p-1.5 sm:inline-grid sm:w-auto sm:gap-2 dark:border-[#1E3A2D] dark:bg-[#0F2119]"
         >
           <button
             type="button"
             onClick={() => setActiveTab('inventory')}
-            className={`flex min-h-[44px] items-center justify-center gap-2 rounded-xl px-4 text-xs font-bold transition-colors whitespace-nowrap sm:text-sm ${
+            className={`flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl px-2.5 text-xs font-bold transition-colors whitespace-nowrap sm:gap-2 sm:px-4 sm:text-sm ${
               activeTab === 'inventory'
                 ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
                 : 'text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]'
             }`}
           >
             <Package className="h-4 w-4 shrink-0" />
-            <span>{t.tabInventory}</span>
+            <span className="truncate">{t.tabInventory}</span>
             <span className="tabular-nums opacity-80">({formatNumber(summary.totalReferences, lang)})</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('customers')}
-            className={`flex min-h-[44px] items-center justify-center gap-2 rounded-xl px-4 text-xs font-bold transition-colors whitespace-nowrap sm:text-sm ${
+            className={`flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl px-2.5 text-xs font-bold transition-colors whitespace-nowrap sm:gap-2 sm:px-4 sm:text-sm ${
               activeTab === 'customers'
                 ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
                 : 'text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]'
             }`}
           >
             <Users className="h-4 w-4 shrink-0" />
-            <span>{t.tabCustomers}</span>
+            <span className="truncate">{t.tabCustomers}</span>
             <span className="tabular-nums opacity-80">
               ({formatNumber(customerSummary.totalCustomers, lang)})
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setPosModalOpen(true)}
+            className="flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl px-2.5 text-xs font-bold text-[#335947] transition-colors hover:bg-[#ECF7F1] whitespace-nowrap sm:gap-2 sm:px-4 sm:text-sm dark:text-[#9EC0AE] dark:hover:bg-[#162E23]"
+          >
+            <Receipt className="h-4 w-4 shrink-0 text-[#115E3B] dark:text-[#34D399]" />
+            <span className="truncate">{t.posTabLabel}</span>
+            <span className="tabular-nums opacity-80">
+              ({formatNumber(posSummary.totalInvoices, lang)})
             </span>
           </button>
         </nav>
@@ -539,7 +736,7 @@ export default function App() {
         </section>
 
         {/* Search & Action Toolbar */}
-        <section className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+        <section className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center">
           <div className="relative flex-1">
             <Search
               className={`pointer-events-none absolute top-1/2 h-4 w-4 -translate-y-1/2 text-[#335947] dark:text-[#9EC0AE] ${
@@ -595,6 +792,48 @@ export default function App() {
           </div>
         </section>
 
+        {/* Inventory Stock Status Filter (En stock / Vendus / Tous) */}
+        <section className="mb-5 flex flex-wrap items-center justify-between gap-2">
+          <div className="inline-flex rounded-xl border border-[#DCE7E0] bg-white p-1 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
+            <button
+              type="button"
+              onClick={() => setInventoryFilter('in_stock')}
+              className={`min-h-[38px] rounded-lg px-3 text-xs font-semibold transition-colors whitespace-nowrap ${
+                inventoryFilter === 'in_stock'
+                  ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
+                  : 'text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]'
+              }`}
+            >
+              {t.inventoryFilterInStock}{' '}
+              <span className="tabular-nums opacity-80">({formatNumber(inStockCount, lang)})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setInventoryFilter('sold')}
+              className={`min-h-[38px] rounded-lg px-3 text-xs font-semibold transition-colors whitespace-nowrap ${
+                inventoryFilter === 'sold'
+                  ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
+                  : 'text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]'
+              }`}
+            >
+              {t.inventoryFilterSold}{' '}
+              <span className="tabular-nums opacity-80">({formatNumber(soldCount, lang)})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setInventoryFilter('all')}
+              className={`min-h-[38px] rounded-lg px-3 text-xs font-semibold transition-colors whitespace-nowrap ${
+                inventoryFilter === 'all'
+                  ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
+                  : 'text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]'
+              }`}
+            >
+              {t.inventoryFilterAll}{' '}
+              <span className="tabular-nums opacity-80">({formatNumber(products.length, lang)})</span>
+            </button>
+          </div>
+        </section>
+
         {/* States */}
         {error && (
           <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
@@ -611,7 +850,7 @@ export default function App() {
               />
             ))}
           </div>
-        ) : products.length === 0 ? (
+        ) : displayedProducts.length === 0 ? (
           <div className="rounded-3xl border border-[#DCE7E0] bg-white px-6 py-14 text-center dark:border-[#1E3A2D] dark:bg-[#0F2119]">
             <h2 className="font-display text-xl font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
               {t.emptyTitle}
@@ -620,10 +859,13 @@ export default function App() {
               {t.emptyDescription}
             </p>
             <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-              {searchQuery && (
+              {(searchQuery || inventoryFilter !== 'all') && (
                 <button
                   type="button"
-                  onClick={() => setSearchQuery('')}
+                  onClick={() => {
+                    setSearchQuery('');
+                    setInventoryFilter('all');
+                  }}
                   className="min-h-[44px] rounded-xl border border-[#DCE7E0] px-4 text-sm font-semibold text-[#115E3B] hover:bg-[#ECF7F1] dark:border-[#1E3A2D] dark:text-[#34D399]"
                 >
                   {t.resetFilter}
@@ -645,7 +887,7 @@ export default function App() {
         ) : (
           /* Product Grid: Detailed Product Cards */
           <section className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {products.map((product) => {
+            {displayedProducts.map((product) => {
               const primaryPhoto = product.photos[0]?.imageData;
               const videoCount = product.photos.filter((p) => isVideoMedia(p.imageData)).length;
               const isDeletingThis = pendingDeleteId === product.id;
@@ -749,9 +991,23 @@ export default function App() {
                         {formatNumber(product.piecesCount, lang)} {t.piecesUnit}
                       </span>
                       <span aria-hidden="true">·</span>
-                      <span>
-                        {t.quantityLabel.replace(/^5\.\s*/, '')} : {formatNumber(product.quantity, lang)}
+                      <span
+                        className={
+                          product.quantity <= 0
+                            ? 'font-semibold text-red-600 dark:text-red-400'
+                            : undefined
+                        }
+                      >
+                        {product.quantity <= 0
+                          ? t.digitalStatusSold
+                          : `${t.quantityLabel.replace(/^5\.\s*/, '')} : ${formatNumber(product.quantity, lang)}`}
                       </span>
+                      {product.supplier && (
+                        <>
+                          <span aria-hidden="true">·</span>
+                          <span className="truncate">{product.supplier}</span>
+                        </>
+                      )}
                     </div>
 
                     {/* Price row */}
@@ -794,14 +1050,24 @@ export default function App() {
                         </button>
                       </div>
                     ) : (
-                      <div className="mt-3 grid grid-cols-4 gap-1.5">
+                      <div className="mt-3 grid grid-cols-5 gap-1.5">
                         <button
                           type="button"
                           onClick={() => setDetailProduct(product)}
-                          className="col-span-1 flex min-h-[44px] items-center justify-center rounded-xl bg-[#ECF7F1] px-2 text-xs font-semibold text-[#115E3B] hover:bg-[#DCF0E4] dark:bg-[#132B20] dark:text-[#34D399]"
+                          className="col-span-1 flex min-h-[44px] items-center justify-center rounded-xl bg-[#ECF7F1] px-1.5 text-xs font-semibold text-[#115E3B] hover:bg-[#DCF0E4] dark:bg-[#132B20] dark:text-[#34D399]"
                           title={t.viewDetails}
                         >
                           <span className="truncate">{t.viewDetails.split(' ')[0]}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setQrCodeProduct(product)}
+                          aria-label={t.qrLabelButton}
+                          title={t.qrLabelButton}
+                          className="flex min-h-[44px] items-center justify-center rounded-xl border border-[#DCE7E0] text-[#115E3B] hover:bg-[#ECF7F1] dark:border-[#1E3A2D] dark:text-[#34D399] dark:hover:bg-[#162E23]"
+                        >
+                          <QrCode className="h-4 w-4" />
                         </button>
 
                         <button
@@ -878,15 +1144,25 @@ export default function App() {
             </button>
           </div>
         ) : (
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => void handleExportExcel()}
               disabled={exporting}
-              className="flex min-h-[46px] items-center justify-center gap-2 rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-4 text-xs font-semibold text-[#115E3B] disabled:opacity-60 whitespace-nowrap shrink-0 dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#34D399]"
+              className="flex min-h-[46px] items-center justify-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-3 text-xs font-semibold text-[#115E3B] disabled:opacity-60 whitespace-nowrap shrink-0 dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#34D399]"
             >
               <FileSpreadsheet className="h-4 w-4" />
-              <span>{t.exportExcel}</span>
+              <span>Excel</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setQrScannerOpen(true)}
+              aria-label={t.qrScanButtonLabel}
+              className="flex min-h-[46px] items-center justify-center gap-1.5 rounded-xl border border-[#115E3B]/35 bg-[#ECF7F1] px-3 text-xs font-bold text-[#115E3B] whitespace-nowrap shrink-0 dark:border-[#10B981]/40 dark:bg-[#132B20] dark:text-[#34D399]"
+            >
+              <QrCode className="h-4 w-4" />
+              <span>QR</span>
             </button>
 
             <button
@@ -895,7 +1171,7 @@ export default function App() {
                 setEditingProduct(null);
                 setFormOpen(true);
               }}
-              className="flex min-h-[46px] flex-1 items-center justify-center gap-2 rounded-xl bg-[#115E3B] px-4 text-sm font-semibold text-white whitespace-nowrap dark:bg-[#10B981] dark:text-[#052E1C]"
+              className="flex min-h-[46px] flex-1 items-center justify-center gap-2 rounded-xl bg-[#115E3B] px-3.5 text-sm font-semibold text-white whitespace-nowrap dark:bg-[#10B981] dark:text-[#052E1C]"
             >
               <Plus className="h-4 w-4" />
               <span>{t.addProduct}</span>
@@ -928,6 +1204,8 @@ export default function App() {
         }}
         onDelete={handleDeleteProduct}
         onShare={(prod) => setShareProduct(prod)}
+        onOpenQrLabel={(prod) => setQrCodeProduct(prod)}
+        onOpenDigitalFile={(prod) => void openDigitalFileForProduct(prod.id, 'management')}
       />
 
       <ShareModal
@@ -957,6 +1235,7 @@ export default function App() {
         currency={settings.currency}
         facebookHandle={settings.facebookHandle}
         instagramHandle={settings.instagramHandle}
+        whatsappPhone={settings.whatsappPhone}
         metaStatus={metaStatus}
         onRefreshMetaStatus={refreshMetaStatus}
         onNotify={showToast}
@@ -972,7 +1251,12 @@ export default function App() {
         settings={settings}
         metaStatus={metaStatus}
         onRefreshMetaStatus={refreshMetaStatus}
-        onSaveSettings={handleSaveSettings}
+        onSaveSettings={(next) =>
+          handleSaveSettings({
+            whatsappPhone: settings.whatsappPhone,
+            ...next,
+          })
+        }
         onNotify={showToast}
         onOpenGuide={() => setGuideOpen(true)}
         onClose={() => setSetupOpen(false)}
@@ -991,6 +1275,8 @@ export default function App() {
             setLogoModalOpen(true);
           } else if (action === 'open-calculator') {
             setCalculatorOpen(true);
+          } else if (action === 'open-qr-scanner') {
+            setQrScannerOpen(true);
           }
         }}
       />
@@ -1034,6 +1320,67 @@ export default function App() {
         lang={lang}
         currency={settings.currency}
         onClose={() => setCalculatorOpen(false)}
+      />
+
+      <QrScannerModal
+        isOpen={qrScannerOpen}
+        lang={lang}
+        currency={settings.currency}
+        storeName={settings.storeName}
+        onClose={() => setQrScannerOpen(false)}
+        onLookupQr={lookupProductByQrApi}
+        onExecuteQrSale={handleExecuteQrSale}
+        onOpenDigitalFile={(file, view) => {
+          setDigitalFileView(view);
+          setDigitalFileData(file);
+        }}
+      />
+
+      <QrCodeDisplayModal
+        product={qrCodeProduct}
+        lang={lang}
+        currency={settings.currency}
+        storeName={settings.storeName}
+        onClose={() => setQrCodeProduct(null)}
+        onOpenDigitalFile={(prod) => void openDigitalFileForProduct(prod.id, 'management')}
+        onNotify={showToast}
+      />
+
+      <ProductDigitalFileModal
+        digitalFile={digitalFileData}
+        initialView={digitalFileView}
+        lang={lang}
+        currency={settings.currency}
+        storeName={settings.storeName}
+        whatsappPhone={settings.whatsappPhone}
+        customers={customers}
+        onClose={() => setDigitalFileData(null)}
+        onEditProduct={(prod) => {
+          setDigitalFileData(null);
+          setEditingProduct(prod);
+          setFormOpen(true);
+        }}
+        onRecordSale={handleRecordPosSale}
+        onCancelInvoice={handleCancelPosInvoice}
+        onNotify={showToast}
+      />
+
+      <PosSalesModal
+        isOpen={posModalOpen}
+        lang={lang}
+        currency={settings.currency}
+        storeName={settings.storeName}
+        products={products}
+        customers={customers}
+        invoices={posInvoices}
+        summary={posSummary}
+        onClose={() => setPosModalOpen(false)}
+        onCreateSale={handleRecordPosSale}
+        onCancelInvoice={handleCancelPosInvoice}
+        onOpenProductDigitalFile={(productId) => {
+          setPosModalOpen(false);
+          void openDigitalFileForProduct(productId, 'management');
+        }}
       />
 
       {/* Global Confirmation Toast */}

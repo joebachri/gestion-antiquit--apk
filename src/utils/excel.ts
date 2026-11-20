@@ -12,7 +12,9 @@ export function buildExcelBlob(
     lang === 'ar'
       ? [
           'الرمز',
+          'رمز QR',
           'اسم المنتج',
+          'المورد',
           'الوصف',
           'الطول (سم)',
           'العرض (سم)',
@@ -29,7 +31,9 @@ export function buildExcelBlob(
         ]
       : [
           'Code',
+          'Code QR',
           'Nom',
+          'Fournisseur',
           'Description',
           'Longueur (cm)',
           'Largeur (cm)',
@@ -52,7 +56,9 @@ export function buildExcelBlob(
     totalPhotos += item.photos.length;
     rows.push([
       item.code,
+      item.qrToken || `GA-QR-${item.code}`,
       item.name,
+      item.supplier || '',
       item.description || '',
       item.lengthCm,
       item.widthCm,
@@ -71,7 +77,9 @@ export function buildExcelBlob(
 
   rows.push([
     lang === 'ar' ? 'المجموع' : 'TOTAL',
+    '',
     lang === 'ar' ? `${summary.totalReferences} أصناف` : `${summary.totalReferences} références`,
+    '',
     '',
     '',
     '',
@@ -95,7 +103,9 @@ export function buildExcelBlob(
   const worksheet = XLSX.utils.aoa_to_sheet(rows);
   worksheet['!cols'] = [
     { wch: 12 },
+    { wch: 16 },
     { wch: 32 },
+    { wch: 24 },
     { wch: 44 },
     { wch: 14 },
     { wch: 14 },

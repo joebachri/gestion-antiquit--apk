@@ -1,4 +1,13 @@
-import { BookOpen, Calculator, Camera, CheckCircle2, Moon, Store, Sun } from 'lucide-react';
+import {
+  BookOpen,
+  Calculator,
+  Camera,
+  CheckCircle2,
+  Moon,
+  QrCode,
+  Store,
+  Sun,
+} from 'lucide-react';
 import type { Language } from '../types';
 import { translations } from '../i18n';
 import { AppAntiqueLogo } from './AppLogo';
@@ -14,6 +23,7 @@ interface HeaderProps {
   onOpenLogoSettings: () => void;
   onOpenGuide: () => void;
   onOpenCalculator: () => void;
+  onOpenQrScanner: () => void;
 }
 
 export function Header({
@@ -27,6 +37,7 @@ export function Header({
   onOpenLogoSettings,
   onOpenGuide,
   onOpenCalculator,
+  onOpenQrScanner,
 }: HeaderProps) {
   const t = translations[lang];
   const cleanStoreName = (storeName || '').trim();
@@ -143,6 +154,17 @@ export function Header({
           </div>
 
           <div className="flex items-center gap-1.5 sm:gap-2">
+            <button
+              type="button"
+              onClick={onOpenQrScanner}
+              aria-label={t.qrScanButtonLabel}
+              title={t.qrScanButtonLabel}
+              className="flex min-h-[40px] min-w-[40px] items-center justify-center gap-1.5 rounded-xl bg-[#115E3B] px-2.5 text-xs font-semibold text-white transition-colors hover:bg-[#0D4A2E] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#115E3B] whitespace-nowrap shrink-0 sm:px-3 dark:bg-[#10B981] dark:text-[#052E1C] dark:hover:bg-[#059669]"
+            >
+              <QrCode className="h-4 w-4 shrink-0" />
+              <span className="hidden sm:inline">{t.qrScanButtonLabel}</span>
+            </button>
+
             <button
               type="button"
               onClick={onOpenCalculator}

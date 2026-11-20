@@ -15,6 +15,7 @@ interface LogoModalProps {
   currency: string;
   facebookHandle?: string;
   instagramHandle?: string;
+  whatsappPhone?: string;
   metaStatus: MetaAuthStatus;
   onRefreshMetaStatus: () => Promise<void>;
   onNotify?: (message: string) => void;
@@ -33,6 +34,7 @@ export function LogoModal({
   currency,
   facebookHandle = '',
   instagramHandle = '',
+  whatsappPhone = '',
   metaStatus,
   onRefreshMetaStatus,
   onNotify,
@@ -47,6 +49,7 @@ export function LogoModal({
   const [draftCurrency, setDraftCurrency] = useState(currency);
   const [draftFacebookHandle, setDraftFacebookHandle] = useState(facebookHandle);
   const [draftInstagramHandle, setDraftInstagramHandle] = useState(instagramHandle);
+  const [draftWhatsappPhone, setDraftWhatsappPhone] = useState(whatsappPhone);
   const [saving, setSaving] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
 
@@ -57,8 +60,9 @@ export function LogoModal({
       setDraftCurrency(currency);
       setDraftFacebookHandle(facebookHandle);
       setDraftInstagramHandle(instagramHandle);
+      setDraftWhatsappPhone(whatsappPhone);
     }
-  }, [isOpen, customLogo, storeName, currency, facebookHandle, instagramHandle]);
+  }, [isOpen, customLogo, storeName, currency, facebookHandle, instagramHandle, whatsappPhone]);
 
   if (!isOpen) return null;
 
@@ -89,6 +93,7 @@ export function LogoModal({
         currency: draftCurrency,
         facebookHandle: cleanFb,
         instagramHandle: normalizedIg,
+        whatsappPhone: draftWhatsappPhone.trim(),
       });
 
       if (handlesChanged && (normalizedIg || cleanFb)) {
@@ -247,6 +252,24 @@ export function LogoModal({
             )}
           </div>
 
+          {/* Optional Shop WhatsApp Phone (for QR Client View) */}
+          <div className="mb-5">
+            <label className="mb-1.5 block text-xs font-semibold text-[#335947] dark:text-[#9EC0AE]">
+              {t.whatsappShopLabel}
+            </label>
+            <input
+              type="tel"
+              value={draftWhatsappPhone}
+              onChange={(e) => setDraftWhatsappPhone(e.target.value)}
+              placeholder={t.whatsappShopPlaceholder}
+              maxLength={40}
+              className="min-h-[44px] w-full rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-3.5 text-sm text-[#0B1F16] placeholder:text-[#6B8A79] focus:border-[#115E3B] focus:bg-white focus:outline-none dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#F2F9F5] dark:placeholder:text-[#5F8370] dark:focus:border-[#10B981] dark:focus:bg-[#0D1E16]"
+            />
+            <p className="mt-1 text-[11px] text-[#335947] dark:text-[#9EC0AE]">
+              {t.whatsappShopHint}
+            </p>
+          </div>
+
           {/* Facebook & Instagram Linking */}
           <div className="mb-6">
             <MetaAccountCard
@@ -268,6 +291,7 @@ export function LogoModal({
                   currency: draftCurrency,
                   facebookHandle: next.facebookHandle,
                   instagramHandle: next.instagramHandle,
+                  whatsappPhone: draftWhatsappPhone.trim(),
                 });
               }}
               onNotify={onNotify}

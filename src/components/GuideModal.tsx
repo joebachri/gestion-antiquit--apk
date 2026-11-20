@@ -12,6 +12,7 @@ import {
   Link2,
   MessageCircle,
   PlusSquare,
+  QrCode,
   Share2,
   Users,
   X,
@@ -20,7 +21,11 @@ import type { Language } from '../types';
 import { translations } from '../i18n';
 import { GuideIllustration, type GuideSectionId } from './GuideIllustrations';
 
-export type GuideQuickAction = 'add-product' | 'open-settings' | 'open-calculator';
+export type GuideQuickAction =
+  | 'add-product'
+  | 'open-settings'
+  | 'open-calculator'
+  | 'open-qr-scanner';
 
 interface GuideModalProps {
   isOpen: boolean;
@@ -292,6 +297,32 @@ function getGuideSections(lang: Language): GuideSection[] {
             title: 'شاهد بالحجم الكامل أو حمّل على جهازك',
             description:
               'اعرض الصور وشغّل الفيديوهات بملء الشاشة، أو اضغط زر التنزيل لحفظ أي ملف على جهازك.',
+          },
+        ],
+      },
+      {
+        id: 'qr-pos',
+        navLabel: 'رمز QR ونظام البيع',
+        title: 'رمز QR، الملف الرقمي (عميل / إدارة) والفواتير POS',
+        summary:
+          'لكل منتج رمز QR فريد مرتبط بملفه الرقمي بواجهتين (عميل وإدارة) مع ماسح بخيارين وتحديث تلقائي للمخزون.',
+        icon: QrCode,
+        quickAction: 'open-qr-scanner',
+        steps: [
+          {
+            title: 'اختر خيار المسح (عرض أو بيع)',
+            description:
+              'اضغط «مسح QR» في الأعلى واختر: 1. عرض المعلومات فقط، أو 2. تم بيع المنتج لخصمه من المخزون وإصدار فاتورة فوراً.',
+          },
+          {
+            title: 'واجهة العميل وواجهة الإدارة',
+            description:
+              'تعرض واجهة العميل الرمز، الصور/الفيديو، السعر، الحالة وزر واتساب؛ بينما تضم واجهة الإدارة سعر الشراء والمورد والمخزون والمبيعات والفواتير والسجل.',
+          },
+          {
+            title: 'الفواتير والمخزون التلقائي (POS)',
+            description:
+              'عند المسح للبيع يُنقل المنتج تلقائياً إلى «تم بيعه» مع فاتورة PNG جاهزة للتنزيل وإمكانية الإلغاء وإرجاع الكمية.',
           },
         ],
       },
@@ -572,6 +603,32 @@ function getGuideSections(lang: Language): GuideSection[] {
           title: 'Lire, agrandir ou enregistrer',
           description:
             'Affichez les photos ou lisez les vidéos en plein écran, et téléchargez-les sur votre appareil à tout moment.',
+        },
+      ],
+    },
+    {
+      id: 'qr-pos',
+      navLabel: 'QR Code & Caisse POS',
+      title: 'QR Code unique, Double Fiche Numérique & Caisse POS',
+      summary:
+        'Chaque pièce possède un QR code unique lié à sa fiche (Interface Client + Interface Gestion), un scanner à 2 modes et un POS avec mise à jour automatique du stock.',
+      icon: QrCode,
+      quickAction: 'open-qr-scanner',
+      steps: [
+        {
+          title: 'Choisir le mode de scan (1 ou 2)',
+          description:
+            'Touchez « Scanner QR » et choisissez : 1. Consulter la fiche (sans modifier le stock) ou 2. Produit vendu (POS + retrait immédiat du stock).',
+        },
+        {
+          title: 'Interface Client & Interface Gestion',
+          description:
+            'L’Interface Client affiche code série, médias, prix, statut et bouton WhatsApp ; l’Interface Gestion affiche prix d’achat, fournisseur, stock, ventes, factures et historique.',
+        },
+        {
+          title: 'Factures POS & Stock automatique',
+          description:
+            'Chaque vente génère une facture FAC-XXXX téléchargeable en PNG, retire l’article du stock actif et enregistre l’historique.',
         },
       ],
     },
