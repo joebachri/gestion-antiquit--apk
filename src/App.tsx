@@ -69,7 +69,7 @@ import {
 } from './utils/api';
 import { saveOrShareBlob } from './utils/download';
 import { isVideoMedia } from './utils/image';
-import { extractQrParamFromLocation } from './utils/qr';
+import { extractQrParamFromLocation, extractSnapshotExtrasFromQrInput } from './utils/qr';
 import { Header } from './components/Header';
 import { ProductFormModal } from './components/ProductFormModal';
 import { ProductDetailSheet } from './components/ProductDetailSheet';
@@ -136,11 +136,16 @@ export default function App() {
   const [qrCodeProduct, setQrCodeProduct] = useState<Product | null>(null);
   const [qrScannerOpen, setQrScannerOpen] = useState(false);
   const [qrScannerInitialMode, setQrScannerInitialMode] = useState<QrScanMode>('view');
+  const [qrScannerClientOnly, setQrScannerClientOnly] = useState(false);
   const [qrScannerLockedCustomer, setQrScannerLockedCustomer] = useState<Customer | null>(null);
   const [importExcelOpen, setImportExcelOpen] = useState(false);
   const [digitalFileData, setDigitalFileData] = useState<ProductDigitalFile | null>(null);
   const [digitalFileView, setDigitalFileView] = useState<'client' | 'management'>('client');
   const [digitalFileLockedClient, setDigitalFileLockedClient] = useState(false);
+  const [qrSnapshotExtras, setQrSnapshotExtras] = useState<{
+    storeName?: string;
+    whatsappPhone?: string;
+  }>({});
   const [showStockPurchasesReport, setShowStockPurchasesReport] = useState(false);
   const [exportingStockPurchases, setExportingStockPurchases] = useState(false);
   const [posModalOpen, setPosModalOpen] = useState(false);
@@ -289,6 +294,10 @@ export default function App() {
 
     qrHandledOnMountRef.current = true;
     const fullHref = window.location.href;
+    const snapExtras = extractSnapshotExtrasFromQrInput(fullHref);
+    if (snapExtras.storeName || snapExtras.whatsappPhone) {
+      setQrSnapshotExtras(snapExtras);
+    }
     void lookupProductByQrApi(fullHref, true)
       .then((file) => {
         setDigitalFileLockedClient(true);
@@ -738,7 +747,12 @@ export default function App() {
         onOpenLogoSettings={() => setLogoModalOpen(true)}
         onOpenGuide={() => setGuideOpen(true)}
         onOpenCalculator={() => setCalculatorOpen(true)}
-        onOpenQrScanner={() => setQrScannerOpen(true)}
+        onOpenQrScanner={() => {
+          setQrScannerLockedCustomer(null);
+          setQrScannerInitialMode('view');
+          setQrScannerClientOnly(false);
+          setQrScannerOpen(true);
+        }}
       />
 
       <main
@@ -1410,6 +1424,7 @@ export default function App() {
               onClick={() => {
                 setQrScannerLockedCustomer(null);
                 setQrScannerInitialMode('view');
+                setQrScannerClientOnly(false);
                 setQrScannerOpen(true);
               }}
               aria-label={t.qrScanButtonLabel}
@@ -1534,6 +1549,9 @@ export default function App() {
           } else if (action === 'open-calculator') {
             setCalculatorOpen(true);
           } else if (action === 'open-qr-scanner') {
+            setQrScannerLockedCustomer(null);
+            setQrScannerInitialMode('view');
+            setQrScannerClientOnly(false);
             setQrScannerOpen(true);
           }
         }}
@@ -1574,6 +1592,7 @@ export default function App() {
         onOpenQrSellForCustomer={(cust) => {
           setQrScannerLockedCustomer(cust);
           setQrScannerInitialMode('sell');
+          setQrScannerClientOnly(false);
           setQrScannerOpen(true);
         }}
       />
@@ -1589,20 +1608,24 @@ export default function App() {
         isOpen={qrScannerOpen}
         lang={lang}
         currency={settings.currency}
-        storeName={settings.storeName}
+        storeName={settings.storeName || qrSnapshotExtras.storeName || ''}
         initialMode={qrScannerInitialMode}
+        clientOnly={qrScannerClientOnly}
         customers={customers}
         lockedCustomer={qrScannerLockedCustomer}
         onClose={() => {
           setQrScannerOpen(false);
           setQrScannerLockedCustomer(null);
           setQrScannerInitialMode('view');
+          setQrScannerClientOnly(false);
         }}
         onLookupQr={lookupProductByQrApi}
         onExecuteQrSale={handleExecuteQrSale}
         onOpenDigitalFile={(file, view) => {
-          setDigitalFileLockedClient(false);
-          setDigitalFileView(view);
+          const keepClientLock = qrScannerClientOnly;
+          setQrScannerClientOnly(false);
+          setDigitalFileLockedClient(keepClientLock);
+          setDigitalFileView(keepClientLock ? 'client' : view);
           setDigitalFileData(file);
         }}
       />
@@ -1620,6 +1643,7 @@ export default function App() {
         lang={lang}
         currency={settings.currency}
         storeName={settings.storeName}
+        whatsappPhone={settings.whatsappPhone}
         printerMode={settings.printerMode}
         printerPaper={settings.printerPaper}
         printerName={settings.printerName}
@@ -1641,8 +1665,8 @@ export default function App() {
         lockedToClient={digitalFileLockedClient}
         lang={lang}
         currency={settings.currency}
-        storeName={settings.storeName}
-        whatsappPhone={settings.whatsappPhone}
+        storeName={settings.storeName || qrSnapshotExtras.storeName || ''}
+        whatsappPhone={settings.whatsappPhone || qrSnapshotExtras.whatsappPhone || ''}
         customers={customers}
         onClose={() => {
           setDigitalFileData(null);
@@ -1656,6 +1680,13 @@ export default function App() {
         }}
         onRecordSale={handleRecordPosSale}
         onCancelInvoice={handleCancelPosInvoice}
+        onOpenClientQrScanner={() => {
+          setDigitalFileData(null);
+          setQrScannerLockedCustomer(null);
+          setQrScannerInitialMode('view');
+          setQrScannerClientOnly(true);
+          setQrScannerOpen(true);
+        }}
         onNotify={showToast}
       />
 

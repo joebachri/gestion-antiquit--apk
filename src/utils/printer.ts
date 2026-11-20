@@ -140,7 +140,8 @@ async function renderMonochromeStickerRaster(
   storeName: string,
   currency: string,
   lang: Language,
-  widthPx: number
+  widthPx: number,
+  whatsappPhone?: string
 ): Promise<{ widthBytes: number; height: number; data: Uint8Array }> {
   const heightPx = Math.round(widthPx * 1.15);
   const canvas = document.createElement('canvas');
@@ -152,7 +153,7 @@ async function renderMonochromeStickerRaster(
   ctx.fillStyle = '#FFFFFF';
   ctx.fillRect(0, 0, widthPx, heightPx);
 
-  const qrPayload = buildProductQrUrl(product);
+  const qrPayload = buildProductQrUrl(product, { storeName, whatsappPhone });
   const qrSize = Math.round(widthPx * 0.66);
   const qrUrl = await generateQrDataUrl(qrPayload, qrSize);
   const qrImg = new Image();
@@ -207,14 +208,22 @@ export async function printQrLabelsBluetooth(
   storeName: string,
   currency: string,
   lang: Language,
-  paperFormat: PrinterPaperFormat
+  paperFormat: PrinterPaperFormat,
+  whatsappPhone?: string
 ): Promise<void> {
   if (!activeBtCharacteristic || !activeBtDevice?.gatt?.connected) {
     throw new Error('BT_NOT_CONNECTED');
   }
 
   const widthPx = paperFormat === 'roll_80' ? 512 : 384;
-  const raster = await renderMonochromeStickerRaster(product, storeName, currency, lang, widthPx);
+  const raster = await renderMonochromeStickerRaster(
+    product,
+    storeName,
+    currency,
+    lang,
+    widthPx,
+    whatsappPhone
+  );
 
   const xL = raster.widthBytes & 0xff;
   const xH = (raster.widthBytes >> 8) & 0xff;
@@ -257,10 +266,11 @@ export async function buildQrLabelsPdfBlob(
   storeName: string,
   currency: string,
   lang: Language,
-  paperFormat: PrinterPaperFormat = 'a4'
+  paperFormat: PrinterPaperFormat = 'a4',
+  whatsappPhone?: string
 ): Promise<Blob> {
   const count = Math.max(1, Math.min(100, Math.floor(qty || 1)));
-  const stickerBlob = await buildQrStickerBlob(product, storeName, currency, lang);
+  const stickerBlob = await buildQrStickerBlob(product, storeName, currency, lang, whatsappPhone);
   const stickerDataUrl = await blobToDataUrl(stickerBlob);
 
   if (paperFormat === 'a4') {
@@ -467,6 +477,7 @@ export async function executeSmartQrPrint(options: {
   qty: number;
   qrDataUrl: string;
   storeName: string;
+  whatsappPhone?: string;
   currency: string;
   lang: Language;
   printerMode?: PrinterMode;
@@ -477,6 +488,7 @@ export async function executeSmartQrPrint(options: {
     qty,
     qrDataUrl,
     storeName,
+    whatsappPhone,
     currency,
     lang,
     printerMode = 'pdf_system',
@@ -485,7 +497,15 @@ export async function executeSmartQrPrint(options: {
   const safeQty = Math.max(1, Math.min(100, Math.floor(qty || 1)));
 
   if (printerMode === 'thermal_bt' && isBluetoothPrinterConnected()) {
-    await printQrLabelsBluetooth(product, safeQty, storeName, currency, lang, printerPaper);
+    await printQrLabelsBluetooth(
+      product,
+      safeQty,
+      storeName,
+      currency,
+      lang,
+      printerPaper,
+      whatsappPhone
+    );
     return 'printed_bt';
   }
 
@@ -508,7 +528,8 @@ export async function executeSmartQrPrint(options: {
       storeName,
       currency,
       lang,
-      printerPaper
+      printerPaper,
+      whatsappPhone
     );
     await saveOrShareBlob(
       pdfBlob,
@@ -526,7 +547,8 @@ export async function executeSmartQrPrint(options: {
     storeName,
     currency,
     lang,
-    printerPaper
+    printerPaper,
+    whatsappPhone
   );
   await saveOrShareBlob(
     pdfBlob,

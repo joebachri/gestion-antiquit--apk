@@ -55,6 +55,7 @@ interface ProductDigitalFileModalProps {
   onEditProduct: (product: Product) => void;
   onRecordSale: (payload: PosSalePayload) => Promise<PosInvoice | null>;
   onCancelInvoice: (invoiceId: string) => Promise<void>;
+  onOpenClientQrScanner?: () => void;
   onNotify?: (msg: string) => void;
 }
 
@@ -71,6 +72,7 @@ export function ProductDigitalFileModal({
   onEditProduct,
   onRecordSale,
   onCancelInvoice,
+  onOpenClientQrScanner,
   onNotify,
 }: ProductDigitalFileModalProps) {
   const t = translations[lang];
@@ -115,7 +117,7 @@ export function ProductDigitalFileModal({
       return;
     }
     let active = true;
-    const url = buildProductQrUrl(digitalFile.product);
+    const url = buildProductQrUrl(digitalFile.product, { storeName, whatsappPhone });
     void generateQrDataUrl(url, 260)
       .then((res) => {
         if (active) setQrDataUrl(res);
@@ -126,7 +128,7 @@ export function ProductDigitalFileModal({
     return () => {
       active = false;
     };
-  }, [digitalFile]);
+  }, [digitalFile, storeName, whatsappPhone]);
 
   if (!digitalFile) return null;
 
@@ -532,7 +534,13 @@ export function ProductDigitalFileModal({
                     <button
                       type="button"
                       onClick={async () => {
-                        const blob = await buildQrStickerBlob(product, storeName, currency, lang);
+                        const blob = await buildQrStickerBlob(
+                          product,
+                          storeName,
+                          currency,
+                          lang,
+                          whatsappPhone
+                        );
                         await saveOrShareBlob(
                           blob,
                           `qr-${product.code.toLowerCase()}.png`,
@@ -548,7 +556,9 @@ export function ProductDigitalFileModal({
                     <button
                       type="button"
                       onClick={async () => {
-                        await navigator.clipboard.writeText(buildProductQrUrl(product));
+                        await navigator.clipboard.writeText(
+                          buildProductQrUrl(product, { storeName, whatsappPhone })
+                        );
                         onNotify?.(t.qrLinkCopied);
                       }}
                       className="flex min-h-[38px] items-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs font-semibold text-[#0B1F16] hover:bg-[#ECF7F1] dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#F2F9F5]"
@@ -943,6 +953,20 @@ export function ProductDigitalFileModal({
             >
               <Edit3 className="h-4 w-4" />
               <span>{t.edit}</span>
+            </button>
+          )}
+
+          {(lockedToClient || activeView === 'client') && onOpenClientQrScanner && (
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onOpenClientQrScanner();
+              }}
+              className="flex min-h-[46px] flex-1 items-center justify-center gap-2 rounded-xl bg-[#115E3B] px-4 text-sm font-semibold text-white hover:bg-[#0D4A2E] dark:bg-[#10B981] dark:text-[#052E1C]"
+            >
+              <QrCode className="h-4 w-4 shrink-0" />
+              <span>{t.digitalScanAnotherQr}</span>
             </button>
           )}
         </div>

@@ -80,6 +80,8 @@ export function PosSalesModal({
   const [paymentMethod, setPaymentMethod] = useState<PurchasePaymentMethod>('cash');
   const [notes, setNotes] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [productSearchInput, setProductSearchInput] = useState('');
+  const [customerSearchInput, setCustomerSearchInput] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [cancelingId, setCancelingId] = useState<string | null>(null);
@@ -168,7 +170,31 @@ export function PosSalesModal({
     setCustomerPhone('');
     setPaymentMethod('cash');
     setNotes('');
+    setProductSearchInput('');
+    setCustomerSearchInput('');
   }, [isOpen, availableProducts, currency]);
+
+  const filteredAvailableProducts = useMemo(() => {
+    const q = productSearchInput.trim().toLowerCase();
+    if (!q) return availableProducts;
+    return availableProducts.filter(
+      (p) =>
+        p.code.toLowerCase().includes(q) ||
+        (p.qrToken || '').toLowerCase().includes(q) ||
+        p.name.toLowerCase().includes(q)
+    );
+  }, [availableProducts, productSearchInput]);
+
+  const filteredCustomers = useMemo(() => {
+    const q = customerSearchInput.trim().toLowerCase();
+    if (!q) return customers;
+    return customers.filter(
+      (c) =>
+        c.code.toLowerCase().includes(q) ||
+        c.name.toLowerCase().includes(q) ||
+        (c.phone || '').toLowerCase().includes(q)
+    );
+  }, [customers, customerSearchInput]);
 
   if (!isOpen) return null;
 
@@ -183,12 +209,66 @@ export function PosSalesModal({
     }
   };
 
+  const handleProductSearchChange = (val: string) => {
+    setProductSearchInput(val);
+    const q = val.trim().toLowerCase();
+    if (!q) {
+      if (!selectedProductId && availableProducts.length > 0) {
+        handleSelectProduct(availableProducts[0].id);
+      }
+      return;
+    }
+    const exact = availableProducts.find(
+      (p) => p.code.toLowerCase() === q || (p.qrToken || '').toLowerCase() === q
+    );
+    if (exact) {
+      handleSelectProduct(exact.id);
+      return;
+    }
+    const matches = availableProducts.filter(
+      (p) =>
+        p.code.toLowerCase().includes(q) ||
+        (p.qrToken || '').toLowerCase().includes(q) ||
+        p.name.toLowerCase().includes(q)
+    );
+    if (matches.length > 0 && !matches.some((p) => p.id === selectedProductId)) {
+      handleSelectProduct(matches[0].id);
+    }
+  };
+
   const handleSelectCustomer = (id: string) => {
     setCustomerId(id);
+    if (!id) {
+      setCustomerName('');
+      setCustomerPhone('');
+      return;
+    }
     const cust = customers.find((c) => c.id === id);
     if (cust) {
       setCustomerName(cust.name);
       setCustomerPhone(cust.phone);
+    }
+  };
+
+  const handleCustomerSearchChange = (val: string) => {
+    setCustomerSearchInput(val);
+    const q = val.trim().toLowerCase();
+    if (!q) return;
+    const exact = customers.find((c) => c.code.toLowerCase() === q);
+    if (exact) {
+      handleSelectCustomer(exact.id);
+      return;
+    }
+    const matches = customers.filter(
+      (c) =>
+        c.code.toLowerCase().includes(q) ||
+        c.name.toLowerCase().includes(q) ||
+        (c.phone || '').toLowerCase().includes(q)
+    );
+    if (matches.length === 1) {
+      handleSelectCustomer(matches[0].id);
+    } else if (matches.length > 0 && customerId && !matches.some((c) => c.id === customerId)) {
+      handleSelectCustomer(matches[0].id);
     }
   };
 
@@ -217,6 +297,8 @@ export function PosSalesModal({
       if (created) {
         setShowNewSale(false);
         setNotes('');
+        setProductSearchInput('');
+        setCustomerSearchInput('');
       }
     } catch (err) {
       if (err instanceof Error && err.message === 'OUT_OF_STOCK') {
@@ -532,17 +614,60 @@ export function PosSalesModal({
                       <label className="mb-1 block text-xs font-semibold text-[#335947] dark:text-[#9EC0AE]">
                         {t.posSelectProduct}
                       </label>
-                      <select
-                        value={selectedProductId}
-                        onChange={(e) => handleSelectProduct(e.target.value)}
-                        className={inputClass}
-                      >
-                        {availableProducts.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.code} — {p.name} ({p.quantity})
-                          </option>
-                        ))}
-                      </select>
+                      <div className="space-y-2">
+                        <div className="relative">
+                          <Search
+                            className={`pointer-events-none absolute top-1/2 h-4 w-4 -translate-y-1/2 text-[#335947] dark:text-[#9EC0AE] ${
+                              lang === 'ar' ? 'right-3.5' : 'left-3.5'
+                            }`}
+                          />
+                          <input
+                            type="text"
+                            value={productSearchInput}
+                            onChange={(e) => handleProductSearchChange(e.target.value)}
+                            placeholder={t.posProductCodeSearchPlaceholder}
+                            className={`${inputClass} ${
+                              lang === 'ar' ? 'pl-9 pr-10' : 'pl-10 pr-9'
+                            }`}
+                          />
+                          {productSearchInput && (
+                            <button
+                              type="button"
+                              onClick={() => handleProductSearchChange('')}
+                              aria-label={t.clearSearch}
+                              className={`absolute top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23] ${
+                                lang === 'ar' ? 'left-2' : 'right-2'
+                              }`}
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+                        <select
+                          value={
+                            filteredAvailableProducts.some((p) => p.id === selectedProductId)
+                              ? selectedProductId
+                              : filteredAvailableProducts[0]?.id || ''
+                          }
+                          onChange={(e) => handleSelectProduct(e.target.value)}
+                          className={inputClass}
+                        >
+                          {filteredAvailableProducts.length === 0 ? (
+                            <option value="">{t.posNoMatchingProduct}</option>
+                          ) : (
+                            filteredAvailableProducts.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.code} — {p.name} ({p.quantity})
+                              </option>
+                            ))
+                          )}
+                        </select>
+                        {productSearchInput.trim() !== '' && filteredAvailableProducts.length === 0 && (
+                          <p className="text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                            {t.posNoMatchingProduct}
+                          </p>
+                        )}
+                      </div>
                     </div>
 
                     <div>
@@ -559,6 +684,59 @@ export function PosSalesModal({
                       />
                     </div>
 
+                    <div className="sm:col-span-2">
+                      <label className="mb-1 block text-xs font-semibold text-[#335947] dark:text-[#9EC0AE]">
+                        {t.posSelectCustomer}
+                      </label>
+                      <div className="space-y-2">
+                        <div className="relative">
+                          <Search
+                            className={`pointer-events-none absolute top-1/2 h-4 w-4 -translate-y-1/2 text-[#335947] dark:text-[#9EC0AE] ${
+                              lang === 'ar' ? 'right-3.5' : 'left-3.5'
+                            }`}
+                          />
+                          <input
+                            type="text"
+                            value={customerSearchInput}
+                            onChange={(e) => handleCustomerSearchChange(e.target.value)}
+                            placeholder={t.posCustomerCodeSearchPlaceholder}
+                            className={`${inputClass} ${
+                              lang === 'ar' ? 'pl-9 pr-10' : 'pl-10 pr-9'
+                            }`}
+                          />
+                          {customerSearchInput && (
+                            <button
+                              type="button"
+                              onClick={() => handleCustomerSearchChange('')}
+                              aria-label={t.clearSearch}
+                              className={`absolute top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23] ${
+                                lang === 'ar' ? 'left-2' : 'right-2'
+                              }`}
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+                        <select
+                          value={customerId}
+                          onChange={(e) => handleSelectCustomer(e.target.value)}
+                          className={inputClass}
+                        >
+                          <option value="">{t.posWalkInCustomer}</option>
+                          {filteredCustomers.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.code} — {c.name}
+                            </option>
+                          ))}
+                        </select>
+                        {customerSearchInput.trim() !== '' && filteredCustomers.length === 0 && (
+                          <p className="text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                            {t.posNoMatchingCustomer}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
                     <div>
                       <label className="mb-1 block text-xs font-semibold text-[#335947] dark:text-[#9EC0AE]">
                         {t.purchaseUnitPriceLabel} ({currency})
@@ -571,24 +749,6 @@ export function PosSalesModal({
                         onChange={(e) => setUnitPriceDisplay(e.target.value)}
                         className={`${inputClass} tabular-nums`}
                       />
-                    </div>
-
-                    <div>
-                      <label className="mb-1 block text-xs font-semibold text-[#335947] dark:text-[#9EC0AE]">
-                        {t.posSelectCustomer}
-                      </label>
-                      <select
-                        value={customerId}
-                        onChange={(e) => handleSelectCustomer(e.target.value)}
-                        className={inputClass}
-                      >
-                        <option value="">{t.posWalkInCustomer}</option>
-                        {customers.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.code} — {c.name}
-                          </option>
-                        ))}
-                      </select>
                     </div>
 
                     <div>
@@ -637,7 +797,7 @@ export function PosSalesModal({
                       </>
                     )}
 
-                    <div className={!customerId ? 'sm:col-span-1' : 'sm:col-span-3'}>
+                    <div className={!customerId ? 'sm:col-span-3' : 'sm:col-span-2'}>
                       <label className="mb-1 block text-xs font-semibold text-[#335947] dark:text-[#9EC0AE]">
                         {t.purchaseNotesLabel}
                       </label>

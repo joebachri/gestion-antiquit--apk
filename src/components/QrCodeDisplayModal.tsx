@@ -23,6 +23,7 @@ interface QrCodeDisplayModalProps {
   lang: Language;
   currency: string;
   storeName?: string;
+  whatsappPhone?: string;
   printerMode?: PrinterMode;
   printerPaper?: PrinterPaperFormat;
   printerName?: string;
@@ -43,6 +44,7 @@ export function QrCodeDisplayModal({
   lang,
   currency,
   storeName = '',
+  whatsappPhone = '',
   printerMode = 'pdf_system',
   printerPaper = 'a4',
   printerName = '',
@@ -68,7 +70,7 @@ export function QrCodeDisplayModal({
     }
     setPrintQty(Math.max(1, Math.min(100, Math.floor(Number(product.quantity) || 1))));
     let active = true;
-    const payload = buildProductQrUrl(product);
+    const payload = buildProductQrUrl(product, { storeName, whatsappPhone });
     void generateQrDataUrl(payload, 360)
       .then((url) => {
         if (active) setQrDataUrl(url);
@@ -79,11 +81,11 @@ export function QrCodeDisplayModal({
     return () => {
       active = false;
     };
-  }, [product]);
+  }, [product, storeName, whatsappPhone]);
 
   if (!product) return null;
 
-  const qrUrl = buildProductQrUrl(product);
+  const qrUrl = buildProductQrUrl(product, { storeName, whatsappPhone });
   const safeQty = Math.max(1, Math.min(100, Math.floor(Number(printQty) || 1)));
 
   const handleCopyLink = async () => {
@@ -101,7 +103,14 @@ export function QrCodeDisplayModal({
     if (downloading) return;
     setDownloading(true);
     try {
-      const blob = await buildQrStickerSheetBlob(product, safeQty, storeName, currency, lang);
+      const blob = await buildQrStickerSheetBlob(
+        product,
+        safeQty,
+        storeName,
+        currency,
+        lang,
+        whatsappPhone
+      );
       const suffix = safeQty > 1 ? `-x${safeQty}` : '';
       await saveOrShareBlob(
         blob,
@@ -122,6 +131,7 @@ export function QrCodeDisplayModal({
         qty: safeQty,
         qrDataUrl,
         storeName,
+        whatsappPhone,
         currency,
         lang,
         printerMode,

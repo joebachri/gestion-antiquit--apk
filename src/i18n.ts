@@ -482,6 +482,16 @@ export const translations = {
     importExcelImporting: 'Importation...',
     importExcelEmptyError: 'Aucun code produit valide détecté dans ce fichier.',
     importExcelSuccessToast: 'Import Excel terminé :',
+    qrScannerEnableCamera: 'Activer la caméra (Safari / iPhone)',
+    qrScannerCameraTapHint:
+      'Appuyez ci-dessous pour démarrer la caméra en direct ou utilisez la photo caméra directe.',
+    qrScannerNativeCameraPhoto: 'Prendre une photo QR (Caméra iPhone / Mobile)',
+    qrScannerClientHint: 'Scannez le code QR d’un article pour consulter sa fiche client.',
+    digitalScanAnotherQr: 'Scanner un autre QR',
+    posProductCodeSearchPlaceholder: 'Entrer le code produit ou nom pour rechercher...',
+    posCustomerCodeSearchPlaceholder: 'Entrer le code client, nom ou téléphone...',
+    posNoMatchingProduct: 'Aucun produit disponible ne correspond à ce code.',
+    posNoMatchingCustomer: 'Aucun client enregistré ne correspond à cette recherche.',
   },
   ar: {
     brandName: 'إدارة التحف',
@@ -954,6 +964,16 @@ export const translations = {
     importExcelImporting: 'جاري الاستيراد...',
     importExcelEmptyError: 'لم يتم العثور على رموز منتجات صالحة داخل الملف.',
     importExcelSuccessToast: 'تم استيراد ملف Excel بنجاح:',
+    qrScannerEnableCamera: 'تشغيل الكاميرا (Safari / iPhone)',
+    qrScannerCameraTapHint:
+      'اضغط أدناه لتشغيل الكاميرا المباشرة أو استخدم زر التقاط صورة QR عبر كاميرا الهاتف.',
+    qrScannerNativeCameraPhoto: 'التقاط صورة QR (كاميرا iPhone / الهاتف)',
+    qrScannerClientHint: 'امسح رمز QR الخاص بالمنتج لعرض بطاقة العميل الرقمية.',
+    digitalScanAnotherQr: 'مسح رمز QR آخر',
+    posProductCodeSearchPlaceholder: 'أدخل رمز المنتج أو الاسم للبحث...',
+    posCustomerCodeSearchPlaceholder: 'أدخل رمز العميل أو الاسم أو الهاتف...',
+    posNoMatchingProduct: 'لا يوجد منتج متوفر يطابق هذا الرمز.',
+    posNoMatchingCustomer: 'لا يوجد عميل مسجل يطابق هذا البحث.',
   },
 } as const;
 

@@ -38,6 +38,7 @@ interface QrScannerModalProps {
   currency: string;
   storeName?: string;
   initialMode?: QrScanMode;
+  clientOnly?: boolean;
   customers?: Customer[];
   lockedCustomer?: Customer | null;
   onClose: () => void;
@@ -55,12 +56,131 @@ interface BarcodeDetectorLike {
 
 const PAYMENT_METHODS: PurchasePaymentMethod[] = ['cash', 'transfer', 'check', 'card', 'other'];
 
+async function getCameraStreamWithFallback(): Promise<MediaStream> {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    throw new Error('NO_MEDIA_DEVICES');
+  }
+  const constraintsList: MediaStreamConstraints[] = [
+    {
+      video: {
+        facingMode: { ideal: 'environment' },
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+      },
+      audio: false,
+    },
+    { video: { facingMode: 'environment' }, audio: false },
+    { video: true, audio: false },
+  ];
+
+  let lastErr: unknown;
+  for (const constraints of constraintsList) {
+    try {
+      return await navigator.mediaDevices.getUserMedia(constraints);
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error('CAMERA_FAILED');
+}
+
+function decodeCanvasPass(canvas: HTMLCanvasElement): string {
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return '';
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+  // Pass 1: standard jsQR
+  const direct = jsQR(imageData.data, imageData.width, imageData.height, {
+    inversionAttempts: 'attemptBoth',
+  });
+  if (direct?.data) return direct.data;
+
+  // Pass 2: high-contrast grayscale stretch (helps iPhone indoor shadows/glare)
+  const buf = new Uint8ClampedArray(imageData.data.length);
+  const src = imageData.data;
+  let minL = 255;
+  let maxL = 0;
+  for (let i = 0; i < src.length; i += 4) {
+    const lum = (src[i] * 77 + src[i + 1] * 150 + src[i + 2] * 29) >> 8;
+    if (lum < minL) minL = lum;
+    if (lum > maxL) maxL = lum;
+  }
+  const span = Math.max(1, maxL - minL);
+  const mid = (minL + maxL) >> 1;
+  for (let i = 0; i < src.length; i += 4) {
+    const lum = (src[i] * 77 + src[i + 1] * 150 + src[i + 2] * 29) >> 8;
+    const norm = ((lum - minL) * 255) / span;
+    const v = norm > (mid - minL) * (255 / span) ? 255 : 0;
+    buf[i] = v;
+    buf[i + 1] = v;
+    buf[i + 2] = v;
+    buf[i + 3] = 255;
+  }
+  const boosted = jsQR(buf, imageData.width, imageData.height, {
+    inversionAttempts: 'attemptBoth',
+  });
+  return boosted?.data || '';
+}
+
+async function decodeQrFromImageElement(img: HTMLImageElement): Promise<string> {
+  const winWithDetector = window as unknown as {
+    BarcodeDetector?: new (opts: { formats: string[] }) => BarcodeDetectorLike;
+  };
+  if (typeof winWithDetector.BarcodeDetector === 'function') {
+    try {
+      const detector = new winWithDetector.BarcodeDetector({ formats: ['qr_code'] });
+      const codes = await detector.detect(img);
+      const hit = codes.find((c) => c.rawValue)?.rawValue || '';
+      if (hit) return hit;
+    } catch {
+      // fallback to jsQR passes below
+    }
+  }
+
+  const natW = img.naturalWidth || img.width;
+  const natH = img.naturalHeight || img.height;
+  if (!natW || !natH) return '';
+
+  // Test full frame at multiple scales + center crops for high-MP iPhone camera shots
+  const crops = [
+    { ratio: 1, label: 'full' },
+    { ratio: 0.65, label: 'center-65' },
+    { ratio: 0.42, label: 'center-42' },
+  ];
+  const targets = [1600, 1000, 640];
+
+  for (const crop of crops) {
+    const sx = Math.round(((1 - crop.ratio) / 2) * natW);
+    const sy = Math.round(((1 - crop.ratio) / 2) * natH);
+    const sw = Math.max(1, Math.round(natW * crop.ratio));
+    const sh = Math.max(1, Math.round(natH * crop.ratio));
+    const maxCropSide = Math.max(sw, sh);
+
+    for (const maxTarget of targets) {
+      const scale = maxCropSide > maxTarget ? maxTarget / maxCropSide : 1;
+      const w = Math.max(1, Math.round(sw * scale));
+      const h = Math.max(1, Math.round(sh * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) continue;
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
+      const hit = decodeCanvasPass(canvas);
+      if (hit) return hit;
+    }
+  }
+
+  return '';
+}
+
 export function QrScannerModal({
   isOpen,
   lang,
   currency,
   storeName = '',
   initialMode = 'view',
+  clientOnly = false,
   customers = [],
   lockedCustomer = null,
   onClose,
@@ -72,16 +192,21 @@ export function QrScannerModal({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const nativeCamInputRef = useRef<HTMLInputElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const scanLoopTimerRef = useRef<number | null>(null);
+  const mountedRef = useRef(true);
   const busyScanRef = useRef(false);
 
-  const [scanMode, setScanMode] = useState<QrScanMode>(initialMode);
-  const [cameraState, setCameraState] = useState<'starting' | 'active' | 'unavailable'>('starting');
+  const [scanMode, setScanMode] = useState<QrScanMode>(clientOnly ? 'view' : initialMode);
+  const [cameraState, setCameraState] = useState<
+    'starting' | 'active' | 'needs_tap' | 'unavailable'
+  >('starting');
   const [manualInput, setManualInput] = useState('');
   const [processing, setProcessing] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
-  // Pending sale details state (Requirement #2: customer details, quantity, payment method)
+  // Pending sale details state
   const [pendingSaleFile, setPendingSaleFile] = useState<ProductDigitalFile | null>(null);
   const [saleQuantity, setSaleQuantity] = useState('1');
   const [saleUnitPrice, setSaleUnitPrice] = useState('');
@@ -98,6 +223,10 @@ export function QrScannerModal({
   } | null>(null);
 
   const stopCamera = useCallback(() => {
+    if (scanLoopTimerRef.current !== null) {
+      clearTimeout(scanLoopTimerRef.current);
+      scanLoopTimerRef.current = null;
+    }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
@@ -129,11 +258,11 @@ export function QrScannerModal({
       setProcessing(true);
       setErrorMsg('');
       try {
-        if (scanMode === 'view') {
+        if (clientOnly || scanMode === 'view') {
           const digitalFile = await onLookupQr(clean, true);
           stopCamera();
           onClose();
-          onOpenDigitalFile(digitalFile, 'management');
+          onOpenDigitalFile(digitalFile, clientOnly ? 'client' : 'management');
         } else {
           const digitalFile = await onLookupQr(clean, false);
           if ((Number(digitalFile.product.quantity) || 0) <= 0) {
@@ -157,6 +286,7 @@ export function QrScannerModal({
       }
     },
     [
+      clientOnly,
       scanMode,
       onLookupQr,
       populateSaleDraft,
@@ -168,51 +298,57 @@ export function QrScannerModal({
     ]
   );
 
-  useEffect(() => {
-    if (!isOpen) {
+  const beginLiveCamera = useCallback(
+    async (fromUserTap = false) => {
       stopCamera();
-      return;
-    }
-    setScanMode(initialMode);
-    setPendingSaleFile(null);
-    setSoldReceipt(null);
-    setErrorMsg('');
-    setManualInput('');
-    setSaleCustomerId(lockedCustomer?.id || '');
-    setSaleCustomerName(lockedCustomer?.name || '');
-    setSaleCustomerPhone(lockedCustomer?.phone || '');
-    busyScanRef.current = false;
-  }, [isOpen, initialMode, lockedCustomer, stopCamera]);
-
-  useEffect(() => {
-    if (!isOpen || soldReceipt || pendingSaleFile) {
-      stopCamera();
-      return;
-    }
-
-    let cancelled = false;
-    let rafTimer: number | null = null;
-
-    const startCamera = async () => {
       setCameraState('starting');
+
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        if (!cancelled) setCameraState('unavailable');
+        if (mountedRef.current) setCameraState('unavailable');
         return;
       }
+
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: 'environment' } },
-          audio: false,
-        });
-        if (cancelled) {
+        const stream = await getCameraStreamWithFallback();
+        if (!mountedRef.current || !isOpen) {
           stream.getTracks().forEach((tr) => tr.stop());
           return;
         }
         streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play();
+
+        const video = videoRef.current;
+        if (video) {
+          // Essential iOS Safari inline playback attributes
+          video.setAttribute('playsinline', 'true');
+          video.setAttribute('webkit-playsinline', 'true');
+          video.setAttribute('muted', 'true');
+          video.muted = true;
+          video.autoplay = true;
+          video.srcObject = stream;
+
+          if (video.readyState < 1) {
+            await new Promise<void>((resolve) => {
+              const onMeta = () => {
+                video.removeEventListener('loadedmetadata', onMeta);
+                resolve();
+              };
+              video.addEventListener('loadedmetadata', onMeta);
+              setTimeout(resolve, 1200);
+            });
+          }
+
+          try {
+            await video.play();
+          } catch {
+            // iOS Safari may block async play() outside direct gesture
+            if (!fromUserTap && mountedRef.current) {
+              setCameraState('needs_tap');
+              return;
+            }
+          }
         }
+
+        if (!mountedRef.current) return;
         setCameraState('active');
 
         const winWithDetector = window as unknown as {
@@ -224,12 +360,12 @@ export function QrScannerModal({
             : null;
 
         const scanFrame = async () => {
-          if (cancelled || !videoRef.current || !streamRef.current) return;
-          const video = videoRef.current;
-          if (video.readyState >= 2 && video.videoWidth > 0 && !busyScanRef.current) {
+          if (!mountedRef.current || !videoRef.current || !streamRef.current) return;
+          const v = videoRef.current;
+          if (v.readyState >= 2 && v.videoWidth > 0 && v.videoHeight > 0 && !busyScanRef.current) {
             try {
               if (detector) {
-                const codes = await detector.detect(video);
+                const codes = await detector.detect(v);
                 const hit = codes.find((c) => c.rawValue)?.rawValue;
                 if (hit) {
                   void handleDecodedCode(hit);
@@ -237,12 +373,12 @@ export function QrScannerModal({
               }
               if (!busyScanRef.current && canvasRef.current) {
                 const canvas = canvasRef.current;
-                const scale = Math.min(1, 960 / Math.max(video.videoWidth, video.videoHeight));
-                canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
-                canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+                const scale = Math.min(1, 960 / Math.max(v.videoWidth, v.videoHeight));
+                canvas.width = Math.max(1, Math.round(v.videoWidth * scale));
+                canvas.height = Math.max(1, Math.round(v.videoHeight * scale));
                 const ctx = canvas.getContext('2d', { willReadFrequently: true });
                 if (ctx) {
-                  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                  ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
                   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                   const decoded = jsQR(imageData.data, imageData.width, imageData.height, {
                     inversionAttempts: 'attemptBoth',
@@ -256,29 +392,63 @@ export function QrScannerModal({
               // ignore transient frame decode errors
             }
           }
-          if (!cancelled) {
-            rafTimer = window.setTimeout(() => {
+          if (mountedRef.current && streamRef.current) {
+            scanLoopTimerRef.current = window.setTimeout(() => {
               void scanFrame();
             }, 220);
           }
         };
 
-        rafTimer = window.setTimeout(() => {
+        scanLoopTimerRef.current = window.setTimeout(() => {
           void scanFrame();
         }, 250);
-      } catch {
-        if (!cancelled) setCameraState('unavailable');
+      } catch (err) {
+        if (!mountedRef.current) return;
+        const name = err instanceof Error ? err.name : '';
+        if (!fromUserTap && (name === 'NotAllowedError' || name === 'AbortError')) {
+          setCameraState('needs_tap');
+        } else {
+          setCameraState('unavailable');
+        }
       }
-    };
+    },
+    [handleDecodedCode, isOpen, stopCamera]
+  );
 
-    void startCamera();
-
+  useEffect(() => {
+    mountedRef.current = true;
     return () => {
-      cancelled = true;
-      if (rafTimer !== null) clearTimeout(rafTimer);
+      mountedRef.current = false;
       stopCamera();
     };
-  }, [isOpen, soldReceipt, pendingSaleFile, handleDecodedCode, stopCamera]);
+  }, [stopCamera]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      stopCamera();
+      return;
+    }
+    setScanMode(clientOnly ? 'view' : initialMode);
+    setPendingSaleFile(null);
+    setSoldReceipt(null);
+    setErrorMsg('');
+    setManualInput('');
+    setSaleCustomerId(lockedCustomer?.id || '');
+    setSaleCustomerName(lockedCustomer?.name || '');
+    setSaleCustomerPhone(lockedCustomer?.phone || '');
+    busyScanRef.current = false;
+  }, [isOpen, initialMode, clientOnly, lockedCustomer, stopCamera]);
+
+  useEffect(() => {
+    if (!isOpen || soldReceipt || pendingSaleFile) {
+      stopCamera();
+      return;
+    }
+    void beginLiveCamera(false);
+    return () => {
+      stopCamera();
+    };
+  }, [isOpen, soldReceipt, pendingSaleFile, beginLiveCamera, stopCamera]);
 
   if (!isOpen) return null;
 
@@ -356,46 +526,7 @@ export function QrScannerModal({
         img.src = dataUrl;
       });
 
-      let decodedText = '';
-      const winWithDetector = window as unknown as {
-        BarcodeDetector?: new (opts: { formats: string[] }) => BarcodeDetectorLike;
-      };
-      if (typeof winWithDetector.BarcodeDetector === 'function') {
-        try {
-          const detector = new winWithDetector.BarcodeDetector({ formats: ['qr_code'] });
-          const codes = await detector.detect(img);
-          decodedText = codes.find((c) => c.rawValue)?.rawValue || '';
-        } catch {
-          // fallback to jsQR passes below
-        }
-      }
-
-      if (!decodedText) {
-        const natW = img.naturalWidth || img.width;
-        const natH = img.naturalHeight || img.height;
-        const maxSide = Math.max(natW, natH);
-        const targetWidths = [1200, 800, 520];
-        for (const maxTarget of targetWidths) {
-          const scale = maxSide > maxTarget ? maxTarget / maxSide : 1;
-          const w = Math.max(1, Math.round(natW * scale));
-          const h = Math.max(1, Math.round(natH * scale));
-          const canvas = document.createElement('canvas');
-          canvas.width = w;
-          canvas.height = h;
-          const ctx = canvas.getContext('2d', { willReadFrequently: true });
-          if (!ctx) continue;
-          ctx.drawImage(img, 0, 0, w, h);
-          const imageData = ctx.getImageData(0, 0, w, h);
-          const decoded = jsQR(imageData.data, imageData.width, imageData.height, {
-            inversionAttempts: 'attemptBoth',
-          });
-          if (decoded?.data) {
-            decodedText = decoded.data;
-            break;
-          }
-        }
-      }
-
+      const decodedText = await decodeQrFromImageElement(img);
       if (!decodedText) {
         setErrorMsg(t.qrScannerNotFound);
         return;
@@ -448,7 +579,7 @@ export function QrScannerModal({
                 {t.qrScanTitle}
               </h2>
               <p className="truncate text-xs text-[#335947] dark:text-[#9EC0AE]">
-                {t.qrScanSubtitle}
+                {clientOnly ? t.qrScannerClientHint : t.qrScanSubtitle}
               </p>
             </div>
           </div>
@@ -465,7 +596,7 @@ export function QrScannerModal({
 
         <div className="flex-1 space-y-4 overflow-y-auto p-5">
           {/* Locked Customer Banner when launched from a customer profile */}
-          {lockedCustomer && (
+          {!clientOnly && lockedCustomer && (
             <div className="flex items-center justify-between gap-2 rounded-2xl border border-[#115E3B]/35 bg-[#ECF7F1]/80 px-3.5 py-2.5 text-xs dark:border-[#10B981]/30 dark:bg-[#132B20]/70">
               <div className="flex min-w-0 items-center gap-2">
                 <UserCheck className="h-4 w-4 shrink-0 text-[#115E3B] dark:text-[#34D399]" />
@@ -482,53 +613,55 @@ export function QrScannerModal({
             </div>
           )}
 
-          {/* Two Scan Options Selector */}
-          <div>
-            <p className="mb-2 text-xs font-bold uppercase tracking-wider text-[#335947] dark:text-[#9EC0AE]">
-              {t.qrModeLabel}
-            </p>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setScanMode('view');
-                  setPendingSaleFile(null);
-                  setSoldReceipt(null);
-                  setErrorMsg('');
-                }}
-                className={`flex flex-col items-start gap-1 rounded-2xl border p-3.5 text-start transition-colors ${
-                  scanMode === 'view'
-                    ? 'border-[#115E3B] bg-[#ECF7F1] text-[#0B1F16] dark:border-[#10B981] dark:bg-[#132B20] dark:text-[#F2F9F5]'
-                    : 'border-[#DCE7E0] bg-[#F7FAF8] text-[#335947] hover:border-[#115E3B]/40 dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#9EC0AE]'
-                }`}
-              >
-                <div className="flex items-center gap-2 text-xs font-bold sm:text-sm">
-                  <Eye className="h-4 w-4 text-[#115E3B] dark:text-[#34D399]" />
-                  <span>{t.qrModeViewTitle}</span>
-                </div>
-                <span className="text-[11px] leading-snug opacity-85">{t.qrModeViewDesc}</span>
-              </button>
+          {/* Two Scan Options Selector (hidden when clientOnly) */}
+          {!clientOnly && (
+            <div>
+              <p className="mb-2 text-xs font-bold uppercase tracking-wider text-[#335947] dark:text-[#9EC0AE]">
+                {t.qrModeLabel}
+              </p>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setScanMode('view');
+                    setPendingSaleFile(null);
+                    setSoldReceipt(null);
+                    setErrorMsg('');
+                  }}
+                  className={`flex flex-col items-start gap-1 rounded-2xl border p-3.5 text-start transition-colors ${
+                    scanMode === 'view'
+                      ? 'border-[#115E3B] bg-[#ECF7F1] text-[#0B1F16] dark:border-[#10B981] dark:bg-[#132B20] dark:text-[#F2F9F5]'
+                      : 'border-[#DCE7E0] bg-[#F7FAF8] text-[#335947] hover:border-[#115E3B]/40 dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#9EC0AE]'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 text-xs font-bold sm:text-sm">
+                    <Eye className="h-4 w-4 text-[#115E3B] dark:text-[#34D399]" />
+                    <span>{t.qrModeViewTitle}</span>
+                  </div>
+                  <span className="text-[11px] leading-snug opacity-85">{t.qrModeViewDesc}</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setScanMode('sell');
-                  setErrorMsg('');
-                }}
-                className={`flex flex-col items-start gap-1 rounded-2xl border p-3.5 text-start transition-colors ${
-                  scanMode === 'sell'
-                    ? 'border-amber-600 bg-amber-50 text-[#0B1F16] dark:border-amber-500 dark:bg-amber-950/40 dark:text-[#F2F9F5]'
-                    : 'border-[#DCE7E0] bg-[#F7FAF8] text-[#335947] hover:border-amber-600/40 dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#9EC0AE]'
-                }`}
-              >
-                <div className="flex items-center gap-2 text-xs font-bold sm:text-sm">
-                  <ShoppingBag className="h-4 w-4 text-amber-700 dark:text-amber-300" />
-                  <span>{t.qrModeSellTitle}</span>
-                </div>
-                <span className="text-[11px] leading-snug opacity-85">{t.qrModeSellDesc}</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setScanMode('sell');
+                    setErrorMsg('');
+                  }}
+                  className={`flex flex-col items-start gap-1 rounded-2xl border p-3.5 text-start transition-colors ${
+                    scanMode === 'sell'
+                      ? 'border-amber-600 bg-amber-50 text-[#0B1F16] dark:border-amber-500 dark:bg-amber-950/40 dark:text-[#F2F9F5]'
+                      : 'border-[#DCE7E0] bg-[#F7FAF8] text-[#335947] hover:border-amber-600/40 dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#9EC0AE]'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 text-xs font-bold sm:text-sm">
+                    <ShoppingBag className="h-4 w-4 text-amber-700 dark:text-amber-300" />
+                    <span>{t.qrModeSellTitle}</span>
+                  </div>
+                  <span className="text-[11px] leading-snug opacity-85">{t.qrModeSellDesc}</span>
+                </button>
+              </div>
             </div>
-          </div>
+          )}
 
           {errorMsg && (
             <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-semibold text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
@@ -563,7 +696,9 @@ export function QrScannerModal({
                   </span>
                 </div>
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-[#335947] dark:text-[#9EC0AE]">{t.purchaseProductNameLabel}</span>
+                  <span className="text-[#335947] dark:text-[#9EC0AE]">
+                    {t.purchaseProductNameLabel}
+                  </span>
                   <span className="truncate font-semibold">{soldReceipt.invoice.productName}</span>
                 </div>
                 {soldReceipt.invoice.customerName && (
@@ -575,7 +710,9 @@ export function QrScannerModal({
                   </div>
                 )}
                 <div className="flex items-center justify-between">
-                  <span className="text-[#335947] dark:text-[#9EC0AE]">{t.purchaseQuantityLabel}</span>
+                  <span className="text-[#335947] dark:text-[#9EC0AE]">
+                    {t.purchaseQuantityLabel}
+                  </span>
                   <span className="tabular-nums font-semibold">
                     {formatNumber(soldReceipt.invoice.quantity, lang)} ×{' '}
                     {formatCurrency(soldReceipt.invoice.unitPrice, currency, lang)}
@@ -853,10 +990,11 @@ export function QrScannerModal({
             </form>
           ) : (
             <>
-              {/* Camera Preview */}
+              {/* Camera Preview (iOS Safari inline-compatible + Tap-to-Start fallback) */}
               <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl border border-[#DCE7E0] bg-[#0B1F16] dark:border-[#1E3A2D]">
                 <video
                   ref={videoRef}
+                  autoPlay
                   muted
                   playsInline
                   className={`h-full w-full object-cover ${
@@ -881,27 +1019,64 @@ export function QrScannerModal({
                   </div>
                 )}
 
-                {cameraState === 'unavailable' && (
+                {(cameraState === 'needs_tap' || cameraState === 'unavailable') && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#F7FAF8] p-5 text-center dark:bg-[#091611]">
-                    <Camera className="h-8 w-8 text-[#115E3B]/55 dark:text-[#34D399]/55" />
+                    <Camera className="h-8 w-8 text-[#115E3B]/65 dark:text-[#34D399]/65" />
                     <p className="max-w-xs text-xs leading-relaxed text-[#335947] dark:text-[#9EC0AE]">
-                      {t.qrScannerCameraUnavailable}
+                      {cameraState === 'needs_tap'
+                        ? t.qrScannerCameraTapHint
+                        : t.qrScannerCameraUnavailable}
                     </p>
+                    <button
+                      type="button"
+                      onClick={() => void beginLiveCamera(true)}
+                      className="inline-flex min-h-[42px] items-center justify-center gap-2 rounded-xl bg-[#115E3B] px-4 text-xs font-bold text-white hover:bg-[#0D4A2E] dark:bg-[#10B981] dark:text-[#052E1C]"
+                    >
+                      <Camera className="h-4 w-4" />
+                      <span>{t.qrScannerEnableCamera}</span>
+                    </button>
                   </div>
                 )}
               </div>
 
-              {/* Upload QR Photo + Manual Code Input */}
+              {/* Native iPhone/Mobile Camera Capture + Library QR Photo + Manual Code Input */}
               <div className="space-y-3">
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={processing}
-                  className="flex min-h-[46px] w-full items-center justify-center gap-2 rounded-xl border border-[#DCE7E0] bg-[#ECF7F1] px-4 text-xs font-semibold text-[#115E3B] hover:bg-[#DCF0E4] disabled:opacity-60 dark:border-[#1E3A2D] dark:bg-[#132B20] dark:text-[#34D399]"
-                >
-                  <ImagePlus className="h-4 w-4" />
-                  <span>{t.qrScannerUploadImage}</span>
-                </button>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => nativeCamInputRef.current?.click()}
+                    disabled={processing}
+                    className="flex min-h-[46px] w-full items-center justify-center gap-2 rounded-xl bg-[#115E3B] px-3.5 text-xs font-semibold text-white hover:bg-[#0D4A2E] disabled:opacity-60 dark:bg-[#10B981] dark:text-[#052E1C]"
+                  >
+                    <Camera className="h-4 w-4 shrink-0" />
+                    <span className="truncate">{t.qrScannerNativeCameraPhoto}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={processing}
+                    className="flex min-h-[46px] w-full items-center justify-center gap-2 rounded-xl border border-[#DCE7E0] bg-[#ECF7F1] px-3.5 text-xs font-semibold text-[#115E3B] hover:bg-[#DCF0E4] disabled:opacity-60 dark:border-[#1E3A2D] dark:bg-[#132B20] dark:text-[#34D399]"
+                  >
+                    <ImagePlus className="h-4 w-4 shrink-0" />
+                    <span className="truncate">{t.qrScannerUploadImage}</span>
+                  </button>
+                </div>
+
+                {/* Direct iPhone/Mobile Camera Capture Input */}
+                <input
+                  ref={nativeCamInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={(e) => {
+                    void handleUploadQrPhoto(e.target.files);
+                    e.target.value = '';
+                  }}
+                />
+
+                {/* Photo Gallery Input */}
                 <input
                   ref={fileInputRef}
                   type="file"

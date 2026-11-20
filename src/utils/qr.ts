@@ -13,6 +13,8 @@ interface CompactQrSnapshot {
   th?: number; // thicknessCm
   pc?: number; // piecesCount
   sp?: string; // supplier
+  st?: string; // storeName
+  wa?: string; // whatsappPhone
 }
 
 function toBase64Url(text: string): string {
@@ -34,12 +36,24 @@ function fromBase64Url(encoded: string): string {
   return new TextDecoder().decode(bytes);
 }
 
+function getPublicQrOrigin(): string {
+  if (typeof window === 'undefined' || !/^https?:$/i.test(window.location.protocol)) {
+    return '';
+  }
+  const { protocol, host } = window.location;
+  // In AI Studio preview, `ais-dev-*` requires developer login whereas `ais-pre-*` is the public shared URL
+  const publicHost = host.startsWith('ais-dev-') ? host.replace(/^ais-dev-/, 'ais-pre-') : host;
+  return `${protocol}//${publicHost}`;
+}
+
 export function buildProductQrUrl(
-  product: Pick<Product, 'id' | 'code' | 'qrToken'> & Partial<Product>
+  product: Pick<Product, 'id' | 'code' | 'qrToken'> & Partial<Product>,
+  extras?: { storeName?: string; whatsappPhone?: string }
 ): string {
   const code = (product.code || product.id).trim();
-  if (typeof window !== 'undefined' && /^https?:$/i.test(window.location.protocol)) {
-    const base = `${window.location.origin}/?qr=${encodeURIComponent(code)}`;
+  const origin = getPublicQrOrigin();
+  if (origin) {
+    const base = `${origin}/?qr=${encodeURIComponent(code)}`;
     if (product.name) {
       const snap: CompactQrSnapshot = {
         c: code,
@@ -54,6 +68,8 @@ export function buildProductQrUrl(
         ...(product.thicknessCm ? { th: product.thicknessCm } : {}),
         ...(product.piecesCount ? { pc: product.piecesCount } : {}),
         ...(product.supplier ? { sp: product.supplier.slice(0, 40) } : {}),
+        ...(extras?.storeName ? { st: extras.storeName.slice(0, 36) } : {}),
+        ...(extras?.whatsappPhone ? { wa: extras.whatsappPhone.slice(0, 24) } : {}),
       };
       try {
         return `${base}#d=${toBase64Url(JSON.stringify(snap))}`;
@@ -80,9 +96,9 @@ export function extractQrParamFromLocation(loc: { search?: string; hash?: string
     if (qIdx >= 0) {
       const hp = new URLSearchParams(hash.slice(qIdx));
       qrCode = hp.get('qr') || hp.get('code') || hp.get('product') || '';
-    } else if (hash.includes('qr=')) {
-      const hp = new URLSearchParams(hash.replace(/^#/, ''));
-      qrCode = hp.get('qr') || '';
+    } else if (hash.includes('qr=') || hash.includes('code=')) {
+      const hp = new URLSearchParams(hash.replace(/^#\/?/, ''));
+      qrCode = hp.get('qr') || hp.get('code') || '';
     }
   }
 
@@ -90,6 +106,27 @@ export function extractQrParamFromLocation(loc: { search?: string; hash?: string
     qrCode: qrCode.trim(),
     rawHrefOrHash: `${loc.search || ''}${hash}`,
   };
+}
+
+export function extractSnapshotExtrasFromQrInput(rawInput: string): {
+  storeName?: string;
+  whatsappPhone?: string;
+} {
+  try {
+    const idx = rawInput.indexOf('#d=');
+    const altIdx = rawInput.indexOf('&d=');
+    const start = idx >= 0 ? idx + 3 : altIdx >= 0 ? altIdx + 3 : -1;
+    if (start < 0) return {};
+    const token = rawInput.slice(start).split(/[&#]/)[0].trim();
+    if (!token) return {};
+    const parsed = JSON.parse(fromBase64Url(token)) as CompactQrSnapshot;
+    return {
+      storeName: parsed?.st,
+      whatsappPhone: parsed?.wa,
+    };
+  } catch {
+    return {};
+  }
 }
 
 export function buildDigitalFileFromQrSnapshot(rawInput: string): ProductDigitalFile | null {
@@ -158,9 +195,10 @@ export async function buildQrStickerBlob(
   product: Product,
   storeName: string,
   currency: string,
-  lang: Language
+  lang: Language,
+  whatsappPhone?: string
 ): Promise<Blob> {
-  const qrPayload = buildProductQrUrl(product);
+  const qrPayload = buildProductQrUrl(product, { storeName, whatsappPhone });
   const qrDataUrl = await generateQrDataUrl(qrPayload, 420);
 
   const canvas = document.createElement('canvas');
@@ -243,14 +281,15 @@ export async function buildQrStickerSheetBlob(
   quantity: number,
   storeName: string,
   currency: string,
-  lang: Language
+  lang: Language,
+  whatsappPhone?: string
 ): Promise<Blob> {
   const count = Math.max(1, Math.min(100, Math.floor(quantity || 1)));
   if (count === 1) {
-    return buildQrStickerBlob(product, storeName, currency, lang);
+    return buildQrStickerBlob(product, storeName, currency, lang, whatsappPhone);
   }
 
-  const singleBlob = await buildQrStickerBlob(product, storeName, currency, lang);
+  const singleBlob = await buildQrStickerBlob(product, storeName, currency, lang, whatsappPhone);
   const singleUrl = URL.createObjectURL(singleBlob);
   try {
     const stickerImg = new Image();
