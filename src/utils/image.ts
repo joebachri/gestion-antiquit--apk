@@ -10,37 +10,70 @@ export function extractPrefixLetter(name: string): string {
 }
 
 export function compressImageBlob(fileOrBlob: Blob, maxDimension = 1280, quality = 0.82): Promise<string> {
+  const encodeImage = (img: HTMLImageElement, fallbackUrl?: string): string => {
+    let { naturalWidth, naturalHeight, width, height } = img;
+    let w = naturalWidth || width;
+    let h = naturalHeight || height;
+    if (w > maxDimension || h > maxDimension) {
+      if (w >= h) {
+        h = Math.round((h * maxDimension) / w);
+        w = maxDimension;
+      } else {
+        w = Math.round((w * maxDimension) / h);
+        h = maxDimension;
+      }
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, w);
+    canvas.height = Math.max(1, h);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      return fallbackUrl || '';
+    }
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', quality);
+  };
+
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error('Failed to read image file'));
-    reader.onload = () => {
-      const img = new Image();
-      img.onerror = () => reject(new Error('Failed to decode image'));
-      img.onload = () => {
-        let { width, height } = img;
-        if (width > maxDimension || height > maxDimension) {
-          if (width >= height) {
-            height = Math.round((height * maxDimension) / width);
-            width = maxDimension;
-          } else {
-            width = Math.round((width * maxDimension) / height);
-            height = maxDimension;
-          }
-        }
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          resolve(String(reader.result));
-          return;
-        }
-        ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', quality));
+    const readWithFileReader = () => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('Failed to read image file'));
+      reader.onload = () => {
+        const dataUrl = String(reader.result || '');
+        const img = new Image();
+        img.onerror = () => reject(new Error('Failed to decode image'));
+        img.onload = () => resolve(encodeImage(img, dataUrl));
+        img.src = dataUrl;
       };
-      img.src = String(reader.result);
+      reader.readAsDataURL(fileOrBlob);
     };
-    reader.readAsDataURL(fileOrBlob);
+
+    if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+      const objectUrl = URL.createObjectURL(fileOrBlob);
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const out = encodeImage(img);
+          URL.revokeObjectURL(objectUrl);
+          if (out) {
+            resolve(out);
+          } else {
+            readWithFileReader();
+          }
+        } catch {
+          URL.revokeObjectURL(objectUrl);
+          readWithFileReader();
+        }
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        readWithFileReader();
+      };
+      img.src = objectUrl;
+      return;
+    }
+
+    readWithFileReader();
   });
 }
 

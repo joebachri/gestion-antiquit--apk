@@ -740,7 +740,7 @@ export default function App() {
     return (
       <div
         dir={lang === 'ar' ? 'rtl' : 'ltr'}
-        className="flex min-h-screen flex-col items-center justify-center bg-[#F7FAF8] p-5 text-[#0B1F16] dark:bg-[#08130E] dark:text-[#F2F9F5]"
+        className="flex min-h-dvh flex-col items-center justify-center bg-[#F7FAF8] p-5 text-[#0B1F16] dark:bg-[#08130E] dark:text-[#F2F9F5]"
       >
         <div className="w-full max-w-md space-y-5 rounded-3xl border border-[#DCE7E0] bg-white p-6 text-center shadow-lg dark:border-[#1E3A2D] dark:bg-[#0F2119]">
           <div className="mx-auto flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border border-[#DCE7E0] bg-[#ECF7F1] text-[#115E3B] dark:border-[#1E3A2D] dark:bg-[#132B20] dark:text-[#34D399]">
@@ -832,7 +832,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F7FAF8] text-[#0B1F16] dark:bg-[#08130E] dark:text-[#F2F9F5]">
+    <div className="min-h-dvh bg-[#F7FAF8] text-[#0B1F16] dark:bg-[#08130E] dark:text-[#F2F9F5]">
       <Header
         lang={lang}
         onChangeLang={setLang}

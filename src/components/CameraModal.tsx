@@ -3,6 +3,7 @@ import { Camera, Check, Play, RefreshCw, Square, Upload, Video, X } from 'lucide
 import type { Language } from '../types';
 import { translations } from '../i18n';
 import { compressImageBlob, isVideoMedia, readVideoAsDataUrl } from '../utils/image';
+import { isIosDevice } from '../utils/download';
 
 interface CameraModalProps {
   isOpen: boolean;
@@ -17,21 +18,16 @@ const MAX_VIDEO_BYTES = 60 * 1024 * 1024;
 
 function pickRecorderMimeType(hasAudio: boolean): string {
   if (typeof MediaRecorder === 'undefined') return '';
-  const candidates = hasAudio
-    ? [
-        'video/webm;codecs=vp8,opus',
-        'video/webm;codecs=vp9,opus',
-        'video/webm',
-        'video/mp4;codecs=avc1,mp4a.40.2',
-        'video/mp4',
-      ]
-    : [
-        'video/webm;codecs=vp8',
-        'video/webm;codecs=vp9',
-        'video/webm',
-        'video/mp4;codecs=avc1',
-        'video/mp4',
-      ];
+  const preferMp4 = isIosDevice();
+  const webmCandidates = hasAudio
+    ? ['video/webm;codecs=vp8,opus', 'video/webm;codecs=vp9,opus', 'video/webm']
+    : ['video/webm;codecs=vp8', 'video/webm;codecs=vp9', 'video/webm'];
+  const mp4Candidates = hasAudio
+    ? ['video/mp4;codecs=avc1,mp4a.40.2', 'video/mp4;codecs=avc1', 'video/mp4']
+    : ['video/mp4;codecs=avc1', 'video/mp4'];
+  const candidates = preferMp4
+    ? [...mp4Candidates, ...webmCandidates]
+    : [...webmCandidates, ...mp4Candidates];
   for (const type of candidates) {
     try {
       if (MediaRecorder.isTypeSupported(type)) return type;
@@ -73,6 +69,7 @@ export function CameraModal({
   const [mode, setMode] = useState<'photo' | 'video'>('photo');
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const [cameraError, setCameraError] = useState(false);
+  const [needsTap, setNeedsTap] = useState(false);
   const [captured, setCaptured] = useState<string[]>([]);
   const [videoPosters, setVideoPosters] = useState<Record<number, string>>({});
   const [flash, setFlash] = useState(false);
@@ -80,6 +77,14 @@ export function CameraModal({
   const [isProcessingVideo, setIsProcessingVideo] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [sizeError, setSizeError] = useState('');
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     capturedRef.current = captured;
@@ -89,6 +94,111 @@ export function CameraModal({
     if (timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
+    }
+  };
+
+  const startLiveStream = async (fromUserTap = false) => {
+    setCameraError(false);
+    setNeedsTap(false);
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraError(true);
+      return;
+    }
+
+    const wantAudio = canUseVideo && mode === 'video';
+    const constraintsList: MediaStreamConstraints[] = wantAudio
+      ? [
+          {
+            video: {
+              facingMode,
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+            audio: true,
+          },
+          {
+            video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
+            audio: false,
+          },
+          { video: { facingMode }, audio: false },
+          { video: true, audio: false },
+        ]
+      : [
+          {
+            video: {
+              facingMode,
+              width: { ideal: 1280 },
+              height: { ideal: 960 },
+            },
+            audio: false,
+          },
+          { video: { facingMode }, audio: false },
+          { video: true, audio: false },
+        ];
+
+    let stream: MediaStream | null = null;
+    let lastErrorName = '';
+    for (const constraints of constraintsList) {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        break;
+      } catch (err) {
+        lastErrorName = err instanceof Error ? err.name : '';
+      }
+    }
+
+    if (!stream) {
+      if (!mountedRef.current) return;
+      if (!fromUserTap && (lastErrorName === 'NotAllowedError' || lastErrorName === 'AbortError')) {
+        setNeedsTap(true);
+      } else {
+        setCameraError(true);
+      }
+      return;
+    }
+
+    if (!mountedRef.current || !isOpen) {
+      stream.getTracks().forEach((track) => track.stop());
+      return;
+    }
+
+    streamRef.current = stream;
+    const video = videoRef.current;
+    if (video) {
+      // Essential iOS Safari inline playback attributes
+      video.setAttribute('playsinline', '');
+      video.setAttribute('webkit-playsinline', '');
+      video.setAttribute('muted', '');
+      video.defaultMuted = true;
+      video.muted = true;
+      video.autoplay = true;
+      video.srcObject = stream;
+
+      if (video.readyState < 1) {
+        await new Promise<void>((resolve) => {
+          const onMeta = () => {
+            video.removeEventListener('loadedmetadata', onMeta);
+            resolve();
+          };
+          video.addEventListener('loadedmetadata', onMeta);
+          setTimeout(resolve, 1200);
+        });
+      }
+
+      try {
+        await video.play();
+        if (video.paused && !fromUserTap && mountedRef.current) {
+          setNeedsTap(true);
+        }
+      } catch {
+        if (!fromUserTap && mountedRef.current) {
+          setNeedsTap(true);
+        }
+      }
     }
   };
 
@@ -118,69 +228,15 @@ export function CameraModal({
       setCaptured([]);
       setVideoPosters({});
       setCameraError(false);
+      setNeedsTap(false);
       return;
     }
 
     discardOnStopRef.current = false;
     finishAfterStopRef.current = false;
-    let cancelled = false;
-
-    async function startStream() {
-      setCameraError(false);
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop());
-        streamRef.current = null;
-      }
-      if (!navigator.mediaDevices?.getUserMedia) {
-        setCameraError(true);
-        return;
-      }
-
-      const wantAudio = canUseVideo && mode === 'video';
-      let stream: MediaStream | null = null;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode,
-            width: { ideal: 1280 },
-            height: { ideal: mode === 'video' ? 720 : 960 },
-          },
-          audio: wantAudio,
-        });
-      } catch {
-        if (wantAudio) {
-          // Retry without microphone in case user denied audio or device lacks mic
-          try {
-            stream = await navigator.mediaDevices.getUserMedia({
-              video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
-              audio: false,
-            });
-          } catch {
-            stream = null;
-          }
-        }
-      }
-
-      if (!stream) {
-        if (!cancelled) setCameraError(true);
-        return;
-      }
-
-      if (cancelled) {
-        stream.getTracks().forEach((track) => track.stop());
-        return;
-      }
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play().catch(() => {});
-      }
-    }
-
-    void startStream();
+    void startLiveStream(false);
 
     return () => {
-      cancelled = true;
       discardOnStopRef.current = true;
       finishAfterStopRef.current = false;
       if (recorderRef.current && recorderRef.current.state !== 'inactive') {
@@ -475,13 +531,13 @@ export function CameraModal({
   return (
     <div
       dir={lang === 'ar' ? 'rtl' : 'ltr'}
-      className="fixed inset-0 z-50 flex flex-col bg-[#06110C] text-white"
+      className="fixed inset-0 z-50 flex h-dvh flex-col bg-[#06110C] text-white"
       role="dialog"
       aria-modal="true"
       aria-label={t.cameraTitle}
     >
       {/* Top Bar */}
-      <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+      <div className="pt-safe-compact flex items-center justify-between border-b border-white/10 px-4 py-3">
         <button
           type="button"
           onClick={onClose}
@@ -588,6 +644,35 @@ export function CameraModal({
               autoPlay
               className="h-full w-full object-cover"
             />
+            {needsTap && (
+              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black/75 px-6 text-center">
+                <p className="max-w-xs text-xs leading-relaxed text-white/85">
+                  {t.qrScannerCameraTapHint}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void startLiveStream(true)}
+                  className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-xl bg-[#10B981] px-5 py-3 text-sm font-semibold text-[#052E1C] transition-transform active:scale-95"
+                >
+                  <Camera className="h-4 w-4" />
+                  <span>{t.qrScannerEnableCamera}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    mode === 'video' && canUseVideo
+                      ? nativeVideoInputRef.current?.click()
+                      : nativeInputRef.current?.click()
+                  }
+                  className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-xs font-semibold text-white"
+                >
+                  <Upload className="h-4 w-4" />
+                  <span>
+                    {mode === 'video' && canUseVideo ? t.openNativeVideoCamera : t.openNativeCamera}
+                  </span>
+                </button>
+              </div>
+            )}
             {flash && <div className="pointer-events-none absolute inset-0 bg-white/70" />}
           </>
         )}

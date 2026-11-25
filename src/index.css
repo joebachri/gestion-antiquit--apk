@@ -12,6 +12,22 @@
   html {
     font-family: var(--font-sans);
     scroll-behavior: smooth;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button,
+  a,
+  [role="button"] {
+    touch-action: manipulation;
+  }
+
+  /* Prevent iOS Safari from auto-zooming when focusing inputs smaller than 16px */
+  @supports (-webkit-touch-callout: none) {
+    input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+    select,
+    textarea {
+      font-size: 16px !important;
+    }
   }
 
   html[lang="ar"] {
@@ -66,6 +82,14 @@ html[lang="ar"] .font-display {
 
 .tabular-nums {
   font-variant-numeric: tabular-nums;
+}
+
+.pt-safe {
+  padding-top: max(0.75rem, env(safe-area-inset-top));
+}
+
+.pt-safe-compact {
+  padding-top: env(safe-area-inset-top);
 }
 
 .pb-safe {

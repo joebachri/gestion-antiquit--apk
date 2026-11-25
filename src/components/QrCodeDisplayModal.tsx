@@ -14,7 +14,7 @@ import {
 import type { Language, PrinterMode, PrinterPaperFormat, Product } from '../types';
 import { formatCurrency, formatNumber, translations } from '../i18n';
 import { buildProductQrUrl, buildQrStickerSheetBlob, generateQrDataUrl } from '../utils/qr';
-import { saveOrShareBlob } from '../utils/download';
+import { copyTextWithFallback, saveOrShareBlob } from '../utils/download';
 import { executeSmartQrPrint } from '../utils/printer';
 import { PrinterSettingsCard } from './PrinterSettingsCard';
 
@@ -92,13 +92,11 @@ export function QrCodeDisplayModal({
   const safeQty = Math.max(1, Math.min(100, Math.floor(Number(printQty) || 1)));
 
   const handleCopyLink = async () => {
-    try {
-      await navigator.clipboard.writeText(qrUrl);
+    const ok = await copyTextWithFallback(qrUrl);
+    if (ok) {
       setCopied(true);
       onNotify?.(t.qrLinkCopied);
       setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // ignore clipboard errors
     }
   };
 
@@ -164,7 +162,7 @@ export function QrCodeDisplayModal({
       onClick={onClose}
     >
       <div
-        className="max-h-[94vh] w-full max-w-md overflow-y-auto rounded-t-3xl border border-[#DCE7E0] bg-white p-6 shadow-xl sm:rounded-3xl dark:border-[#1E3A2D] dark:bg-[#0F2119]"
+        className="pb-safe max-h-[94dvh] w-full max-w-md overflow-y-auto rounded-t-3xl border border-[#DCE7E0] bg-white p-6 shadow-xl sm:rounded-3xl dark:border-[#1E3A2D] dark:bg-[#0F2119]"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mx-auto mb-4 h-1.5 w-10 rounded-full bg-[#DCE7E0] sm:hidden dark:bg-[#1E3A2D]" />

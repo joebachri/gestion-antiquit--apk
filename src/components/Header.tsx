@@ -45,7 +45,7 @@ export function Header({
   return (
     <header
       dir="ltr"
-      className="z-30 border-b border-[#DCE7E0] bg-white/95 backdrop-blur-md sm:sticky sm:top-0 dark:border-[#1E3A2D] dark:bg-[#0A1812]/95"
+      className="pt-safe-compact z-30 border-b border-[#DCE7E0] bg-white/95 backdrop-blur-md sm:sticky sm:top-0 dark:border-[#1E3A2D] dark:bg-[#0A1812]/95"
     >
       {/* Top Tier: App's Antique GA Logo on the Left | User's Logo & Optional Store Name on the Right */}
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-3 py-2.5 sm:px-6">

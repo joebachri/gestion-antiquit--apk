@@ -40,7 +40,7 @@ import {
   buildQrStickerBlob,
   generateQrDataUrl,
 } from '../utils/qr';
-import { saveOrShareBlob } from '../utils/download';
+import { copyTextWithFallback, saveOrShareBlob } from '../utils/download';
 
 interface ProductDigitalFileModalProps {
   digitalFile: ProductDigitalFile | null;
@@ -561,10 +561,12 @@ export function ProductDigitalFileModal({
                     <button
                       type="button"
                       onClick={async () => {
-                        await navigator.clipboard.writeText(
+                        const ok = await copyTextWithFallback(
                           buildProductQrUrl(product, { storeName, whatsappPhone, publicAppUrl })
                         );
-                        onNotify?.(t.qrLinkCopied);
+                        if (ok) {
+                          onNotify?.(t.qrLinkCopied);
+                        }
                       }}
                       className="flex min-h-[38px] items-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs font-semibold text-[#0B1F16] hover:bg-[#ECF7F1] dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#F2F9F5]"
                     >

@@ -3,6 +3,13 @@ import { Directory, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import type { ShareableMediaFile } from './image';
 
+export function isIosDevice(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  if (/iPad|iPhone|iPod/i.test(ua)) return true;
+  return navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+}
+
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -28,16 +35,38 @@ function triggerBrowserDownload(blob: Blob, filename: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
-async function tryCopyText(text: string): Promise<boolean> {
-  if (!text || typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
-    return false;
+export async function copyTextWithFallback(text: string): Promise<boolean> {
+  if (!text || typeof document === 'undefined') return false;
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // fallback below for iOS Safari / non-focused gesture restrictions
+    }
   }
   try {
-    await navigator.clipboard.writeText(text);
-    return true;
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.top = '0';
+    ta.style.left = '-9999px';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    ta.setSelectionRange(0, text.length);
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
   } catch {
     return false;
   }
+}
+
+async function tryCopyText(text: string): Promise<boolean> {
+  return copyTextWithFallback(text);
 }
 
 export async function tryCopyCardImageToClipboard(blob: Blob): Promise<boolean> {
@@ -79,6 +108,29 @@ export async function saveOrShareBlob(
     return;
   }
 
+  // On iPhone/iPad Safari & Home Screen Web App, native Share Sheet lets users
+  // print via AirPrint, save images to Photos, or save PDFs/Excel directly to Files.
+  if (isIosDevice() && typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+    try {
+      const file = new File([blob], filename, {
+        type: blob.type || 'application/octet-stream',
+      });
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({
+          title: shareTitle || filename,
+          ...(shareText ? { text: shareText } : {}),
+          files: [file],
+        });
+        return;
+      }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        return;
+      }
+      // If NotAllowedError (e.g. gesture timeout after slow generation), fall through to browser download
+    }
+  }
+
   triggerBrowserDownload(blob, filename);
 }
 
@@ -89,7 +141,7 @@ export async function downloadBlobs(
 ): Promise<void> {
   if (files.length === 0) return;
 
-  if (Capacitor.isNativePlatform()) {
+  if (Capacitor.isNativePlatform() || (isIosDevice() && canWebShareFiles())) {
     await shareProductMediaAndText({
       files: files.map((f) => ({
         blob: f.blob,

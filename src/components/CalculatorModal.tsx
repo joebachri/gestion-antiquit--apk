@@ -4,6 +4,7 @@ import type { Language } from '../types';
 import { translations } from '../i18n';
 import { evaluateCalculatorExpression, formatCalculatorNumber } from '../utils/calculator';
 import { convertFromMad, convertToMad } from '../utils/currency';
+import { copyTextWithFallback } from '../utils/download';
 
 interface CalculatorModalProps {
   isOpen: boolean;
@@ -241,14 +242,10 @@ export function CalculatorModal({ isOpen, lang, currency, onClose }: CalculatorM
   const handleCopyResult = useCallback(async () => {
     if (hasError) return;
     const valueToCopy = resultDisplay || '0';
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(valueToCopy);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1800);
-      }
-    } catch {
-      // ignore clipboard errors
+    const ok = await copyTextWithFallback(valueToCopy);
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
     }
   }, [hasError, resultDisplay]);
 

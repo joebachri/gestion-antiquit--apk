@@ -85,7 +85,10 @@ export function CustomerGallerySection({
                 imageData: videoData,
               });
             }
-          } else if (file.type.startsWith('image/')) {
+          } else if (
+            file.type.startsWith('image/') ||
+            /\.(jpe?g|png|webp|gif|heic|heif|avif|bmp)$/i.test(file.name)
+          ) {
             const dataUrl = await compressImageBlob(file, 1280, 0.85);
             if (dataUrl.startsWith('data:image/')) {
               items.push({
@@ -397,7 +400,7 @@ export function CustomerGallerySection({
           onClick={() => setLightboxItem(null)}
         >
           <div
-            className="relative flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-[#1E3A2D] bg-[#08130E] shadow-2xl"
+            className="relative flex max-h-[92dvh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-[#1E3A2D] bg-[#08130E] shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-[#1E3A2D] px-4 py-3 text-white">

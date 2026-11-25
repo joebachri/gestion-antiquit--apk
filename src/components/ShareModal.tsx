@@ -36,6 +36,7 @@ import {
 } from '../utils/image';
 import {
   canWebShareFiles,
+  copyTextWithFallback,
   downloadBlobs,
   saveOrShareBlob,
   shareProductMediaAndText,
@@ -202,12 +203,10 @@ export function ShareModal({
     igAccounts.find((ig) => ig.id === metaStatus.selectedIgId) || igAccounts[0];
 
   const handleCopy = async (textToCopy = shareText) => {
-    try {
-      await navigator.clipboard.writeText(textToCopy);
+    const ok = await copyTextWithFallback(textToCopy);
+    if (ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // ignore clipboard restriction
     }
   };
 
@@ -331,6 +330,8 @@ export function ShareModal({
       if (clip) {
         setCustomReelClip(clip);
         setIgSelectedVideoIndex(-1);
+      } else {
+        setFeedback({ message: t.videoRecordEmptyError, isError: true });
       }
     } finally {
       setCreatingReel(false);
@@ -614,7 +615,7 @@ export function ShareModal({
         onClick={onClose}
       >
         <div
-          className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-t-3xl border border-[#DCE7E0] bg-white p-6 shadow-xl sm:rounded-3xl dark:border-[#1E3A2D] dark:bg-[#0F2119]"
+          className="pb-safe max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl border border-[#DCE7E0] bg-white p-6 shadow-xl sm:rounded-3xl dark:border-[#1E3A2D] dark:bg-[#0F2119]"
           onClick={(e) => e.stopPropagation()}
         >
           <div className="mx-auto mb-4 h-1.5 w-10 rounded-full bg-[#DCE7E0] sm:hidden dark:bg-[#1E3A2D]" />
