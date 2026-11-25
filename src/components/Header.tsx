@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Moon,
   QrCode,
+  Settings,
   Store,
   Sun,
 } from 'lucide-react';
@@ -185,6 +186,17 @@ export function Header({
             >
               <BookOpen className="h-4 w-4 shrink-0" />
               <span className="hidden sm:inline">{t.guideButtonLabel}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={onOpenLogoSettings}
+              aria-label={t.logoModalTitle}
+              title={t.logoModalTitle}
+              className="flex min-h-[40px] min-w-[40px] items-center justify-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-white px-2.5 text-xs font-semibold text-[#115E3B] transition-colors hover:bg-[#ECF7F1] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#115E3B] whitespace-nowrap shrink-0 sm:px-3 dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#34D399] dark:hover:bg-[#162E23]"
+            >
+              <Settings className="h-4 w-4 shrink-0" />
+              <span className="hidden sm:inline">{t.settingsButtonLabel}</span>
             </button>
           </div>
         </div>

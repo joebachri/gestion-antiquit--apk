@@ -7,15 +7,24 @@ import express from 'express';
 import type { Request, Response } from 'express';
 import Database from 'better-sqlite3';
 import * as XLSX from 'xlsx';
+import { localizeProduct, populateBilingualProductFields } from './src/utils/productTranslation.ts';
 
 interface ProductRow {
   id: string;
   code: string;
   qr_token: string;
   name: string;
+  name_fr: string;
+  name_ar: string;
   description: string;
+  description_fr: string;
+  description_ar: string;
   category: string;
+  category_fr: string;
+  category_ar: string;
   color: string;
+  color_fr: string;
+  color_ar: string;
   warehouse_id: string;
   warehouse_name: string;
   supplier_id: string;
@@ -51,9 +60,17 @@ interface PhotoInput {
 interface ProductInput {
   code?: string;
   name: string;
+  nameFr?: string;
+  nameAr?: string;
   description?: string;
+  descriptionFr?: string;
+  descriptionAr?: string;
   category?: string;
+  categoryFr?: string;
+  categoryAr?: string;
   color?: string;
+  colorFr?: string;
+  colorAr?: string;
   warehouseId?: string;
   warehouseName?: string;
   supplierId?: string;
@@ -479,6 +496,30 @@ if (!productTableColumns.includes('warehouse_name')) {
 if (!productTableColumns.includes('supplier_id')) {
   db.exec("ALTER TABLE products ADD COLUMN supplier_id TEXT NOT NULL DEFAULT ''");
 }
+if (!productTableColumns.includes('name_fr')) {
+  db.exec("ALTER TABLE products ADD COLUMN name_fr TEXT NOT NULL DEFAULT ''");
+}
+if (!productTableColumns.includes('name_ar')) {
+  db.exec("ALTER TABLE products ADD COLUMN name_ar TEXT NOT NULL DEFAULT ''");
+}
+if (!productTableColumns.includes('description_fr')) {
+  db.exec("ALTER TABLE products ADD COLUMN description_fr TEXT NOT NULL DEFAULT ''");
+}
+if (!productTableColumns.includes('description_ar')) {
+  db.exec("ALTER TABLE products ADD COLUMN description_ar TEXT NOT NULL DEFAULT ''");
+}
+if (!productTableColumns.includes('category_fr')) {
+  db.exec("ALTER TABLE products ADD COLUMN category_fr TEXT NOT NULL DEFAULT ''");
+}
+if (!productTableColumns.includes('category_ar')) {
+  db.exec("ALTER TABLE products ADD COLUMN category_ar TEXT NOT NULL DEFAULT ''");
+}
+if (!productTableColumns.includes('color_fr')) {
+  db.exec("ALTER TABLE products ADD COLUMN color_fr TEXT NOT NULL DEFAULT ''");
+}
+if (!productTableColumns.includes('color_ar')) {
+  db.exec("ALTER TABLE products ADD COLUMN color_ar TEXT NOT NULL DEFAULT ''");
+}
 db.exec("UPDATE products SET qr_token = 'GA-QR-' || code WHERE qr_token = ''");
 
 const salesInvoiceTableColumns = (
@@ -849,6 +890,62 @@ function backfillInitialProductHistory(): void {
 
 backfillInitialProductHistory();
 
+function backfillBilingualProducts(): void {
+  const rows = db.prepare('SELECT * FROM products').all() as ProductRow[];
+  const updateStmt = db.prepare(
+    `UPDATE products SET
+      name_fr = ?,
+      name_ar = ?,
+      description_fr = ?,
+      description_ar = ?,
+      category_fr = ?,
+      category_ar = ?,
+      color_fr = ?,
+      color_ar = ?
+     WHERE id = ?`
+  );
+  const tx = db.transaction(() => {
+    for (const row of rows) {
+      const needsName = !row.name_fr || !row.name_ar;
+      const needsDesc = Boolean(row.description) && (!row.description_fr || !row.description_ar);
+      const needsCat = Boolean(row.category) && (!row.category_fr || !row.category_ar);
+      const needsColor = Boolean(row.color) && (!row.color_fr || !row.color_ar);
+      if (!needsName && !needsDesc && !needsCat && !needsColor) continue;
+
+      const populated = populateBilingualProductFields({
+        name: row.name || '',
+        nameFr: row.name_fr || '',
+        nameAr: row.name_ar || '',
+        description: row.description || '',
+        descriptionFr: row.description_fr || '',
+        descriptionAr: row.description_ar || '',
+        category: row.category || '',
+        categoryFr: row.category_fr || '',
+        categoryAr: row.category_ar || '',
+        color: row.color || '',
+        colorFr: row.color_fr || '',
+        colorAr: row.color_ar || '',
+        sellingPrice: row.selling_price || 0,
+      });
+
+      updateStmt.run(
+        populated.nameFr || '',
+        populated.nameAr || '',
+        populated.descriptionFr || '',
+        populated.descriptionAr || '',
+        populated.categoryFr || '',
+        populated.categoryAr || '',
+        populated.colorFr || '',
+        populated.colorAr || '',
+        row.id
+      );
+    }
+  });
+  tx();
+}
+
+backfillBilingualProducts();
+
 function logProductHistory(
   productId: string,
   eventType: string,
@@ -1149,9 +1246,17 @@ function mapProductsWithPhotos(rows: ProductRow[]) {
       code: row.code,
       qrToken: row.qr_token || `GA-QR-${row.code}`,
       name: row.name,
+      nameFr: row.name_fr || '',
+      nameAr: row.name_ar || '',
       description: row.description,
+      descriptionFr: row.description_fr || '',
+      descriptionAr: row.description_ar || '',
       category: row.category || '',
+      categoryFr: row.category_fr || '',
+      categoryAr: row.category_ar || '',
       color: row.color || '',
+      colorFr: row.color_fr || '',
+      colorAr: row.color_ar || '',
       warehouseId: row.warehouse_id || '',
       warehouseName: row.warehouse_name || '',
       supplierId: row.supplier_id || '',
@@ -1852,16 +1957,37 @@ async function startServer() {
           `SELECT DISTINCT p.* FROM products p
            LEFT JOIN product_photos ph ON ph.product_id = p.id
            WHERE p.name LIKE ? COLLATE NOCASE
+              OR p.name_fr LIKE ? COLLATE NOCASE
+              OR p.name_ar LIKE ? COLLATE NOCASE
               OR p.code LIKE ? COLLATE NOCASE
               OR p.supplier LIKE ? COLLATE NOCASE
               OR p.category LIKE ? COLLATE NOCASE
+              OR p.category_fr LIKE ? COLLATE NOCASE
+              OR p.category_ar LIKE ? COLLATE NOCASE
               OR p.color LIKE ? COLLATE NOCASE
+              OR p.color_fr LIKE ? COLLATE NOCASE
+              OR p.color_ar LIKE ? COLLATE NOCASE
               OR p.warehouse_name LIKE ? COLLATE NOCASE
               OR p.qr_token LIKE ? COLLATE NOCASE
               OR ph.photo_code LIKE ? COLLATE NOCASE
            ORDER BY p.created_at DESC`
         )
-        .all(pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern) as ProductRow[];
+        .all(
+          pattern,
+          pattern,
+          pattern,
+          pattern,
+          pattern,
+          pattern,
+          pattern,
+          pattern,
+          pattern,
+          pattern,
+          pattern,
+          pattern,
+          pattern,
+          pattern
+        ) as ProductRow[];
     } else {
       rows = db.prepare('SELECT * FROM products ORDER BY created_at DESC').all() as ProductRow[];
     }
@@ -1925,15 +2051,33 @@ async function startServer() {
 
     const initialQty = toInt(body.quantity, 1);
     const photos = Array.isArray(body.photos) ? body.photos.filter((p) => p && typeof p.imageData === 'string' && p.imageData) : [];
+    const bilingual = populateBilingualProductFields({
+      name,
+      nameFr: typeof body.nameFr === 'string' ? body.nameFr : '',
+      nameAr: typeof body.nameAr === 'string' ? body.nameAr : '',
+      description: typeof body.description === 'string' ? body.description.trim() : '',
+      descriptionFr: typeof body.descriptionFr === 'string' ? body.descriptionFr : '',
+      descriptionAr: typeof body.descriptionAr === 'string' ? body.descriptionAr : '',
+      category,
+      categoryFr: typeof body.categoryFr === 'string' ? body.categoryFr : '',
+      categoryAr: typeof body.categoryAr === 'string' ? body.categoryAr : '',
+      color,
+      colorFr: typeof body.colorFr === 'string' ? body.colorFr : '',
+      colorAr: typeof body.colorAr === 'string' ? body.colorAr : '',
+      sellingPrice: toNumber(body.sellingPrice, 0),
+    });
 
     const insertProduct = db.prepare(`
       INSERT INTO products (
-        id, code, qr_token, name, description, category, color,
+        id, code, qr_token, name, name_fr, name_ar,
+        description, description_fr, description_ar,
+        category, category_fr, category_ar,
+        color, color_fr, color_ar,
         warehouse_id, warehouse_name, supplier_id, supplier,
         length_cm, width_cm, height_cm, thickness_cm, pieces_count,
         quantity, reference_price, expenses, selling_price,
         added_date, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertPhoto = db.prepare(`
@@ -1946,10 +2090,18 @@ async function startServer() {
         id,
         code,
         qrToken,
-        name,
-        typeof body.description === 'string' ? body.description.trim() : '',
-        category,
-        color,
+        bilingual.name,
+        bilingual.nameFr || '',
+        bilingual.nameAr || '',
+        bilingual.description,
+        bilingual.descriptionFr || '',
+        bilingual.descriptionAr || '',
+        bilingual.category || '',
+        bilingual.categoryFr || '',
+        bilingual.categoryAr || '',
+        bilingual.color || '',
+        bilingual.colorFr || '',
+        bilingual.colorAr || '',
         warehouseId,
         warehouseName,
         supplierId,
@@ -2083,15 +2235,38 @@ async function startServer() {
       typeof body.addedDate === 'string' && body.addedDate.trim() ? body.addedDate.trim() : existing.added_date;
 
     const photos = Array.isArray(body.photos) ? body.photos.filter((p) => p && typeof p.imageData === 'string' && p.imageData) : [];
+    const bilingual = populateBilingualProductFields({
+      name,
+      nameFr: typeof body.nameFr === 'string' ? body.nameFr : '',
+      nameAr: typeof body.nameAr === 'string' ? body.nameAr : '',
+      description: typeof body.description === 'string' ? body.description.trim() : '',
+      descriptionFr: typeof body.descriptionFr === 'string' ? body.descriptionFr : '',
+      descriptionAr: typeof body.descriptionAr === 'string' ? body.descriptionAr : '',
+      category,
+      categoryFr: typeof body.categoryFr === 'string' ? body.categoryFr : '',
+      categoryAr: typeof body.categoryAr === 'string' ? body.categoryAr : '',
+      color,
+      colorFr: typeof body.colorFr === 'string' ? body.colorFr : '',
+      colorAr: typeof body.colorAr === 'string' ? body.colorAr : '',
+      sellingPrice: toNumber(body.sellingPrice, 0),
+    });
 
     const updateProduct = db.prepare(`
       UPDATE products SET
         code = ?,
         qr_token = ?,
         name = ?,
+        name_fr = ?,
+        name_ar = ?,
         description = ?,
+        description_fr = ?,
+        description_ar = ?,
         category = ?,
+        category_fr = ?,
+        category_ar = ?,
         color = ?,
+        color_fr = ?,
+        color_ar = ?,
         warehouse_id = ?,
         warehouse_name = ?,
         supplier_id = ?,
@@ -2120,10 +2295,18 @@ async function startServer() {
       updateProduct.run(
         code,
         qrToken,
-        name,
-        typeof body.description === 'string' ? body.description.trim() : '',
-        category,
-        color,
+        bilingual.name,
+        bilingual.nameFr || '',
+        bilingual.nameAr || '',
+        bilingual.description,
+        bilingual.descriptionFr || '',
+        bilingual.descriptionAr || '',
+        bilingual.category || '',
+        bilingual.categoryFr || '',
+        bilingual.categoryAr || '',
+        bilingual.color || '',
+        bilingual.colorFr || '',
+        bilingual.colorAr || '',
         warehouseId,
         warehouseName,
         supplierId,
@@ -2198,19 +2381,30 @@ async function startServer() {
     const selectWhByName = db.prepare('SELECT * FROM warehouses WHERE UPPER(name) = UPPER(?) LIMIT 1');
     const insertProduct = db.prepare(`
       INSERT INTO products (
-        id, code, qr_token, name, description, category, color,
+        id, code, qr_token, name, name_fr, name_ar,
+        description, description_fr, description_ar,
+        category, category_fr, category_ar,
+        color, color_fr, color_ar,
         warehouse_id, warehouse_name, supplier_id, supplier,
         length_cm, width_cm, height_cm, thickness_cm, pieces_count,
         quantity, reference_price, expenses, selling_price,
         added_date, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const updateProduct = db.prepare(`
       UPDATE products SET
         name = ?,
+        name_fr = ?,
+        name_ar = ?,
         description = ?,
+        description_fr = ?,
+        description_ar = ?,
         category = ?,
+        category_fr = ?,
+        category_ar = ?,
         color = ?,
+        color_fr = ?,
+        color_ar = ?,
         warehouse_id = ?,
         warehouse_name = ?,
         supplier = ?,
@@ -2258,14 +2452,42 @@ async function startServer() {
               ? Math.max(0, Math.floor(rawItem.quantity))
               : existingRow.quantity;
           const qtyDelta = nextQty - existingRow.quantity;
+          const bilingual = populateBilingualProductFields({
+            name: cleanName,
+            nameFr: typeof rawItem.nameFr === 'string' ? rawItem.nameFr : '',
+            nameAr: typeof rawItem.nameAr === 'string' ? rawItem.nameAr : '',
+            description:
+              typeof rawItem.description === 'string'
+                ? rawItem.description.trim()
+                : existingRow.description,
+            descriptionFr: typeof rawItem.descriptionFr === 'string' ? rawItem.descriptionFr : '',
+            descriptionAr: typeof rawItem.descriptionAr === 'string' ? rawItem.descriptionAr : '',
+            category:
+              typeof rawItem.category === 'string' ? rawItem.category.trim() : existingRow.category,
+            categoryFr: typeof rawItem.categoryFr === 'string' ? rawItem.categoryFr : '',
+            categoryAr: typeof rawItem.categoryAr === 'string' ? rawItem.categoryAr : '',
+            color: typeof rawItem.color === 'string' ? rawItem.color.trim() : existingRow.color,
+            colorFr: typeof rawItem.colorFr === 'string' ? rawItem.colorFr : '',
+            colorAr: typeof rawItem.colorAr === 'string' ? rawItem.colorAr : '',
+            sellingPrice:
+              typeof rawItem.sellingPrice === 'number'
+                ? toNumber(rawItem.sellingPrice, 0)
+                : existingRow.selling_price,
+          });
 
           updateProduct.run(
-            cleanName,
-            typeof rawItem.description === 'string'
-              ? rawItem.description.trim()
-              : existingRow.description,
-            typeof rawItem.category === 'string' ? rawItem.category.trim() : existingRow.category,
-            typeof rawItem.color === 'string' ? rawItem.color.trim() : existingRow.color,
+            bilingual.name,
+            bilingual.nameFr || '',
+            bilingual.nameAr || '',
+            bilingual.description,
+            bilingual.descriptionFr || '',
+            bilingual.descriptionAr || '',
+            bilingual.category || '',
+            bilingual.categoryFr || '',
+            bilingual.categoryAr || '',
+            bilingual.color || '',
+            bilingual.colorFr || '',
+            bilingual.colorAr || '',
             resolvedWhId || existingRow.warehouse_id,
             resolvedWhName || existingRow.warehouse_name,
             typeof rawItem.supplier === 'string' ? rawItem.supplier.trim() : existingRow.supplier,
@@ -2313,6 +2535,21 @@ async function startServer() {
         const supplier = typeof rawItem.supplier === 'string' ? rawItem.supplier.trim() : '';
         const category = typeof rawItem.category === 'string' ? rawItem.category.trim() : '';
         const color = typeof rawItem.color === 'string' ? rawItem.color.trim() : '';
+        const bilingual = populateBilingualProductFields({
+          name: cleanName,
+          nameFr: typeof rawItem.nameFr === 'string' ? rawItem.nameFr : '',
+          nameAr: typeof rawItem.nameAr === 'string' ? rawItem.nameAr : '',
+          description: typeof rawItem.description === 'string' ? rawItem.description.trim() : '',
+          descriptionFr: typeof rawItem.descriptionFr === 'string' ? rawItem.descriptionFr : '',
+          descriptionAr: typeof rawItem.descriptionAr === 'string' ? rawItem.descriptionAr : '',
+          category,
+          categoryFr: typeof rawItem.categoryFr === 'string' ? rawItem.categoryFr : '',
+          categoryAr: typeof rawItem.categoryAr === 'string' ? rawItem.categoryAr : '',
+          color,
+          colorFr: typeof rawItem.colorFr === 'string' ? rawItem.colorFr : '',
+          colorAr: typeof rawItem.colorAr === 'string' ? rawItem.colorAr : '',
+          sellingPrice: toNumber(rawItem.sellingPrice, 0),
+        });
         const addedDate =
           typeof rawItem.addedDate === 'string' && rawItem.addedDate.trim()
             ? rawItem.addedDate.trim()
@@ -2322,10 +2559,18 @@ async function startServer() {
           id,
           finalCode,
           qrToken,
-          cleanName,
-          typeof rawItem.description === 'string' ? rawItem.description.trim() : '',
-          category,
-          color,
+          bilingual.name,
+          bilingual.nameFr || '',
+          bilingual.nameAr || '',
+          bilingual.description,
+          bilingual.descriptionFr || '',
+          bilingual.descriptionAr || '',
+          bilingual.category || '',
+          bilingual.categoryFr || '',
+          bilingual.categoryAr || '',
+          bilingual.color || '',
+          bilingual.colorFr || '',
+          bilingual.colorAr || '',
           resolvedWhId,
           resolvedWhName,
           '',
@@ -2743,10 +2988,31 @@ async function startServer() {
     res.json({ ok: true, summary: getInventorySummary() });
   });
 
-  app.get('/api/settings', (_req: Request, res: Response) => {
+  const parseSavedPrinters = (rawJson: string | undefined) => {
+    if (!rawJson) return [];
+    try {
+      const parsed = JSON.parse(rawJson);
+      if (!Array.isArray(parsed)) return [];
+      return parsed
+        .filter((item) => item && typeof item === 'object' && typeof item.id === 'string' && typeof item.name === 'string')
+        .map((item) => ({
+          id: String(item.id).slice(0, 64),
+          name: String(item.name).trim().slice(0, 80),
+          mode: ['pdf_system', 'thermal_bt', 'browser'].includes(item.mode) ? item.mode : 'pdf_system',
+          paper: ['a4', 'label_50x30', 'label_40x30', 'roll_58', 'roll_80'].includes(item.paper)
+            ? item.paper
+            : 'a4',
+          isBluetooth: Boolean(item.isBluetooth),
+        }));
+    } catch {
+      return [];
+    }
+  };
+
+  const buildSettingsPayload = () => {
     const rows = db.prepare('SELECT key, value FROM shop_settings').all() as Array<{ key: string; value: string }>;
     const map = new Map(rows.map((r) => [r.key, r.value]));
-    res.json({
+    return {
       customLogo: map.get('custom_logo') ?? '',
       storeName: map.get('store_name') ?? '',
       currency: map.get('currency') || 'MAD',
@@ -2757,8 +3023,14 @@ async function startServer() {
       printerPaper: map.get('printer_paper') || 'a4',
       printerName: map.get('printer_name') ?? '',
       printerLinked: map.get('printer_linked') === '1',
+      savedPrinters: parseSavedPrinters(map.get('saved_printers_json')),
+      activePrinterId: map.get('active_printer_id') ?? '',
       publicAppUrl: map.get('public_app_url') ?? '',
-    });
+    };
+  };
+
+  app.get('/api/settings', (_req: Request, res: Response) => {
+    res.json(buildSettingsPayload());
   });
 
   app.put('/api/settings', (req: Request, res: Response) => {
@@ -2773,6 +3045,14 @@ async function startServer() {
       printerPaper?: string;
       printerName?: string;
       printerLinked?: boolean;
+      savedPrinters?: Array<{
+        id?: string;
+        name?: string;
+        mode?: string;
+        paper?: string;
+        isBluetooth?: boolean;
+      }>;
+      activePrinterId?: string;
       publicAppUrl?: string;
     };
     if (typeof body.customLogo === 'string') {
@@ -2826,26 +3106,33 @@ async function startServer() {
         body.printerLinked ? '1' : '0'
       );
     }
+    if (Array.isArray(body.savedPrinters)) {
+      const sanitized = body.savedPrinters
+        .filter((p) => p && typeof p.id === 'string' && typeof p.name === 'string' && p.name.trim())
+        .map((p) => ({
+          id: String(p.id).slice(0, 64),
+          name: String(p.name).trim().slice(0, 80),
+          mode: ['pdf_system', 'thermal_bt', 'browser'].includes(String(p.mode)) ? p.mode : 'pdf_system',
+          paper: ['a4', 'label_50x30', 'label_40x30', 'roll_58', 'roll_80'].includes(String(p.paper))
+            ? p.paper
+            : 'a4',
+          isBluetooth: Boolean(p.isBluetooth),
+        }));
+      db.prepare("INSERT OR REPLACE INTO shop_settings (key, value) VALUES ('saved_printers_json', ?)").run(
+        JSON.stringify(sanitized)
+      );
+    }
+    if (typeof body.activePrinterId === 'string') {
+      db.prepare("INSERT OR REPLACE INTO shop_settings (key, value) VALUES ('active_printer_id', ?)").run(
+        body.activePrinterId.trim().slice(0, 64)
+      );
+    }
     if (typeof body.publicAppUrl === 'string') {
       db.prepare("INSERT OR REPLACE INTO shop_settings (key, value) VALUES ('public_app_url', ?)").run(
         body.publicAppUrl.trim().replace(/\/+$/, '').slice(0, 240)
       );
     }
-    const rows = db.prepare('SELECT key, value FROM shop_settings').all() as Array<{ key: string; value: string }>;
-    const map = new Map(rows.map((r) => [r.key, r.value]));
-    res.json({
-      customLogo: map.get('custom_logo') ?? '',
-      storeName: map.get('store_name') ?? '',
-      currency: map.get('currency') || 'MAD',
-      facebookHandle: map.get('facebook_handle') ?? '',
-      instagramHandle: map.get('instagram_handle') ?? '',
-      whatsappPhone: map.get('whatsapp_phone') ?? '',
-      printerMode: map.get('printer_mode') || 'pdf_system',
-      printerPaper: map.get('printer_paper') || 'a4',
-      printerName: map.get('printer_name') ?? '',
-      printerLinked: map.get('printer_linked') === '1',
-      publicAppUrl: map.get('public_app_url') ?? '',
-    });
+    res.json(buildSettingsPayload());
   });
 
   // Meta (Facebook & Instagram) OAuth + Graph API Publishing
@@ -3454,7 +3741,7 @@ async function startServer() {
     const rates = await getActiveRatesFromMad();
 
     const rows = db.prepare('SELECT * FROM products ORDER BY code ASC').all() as ProductRow[];
-    const products = mapProductsWithPhotos(rows);
+    const products = mapProductsWithPhotos(rows).map((item) => localizeProduct(item, lang));
     const summary = getInventorySummary();
 
     const headers =

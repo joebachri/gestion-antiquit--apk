@@ -531,7 +531,7 @@ export function CameraModal({
   return (
     <div
       dir={lang === 'ar' ? 'rtl' : 'ltr'}
-      className="fixed inset-0 z-50 flex h-dvh flex-col bg-[#06110C] text-white"
+      className="fixed inset-0 z-[80] flex h-dvh flex-col bg-[#06110C] text-white"
       role="dialog"
       aria-modal="true"
       aria-label={t.cameraTitle}

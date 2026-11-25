@@ -59,6 +59,7 @@ export function InitialSetupModal({
       const cleanFb = facebookHandle.trim();
 
       await onSaveSettings({
+        ...settings,
         customLogo: settings.customLogo,
         storeName: skipHandles ? settings.storeName : storeName.trim(),
         currency,
@@ -81,7 +82,7 @@ export function InitialSetupModal({
   return (
     <div
       dir={lang === 'ar' ? 'rtl' : 'ltr'}
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/55 p-0 backdrop-blur-xs sm:items-center sm:p-4"
+      className="fixed inset-0 z-[70] flex items-end justify-center bg-black/55 p-0 backdrop-blur-xs sm:items-center sm:p-4"
     >
       <div className="pb-safe max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl border border-[#DCE7E0] bg-white p-6 shadow-xl sm:rounded-3xl dark:border-[#1E3A2D] dark:bg-[#0F2119]">
         <div className="mb-4 flex items-start justify-between gap-3">
@@ -199,6 +200,7 @@ export function InitialSetupModal({
             }}
             onSaveHandles={async (next) => {
               await onSaveSettings({
+                ...settings,
                 customLogo: settings.customLogo,
                 storeName: storeName.trim(),
                 currency,

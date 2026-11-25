@@ -98,19 +98,26 @@ export function ReportsPrintModal({
     setProductId(initialFilters?.productId || '');
     setCustomerId(initialFilters?.customerId || '');
     setSupplierId(initialFilters?.supplierId || '');
-    setInvoiceId(initialFilters?.invoiceId || invoices[0]?.id || '');
+    setInvoiceId(initialFilters?.invoiceId || '');
     setIsCopy(Boolean(initialFilters?.isCopy));
-  }, [isOpen, initialFilters, invoices]);
+  }, [isOpen, initialFilters]);
+
+  // Default invoice picker if single-invoice report is selected without an invoiceId
+  useEffect(() => {
+    if (isOpen && reportType === 'invoice_single' && !invoiceId && invoices.length > 0) {
+      setInvoiceId(invoices[0].id);
+    }
+  }, [isOpen, reportType, invoiceId, invoices]);
 
   // Keep selected invoice copy default synced when selecting an invoice
   useEffect(() => {
-    if (reportType === 'invoice_single' && invoiceId) {
+    if (isOpen && reportType === 'invoice_single' && invoiceId) {
       const inv = invoices.find((i) => i.id === invoiceId);
       if (inv && !initialFilters?.invoiceId) {
         setIsCopy((inv.printCount || 0) > 0);
       }
     }
-  }, [reportType, invoiceId, invoices, initialFilters?.invoiceId]);
+  }, [isOpen, reportType, invoiceId, invoices, initialFilters?.invoiceId]);
 
   const currentFilters: ReportFilters = {
     reportType,
@@ -254,7 +261,7 @@ export function ReportsPrintModal({
   return (
     <div
       dir={lang === 'ar' ? 'rtl' : 'ltr'}
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/55 p-0 backdrop-blur-xs sm:items-center sm:p-4"
+      className="fixed inset-0 z-[60] flex items-end justify-center bg-black/55 p-0 backdrop-blur-xs sm:items-center sm:p-4"
       onClick={onClose}
     >
       <div

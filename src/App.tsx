@@ -100,6 +100,7 @@ import {
 } from './utils/api';
 import { saveOrShareBlob } from './utils/download';
 import { isVideoMedia } from './utils/image';
+import { localizeProduct, localizeWarehouse } from './utils/productTranslation';
 import { extractQrParamFromLocation, extractSnapshotExtrasFromQrInput } from './utils/qr';
 import { buildReportSpec, executeReportOutput } from './utils/printReports';
 import { Header } from './components/Header';
@@ -154,6 +155,8 @@ export default function App() {
     printerPaper: 'a4',
     printerName: '',
     printerLinked: false,
+    savedPrinters: [],
+    activePrinterId: '',
     publicAppUrl: '',
   });
   const [metaStatus, setMetaStatus] = useState<MetaAuthStatus>({
@@ -585,6 +588,60 @@ export default function App() {
     [fetchPosSales]
   );
 
+  const localizedProducts = useMemo(
+    () => products.map((p) => localizeProduct(p, lang)),
+    [products, lang]
+  );
+
+  const localizedWarehouses = useMemo(
+    () => warehouses.map((w) => localizeWarehouse(w, lang)),
+    [warehouses, lang]
+  );
+
+  const activeDetailProduct = useMemo(() => {
+    if (!detailProduct) return null;
+    return (
+      localizedProducts.find((p) => p.id === detailProduct.id) ||
+      localizeProduct(detailProduct, lang)
+    );
+  }, [detailProduct, localizedProducts, lang]);
+
+  const activeShareProduct = useMemo(() => {
+    if (!shareProduct) return null;
+    return (
+      localizedProducts.find((p) => p.id === shareProduct.id) ||
+      localizeProduct(shareProduct, lang)
+    );
+  }, [shareProduct, localizedProducts, lang]);
+
+  const activeQrCodeProduct = useMemo(() => {
+    if (!qrCodeProduct) return null;
+    return (
+      localizedProducts.find((p) => p.id === qrCodeProduct.id) ||
+      localizeProduct(qrCodeProduct, lang)
+    );
+  }, [qrCodeProduct, localizedProducts, lang]);
+
+  const handleChangeLang = useCallback(
+    (nextLang: Language) => {
+      if (nextLang === lang) return;
+      setSelectedCategory((prevCat) => {
+        if (prevCat === 'all') return 'all';
+        const matched = products.find((p) => localizeProduct(p, lang).category === prevCat);
+        if (!matched) return 'all';
+        return localizeProduct(matched, nextLang).category || 'all';
+      });
+      setSelectedColor((prevColor) => {
+        if (prevColor === 'all') return 'all';
+        const matched = products.find((p) => localizeProduct(p, lang).color === prevColor);
+        if (!matched) return 'all';
+        return localizeProduct(matched, nextLang).color || 'all';
+      });
+      setLang(nextLang);
+    },
+    [lang, products]
+  );
+
   const handlePrintInvoice = useCallback(
     async (invoice: PosInvoice, isCopy: boolean) => {
       const spec = buildReportSpec(
@@ -594,8 +651,8 @@ export default function App() {
           isCopy,
         },
         {
-          products,
-          warehouses,
+          products: localizedProducts,
+          warehouses: localizedWarehouses,
           customers,
           suppliers,
           invoices: posInvoices.some((i) => i.id === invoice.id)
@@ -621,8 +678,8 @@ export default function App() {
       }
     },
     [
-      products,
-      warehouses,
+      localizedProducts,
+      localizedWarehouses,
       customers,
       suppliers,
       posInvoices,
@@ -949,7 +1006,12 @@ export default function App() {
             // use current list
           }
         }
-        xlsxBlob = buildExcelBlob(allProducts, allSummary, settings.currency, lang);
+        xlsxBlob = buildExcelBlob(
+          allProducts.map((p) => localizeProduct(p, lang)),
+          allSummary,
+          settings.currency,
+          lang
+        );
       }
 
       await saveOrShareBlob(xlsxBlob, filename, t.exportExcel);
@@ -971,7 +1033,11 @@ export default function App() {
           // use current products
         }
       }
-      const blob = buildStockPurchasesExcelBlob(targetProducts, settings.currency, lang);
+      const blob = buildStockPurchasesExcelBlob(
+        targetProducts.map((p) => localizeProduct(p, lang)),
+        settings.currency,
+        lang
+      );
       const dateStamp = new Date().toISOString().slice(0, 10);
       await saveOrShareBlob(
         blob,
@@ -993,7 +1059,7 @@ export default function App() {
       { refs: number; units: number; totalCostMad: number }
     >();
 
-    for (const prod of products) {
+    for (const prod of localizedProducts) {
       const qty = Math.max(0, Number(prod.quantity) || 0);
       const refUnit = Number(prod.referencePrice) || 0;
       const expUnit = Number(prod.expenses) || 0;
@@ -1022,30 +1088,30 @@ export default function App() {
         (a, b) => b[1].totalCostMad - a[1].totalCostMad
       ),
     };
-  }, [products, t.digitalMgmtNotSpecified]);
+  }, [localizedProducts, t.digitalMgmtNotSpecified]);
 
   const availableCategories = useMemo(
     () =>
       Array.from(
-        new Set(products.map((p) => (p.category || '').trim()).filter(Boolean))
+        new Set(localizedProducts.map((p) => (p.category || '').trim()).filter(Boolean))
       ).sort(),
-    [products]
+    [localizedProducts]
   );
 
   const availableColors = useMemo(
     () =>
       Array.from(
-        new Set(products.map((p) => (p.color || '').trim()).filter(Boolean))
+        new Set(localizedProducts.map((p) => (p.color || '').trim()).filter(Boolean))
       ).sort(),
-    [products]
+    [localizedProducts]
   );
 
-  const inStockCount = products.filter((p) => (Number(p.quantity) || 0) > 0).length;
-  const soldCount = products.filter((p) => (Number(p.quantity) || 0) <= 0).length;
+  const inStockCount = localizedProducts.filter((p) => (Number(p.quantity) || 0) > 0).length;
+  const soldCount = localizedProducts.filter((p) => (Number(p.quantity) || 0) <= 0).length;
   const hasAttributeFilters =
     selectedWarehouseId !== 'all' || selectedCategory !== 'all' || selectedColor !== 'all';
 
-  const displayedProducts = products.filter((p) => {
+  const displayedProducts = localizedProducts.filter((p) => {
     if (inventoryFilter === 'in_stock' && (Number(p.quantity) || 0) <= 0) return false;
     if (inventoryFilter === 'sold' && (Number(p.quantity) || 0) > 0) return false;
     if (selectedWarehouseId !== 'all' && (p.warehouseId || '') !== selectedWarehouseId) return false;
@@ -1107,6 +1173,7 @@ export default function App() {
           onLookupQr={lookupProductByQrApi}
           onExecuteQrSale={handleExecuteQrSale}
           onOpenDigitalFile={(file) => {
+            setQrScannerOpen(false);
             setDigitalFileLockedClient(true);
             setDigitalFileView('client');
             setDigitalFileData(file);
@@ -1141,7 +1208,7 @@ export default function App() {
           <div
             role="status"
             aria-live="polite"
-            className="fixed bottom-6 left-1/2 z-50 flex w-[calc(100%-2rem)] max-w-md -translate-x-1/2 items-center justify-between gap-3 rounded-2xl border border-[#10B981]/40 bg-[#115E3B] px-4 py-3 text-xs font-semibold text-white shadow-xl"
+            className="fixed bottom-6 left-1/2 z-[90] flex w-[calc(100%-2rem)] max-w-md -translate-x-1/2 items-center justify-between gap-3 rounded-2xl border border-[#10B981]/40 bg-[#115E3B] px-4 py-3 text-xs font-semibold text-white shadow-xl"
           >
             <span>{toastMessage}</span>
           </div>
@@ -1154,7 +1221,7 @@ export default function App() {
     <div className="min-h-dvh bg-[#F7FAF8] text-[#0B1F16] dark:bg-[#08130E] dark:text-[#F2F9F5]">
       <Header
         lang={lang}
-        onChangeLang={setLang}
+        onChangeLang={handleChangeLang}
         isDark={isDark}
         onToggleTheme={() => setIsDark((d) => !d)}
         customLogo={settings.customLogo}
@@ -1534,9 +1601,9 @@ export default function App() {
           </div>
 
           {/* Warehouse / Category / Color Attribute Filters */}
-          {(warehouses.length > 0 || availableCategories.length > 0 || availableColors.length > 0) && (
+          {(localizedWarehouses.length > 0 || availableCategories.length > 0 || availableColors.length > 0) && (
             <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-[#DCE7E0] bg-white p-2.5 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
-              {warehouses.length > 0 && (
+              {localizedWarehouses.length > 0 && (
                 <select
                   value={selectedWarehouseId}
                   onChange={(e) => setSelectedWarehouseId(e.target.value)}
@@ -1544,7 +1611,7 @@ export default function App() {
                   className="min-h-[38px] rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-3 text-xs font-medium text-[#0B1F16] focus:border-[#115E3B] focus:outline-none dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#F2F9F5]"
                 >
                   <option value="all">{t.productAllWarehouses}</option>
-                  {warehouses.map((wh) => (
+                  {localizedWarehouses.map((wh) => (
                     <option key={wh.id} value={wh.id}>
                       {wh.code} — {wh.name}
                     </option>
@@ -1947,7 +2014,8 @@ export default function App() {
                         <button
                           type="button"
                           onClick={() => {
-                            setEditingProduct(product);
+                            const raw = products.find((p) => p.id === product.id) || product;
+                            setEditingProduct(raw);
                             setFormOpen(true);
                           }}
                           aria-label={t.edit}
@@ -2099,7 +2167,7 @@ export default function App() {
         lang={lang}
         currency={settings.currency}
         editingProduct={editingProduct}
-        warehouses={warehouses}
+        warehouses={localizedWarehouses}
         suppliers={suppliers}
         existingCategories={availableCategories}
         onClose={() => {
@@ -2110,12 +2178,13 @@ export default function App() {
       />
 
       <ProductDetailSheet
-        product={detailProduct}
+        product={activeDetailProduct}
         lang={lang}
         currency={settings.currency}
         onClose={() => setDetailProduct(null)}
         onEdit={(prod) => {
-          setEditingProduct(prod);
+          const raw = products.find((p) => p.id === prod.id) || prod;
+          setEditingProduct(raw);
           setFormOpen(true);
         }}
         onDelete={handleDeleteProduct}
@@ -2131,7 +2200,7 @@ export default function App() {
       />
 
       <ShareModal
-        product={shareProduct}
+        product={activeShareProduct}
         lang={lang}
         currency={settings.currency}
         metaStatus={metaStatus}
@@ -2162,6 +2231,8 @@ export default function App() {
         printerPaper={settings.printerPaper}
         printerName={settings.printerName}
         printerLinked={settings.printerLinked}
+        savedPrinters={settings.savedPrinters || []}
+        activePrinterId={settings.activePrinterId || ''}
         publicAppUrl={settings.publicAppUrl}
         metaStatus={metaStatus}
         onRefreshMetaStatus={refreshMetaStatus}
@@ -2174,7 +2245,7 @@ export default function App() {
       <InitialSetupModal
         isOpen={setupOpen}
         lang={lang}
-        onChangeLang={setLang}
+        onChangeLang={handleChangeLang}
         settings={settings}
         metaStatus={metaStatus}
         onRefreshMetaStatus={refreshMetaStatus}
@@ -2194,6 +2265,7 @@ export default function App() {
         lang={lang}
         onClose={() => setGuideOpen(false)}
         onQuickAction={(action) => {
+          setSetupOpen(false);
           if (action === 'add-product') {
             setActiveTab('inventory');
             setEditingProduct(null);
@@ -2226,7 +2298,7 @@ export default function App() {
         customer={detailCustomer}
         lang={lang}
         currency={settings.currency}
-        products={products}
+        products={localizedProducts}
         initialAddPurchase={detailStartAddPurchase}
         initialTab={detailInitialTab}
         onClose={() => {
@@ -2268,8 +2340,8 @@ export default function App() {
         supplier={detailSupplier}
         lang={lang}
         currency={settings.currency}
-        products={products}
-        warehouses={warehouses}
+        products={localizedProducts}
+        warehouses={localizedWarehouses}
         initialAddPurchase={detailSupStartAdd}
         initialTab={detailSupInitialTab}
         onClose={() => {
@@ -2292,8 +2364,8 @@ export default function App() {
         isOpen={warehousesModalOpen}
         lang={lang}
         currency={settings.currency}
-        warehouses={warehouses}
-        products={products}
+        warehouses={localizedWarehouses}
+        products={localizedProducts}
         onClose={() => setWarehousesModalOpen(false)}
         onSaveWarehouse={handleSaveWarehouse}
         onDeleteWarehouse={handleDeleteWarehouse}
@@ -2309,8 +2381,8 @@ export default function App() {
         isOpen={adjustmentsModalOpen}
         lang={lang}
         currency={settings.currency}
-        products={products}
-        warehouses={warehouses}
+        products={localizedProducts}
+        warehouses={localizedWarehouses}
         suppliers={suppliers}
         adjustments={adjustments}
         onClose={() => setAdjustmentsModalOpen(false)}
@@ -2332,8 +2404,8 @@ export default function App() {
         currency={settings.currency}
         storeName={settings.storeName || ''}
         initialFilters={reportsInitialFilters}
-        products={products}
-        warehouses={warehouses}
+        products={localizedProducts}
+        warehouses={localizedWarehouses}
         customers={customers}
         suppliers={suppliers}
         invoices={posInvoices}
@@ -2370,6 +2442,7 @@ export default function App() {
         onPrintInvoice={handlePrintInvoice}
         onOpenDigitalFile={(file, view) => {
           const keepClientLock = qrScannerClientOnly;
+          setQrScannerOpen(false);
           setQrScannerClientOnly(false);
           setDigitalFileLockedClient(keepClientLock);
           setDigitalFileView(keepClientLock ? 'client' : view);
@@ -2386,7 +2459,7 @@ export default function App() {
       />
 
       <QrCodeDisplayModal
-        product={qrCodeProduct}
+        product={activeQrCodeProduct}
         lang={lang}
         currency={settings.currency}
         storeName={settings.storeName}
@@ -2403,7 +2476,10 @@ export default function App() {
           });
         }}
         onClose={() => setQrCodeProduct(null)}
-        onOpenDigitalFile={(prod) => void openDigitalFileForProduct(prod.id, 'management')}
+        onOpenDigitalFile={(prod) => {
+          setQrCodeProduct(null);
+          void openDigitalFileForProduct(prod.id, 'management');
+        }}
         onNotify={showToast}
       />
 
@@ -2422,9 +2498,10 @@ export default function App() {
           setDigitalFileLockedClient(false);
         }}
         onEditProduct={(prod) => {
+          const raw = products.find((p) => p.id === prod.id) || prod;
           setDigitalFileData(null);
           setDigitalFileLockedClient(false);
-          setEditingProduct(prod);
+          setEditingProduct(raw);
           setFormOpen(true);
         }}
         onRecordSale={handleRecordPosSale}
@@ -2451,9 +2528,9 @@ export default function App() {
         lang={lang}
         currency={settings.currency}
         storeName={settings.storeName}
-        products={products}
+        products={localizedProducts}
         customers={customers}
-        warehouses={warehouses}
+        warehouses={localizedWarehouses}
         invoices={posInvoices}
         summary={posSummary}
         onClose={() => setPosModalOpen(false)}
@@ -2492,7 +2569,7 @@ export default function App() {
           dir={lang === 'ar' ? 'rtl' : 'ltr'}
           role="status"
           aria-live="polite"
-          className="fixed bottom-20 left-1/2 z-50 flex w-[calc(100%-2rem)] max-w-md -translate-x-1/2 items-center justify-between gap-3 rounded-2xl border border-[#10B981]/40 bg-[#115E3B] px-4 py-3 text-xs font-semibold text-white shadow-xl sm:bottom-6 dark:border-[#34D399]/40 dark:bg-[#10B981] dark:text-[#052E1C]"
+          className="fixed bottom-20 left-1/2 z-[90] flex w-[calc(100%-2rem)] max-w-md -translate-x-1/2 items-center justify-between gap-3 rounded-2xl border border-[#10B981]/40 bg-[#115E3B] px-4 py-3 text-xs font-semibold text-white shadow-xl sm:bottom-6 dark:border-[#34D399]/40 dark:bg-[#10B981] dark:text-[#052E1C]"
         >
           <div className="flex min-w-0 items-center gap-2.5">
             <CheckCircle2 className="h-4 w-4 shrink-0" />

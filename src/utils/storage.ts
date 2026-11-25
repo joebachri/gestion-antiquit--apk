@@ -24,6 +24,7 @@ import type {
   ProductPayload,
   ProductPhoto,
   PurchasePaymentMethod,
+  SavedPrinterProfile,
   ShopSettings,
   Supplier,
   SupplierCategory,
@@ -37,6 +38,7 @@ import type {
   WarehousePayload,
 } from '../types';
 import { extractPrefixLetter } from './image';
+import { populateBilingualProductFields } from './productTranslation';
 import lanternImg from '../assets/images/antique_copper_lantern_1794787509666.jpg';
 import chestImg from '../assets/images/antique_berber_chest_1794787509355.jpg';
 import ceramicImg from '../assets/images/antique_fez_ceramic_1794787509914.jpg';
@@ -176,11 +178,44 @@ async function appendHistoryEvent(
 }
 
 function normalizeProductRecord(p: Product): Product {
+  const needsBilingual =
+    !p.nameFr ||
+    !p.nameAr ||
+    (Boolean(p.description) && (!p.descriptionFr || !p.descriptionAr)) ||
+    (Boolean(p.category) && (!p.categoryFr || !p.categoryAr)) ||
+    (Boolean(p.color) && (!p.colorFr || !p.colorAr));
+
+  const bilingual = needsBilingual
+    ? populateBilingualProductFields({
+        name: p.name || '',
+        nameFr: p.nameFr || '',
+        nameAr: p.nameAr || '',
+        description: p.description || '',
+        descriptionFr: p.descriptionFr || '',
+        descriptionAr: p.descriptionAr || '',
+        category: p.category || '',
+        categoryFr: p.categoryFr || '',
+        categoryAr: p.categoryAr || '',
+        color: p.color || '',
+        colorFr: p.colorFr || '',
+        colorAr: p.colorAr || '',
+        sellingPrice: p.sellingPrice || 0,
+      })
+    : p;
+
   return {
     ...p,
     qrToken: p.qrToken || `GA-QR-${p.code}`,
+    nameFr: bilingual.nameFr || p.nameFr || '',
+    nameAr: bilingual.nameAr || p.nameAr || '',
+    descriptionFr: bilingual.descriptionFr || p.descriptionFr || '',
+    descriptionAr: bilingual.descriptionAr || p.descriptionAr || '',
     category: p.category || '',
+    categoryFr: bilingual.categoryFr || p.categoryFr || '',
+    categoryAr: bilingual.categoryAr || p.categoryAr || '',
     color: p.color || '',
+    colorFr: bilingual.colorFr || p.colorFr || '',
+    colorAr: bilingual.colorAr || p.colorAr || '',
     warehouseId: p.warehouseId || '',
     warehouseName: p.warehouseName || '',
     supplierId: p.supplierId || '',
@@ -377,10 +412,16 @@ export async function localListProducts(
     ? all.filter(
         (p) =>
           p.name.toLowerCase().includes(q) ||
+          (p.nameFr || '').toLowerCase().includes(q) ||
+          (p.nameAr || '').toLowerCase().includes(q) ||
           p.code.toLowerCase().includes(q) ||
           (p.supplier || '').toLowerCase().includes(q) ||
           (p.category || '').toLowerCase().includes(q) ||
+          (p.categoryFr || '').toLowerCase().includes(q) ||
+          (p.categoryAr || '').toLowerCase().includes(q) ||
           (p.color || '').toLowerCase().includes(q) ||
+          (p.colorFr || '').toLowerCase().includes(q) ||
+          (p.colorAr || '').toLowerCase().includes(q) ||
           (p.warehouseName || '').toLowerCase().includes(q) ||
           (p.qrToken || '').toLowerCase().includes(q) ||
           p.photos.some((ph) => ph.photoCode.toLowerCase().includes(q))
@@ -461,14 +502,24 @@ export async function localCreateProduct(payload: ProductPayload): Promise<Produ
     createdAt: now,
   }));
 
+  const bilingual = populateBilingualProductFields(payload);
+
   const product: Product = {
     id,
     code,
     qrToken: `GA-QR-${code}`,
-    name: payload.name.trim(),
-    description: payload.description.trim(),
-    category: (payload.category || '').trim(),
-    color: (payload.color || '').trim(),
+    name: bilingual.name.trim(),
+    nameFr: bilingual.nameFr || '',
+    nameAr: bilingual.nameAr || '',
+    description: bilingual.description.trim(),
+    descriptionFr: bilingual.descriptionFr || '',
+    descriptionAr: bilingual.descriptionAr || '',
+    category: (bilingual.category || '').trim(),
+    categoryFr: bilingual.categoryFr || '',
+    categoryAr: bilingual.categoryAr || '',
+    color: (bilingual.color || '').trim(),
+    colorFr: bilingual.colorFr || '',
+    colorAr: bilingual.colorAr || '',
     warehouseId,
     warehouseName,
     supplierId,
@@ -550,14 +601,28 @@ export async function localUpdateProduct(id: string, payload: ProductPayload): P
     createdAt: now,
   }));
 
+  const bilingual = populateBilingualProductFields({
+    ...payload,
+    category: payload.category ?? existing.category ?? '',
+    color: payload.color ?? existing.color ?? '',
+  });
+
   const updated: Product = {
     ...existing,
     code,
     qrToken,
-    name: payload.name.trim(),
-    description: payload.description.trim(),
-    category: (payload.category ?? existing.category ?? '').trim(),
-    color: (payload.color ?? existing.color ?? '').trim(),
+    name: bilingual.name.trim(),
+    nameFr: bilingual.nameFr || '',
+    nameAr: bilingual.nameAr || '',
+    description: bilingual.description.trim(),
+    descriptionFr: bilingual.descriptionFr || '',
+    descriptionAr: bilingual.descriptionAr || '',
+    category: (bilingual.category ?? existing.category ?? '').trim(),
+    categoryFr: bilingual.categoryFr || '',
+    categoryAr: bilingual.categoryAr || '',
+    color: (bilingual.color ?? existing.color ?? '').trim(),
+    colorFr: bilingual.colorFr || '',
+    colorAr: bilingual.colorAr || '',
     warehouseId,
     warehouseName,
     supplierId,
@@ -631,12 +696,27 @@ export async function localImportProducts(
 
       const nextQty = Math.max(0, Math.floor(Number(rawItem.quantity ?? existing.quantity) || 0));
       const qtyDelta = nextQty - (Number(existing.quantity) || 0);
-      const updated: Product = {
-        ...existing,
+      const bilingual = populateBilingualProductFields({
+        ...rawItem,
         name: cleanName,
         description: (rawItem.description ?? existing.description ?? '').trim(),
         category: (rawItem.category ?? existing.category ?? '').trim(),
         color: (rawItem.color ?? existing.color ?? '').trim(),
+      });
+      const updated: Product = {
+        ...existing,
+        name: bilingual.name,
+        nameFr: bilingual.nameFr || '',
+        nameAr: bilingual.nameAr || '',
+        description: bilingual.description,
+        descriptionFr: bilingual.descriptionFr || '',
+        descriptionAr: bilingual.descriptionAr || '',
+        category: (bilingual.category || '').trim(),
+        categoryFr: bilingual.categoryFr || '',
+        categoryAr: bilingual.categoryAr || '',
+        color: (bilingual.color || '').trim(),
+        colorFr: bilingual.colorFr || '',
+        colorAr: bilingual.colorAr || '',
         warehouseId: resolvedWhId || existing.warehouseId,
         warehouseName: resolvedWhName || existing.warehouseName,
         supplier: (rawItem.supplier ?? existing.supplier ?? '').trim(),
@@ -672,14 +752,29 @@ export async function localImportProducts(
     const finalCode = cleanCode || computeNextCode(all, cleanName);
     const initialQty = Math.max(0, Math.floor(Number(rawItem.quantity ?? 1) || 0));
     const supplier = (rawItem.supplier || '').trim();
-    const created: Product = {
-      id,
-      code: finalCode,
-      qrToken: `GA-QR-${finalCode}`,
+    const bilingualCreated = populateBilingualProductFields({
+      ...rawItem,
       name: cleanName,
       description: (rawItem.description || '').trim(),
       category: (rawItem.category || '').trim(),
       color: (rawItem.color || '').trim(),
+    });
+    const created: Product = {
+      id,
+      code: finalCode,
+      qrToken: `GA-QR-${finalCode}`,
+      name: bilingualCreated.name,
+      nameFr: bilingualCreated.nameFr || '',
+      nameAr: bilingualCreated.nameAr || '',
+      description: bilingualCreated.description,
+      descriptionFr: bilingualCreated.descriptionFr || '',
+      descriptionAr: bilingualCreated.descriptionAr || '',
+      category: (bilingualCreated.category || '').trim(),
+      categoryFr: bilingualCreated.categoryFr || '',
+      categoryAr: bilingualCreated.categoryAr || '',
+      color: (bilingualCreated.color || '').trim(),
+      colorFr: bilingualCreated.colorFr || '',
+      colorAr: bilingualCreated.colorAr || '',
       warehouseId: resolvedWhId,
       warehouseName: resolvedWhName,
       supplierId: '',
@@ -781,6 +876,25 @@ export async function localGetSettings(): Promise<ShopSettings> {
     STORE_SETTINGS,
     'publicAppUrl'
   );
+  const savedPrintersRaw = await getFromStore<{ key: string; value: string }>(
+    db,
+    STORE_SETTINGS,
+    'savedPrinters'
+  );
+  const activePrinterId = await getFromStore<{ key: string; value: string }>(
+    db,
+    STORE_SETTINGS,
+    'activePrinterId'
+  );
+  let savedPrinters: SavedPrinterProfile[] = [];
+  if (savedPrintersRaw?.value) {
+    try {
+      const parsed = JSON.parse(savedPrintersRaw.value);
+      if (Array.isArray(parsed)) savedPrinters = parsed;
+    } catch {
+      savedPrinters = [];
+    }
+  }
   return {
     customLogo: logo?.value ?? '',
     storeName: storeName?.value ?? '',
@@ -792,6 +906,8 @@ export async function localGetSettings(): Promise<ShopSettings> {
     printerPaper: (printerPaper?.value as ShopSettings['printerPaper']) || 'a4',
     printerName: printerName?.value ?? '',
     printerLinked: printerLinked?.value === '1',
+    savedPrinters,
+    activePrinterId: activePrinterId?.value ?? '',
     publicAppUrl: publicAppUrl?.value ?? '',
   };
 }
@@ -846,6 +962,18 @@ export async function localSaveSettings(settings: ShopSettings): Promise<ShopSet
     await putInStore(db, STORE_SETTINGS, {
       key: 'printerLinked',
       value: settings.printerLinked ? '1' : '0',
+    });
+  }
+  if (Array.isArray(settings.savedPrinters)) {
+    await putInStore(db, STORE_SETTINGS, {
+      key: 'savedPrinters',
+      value: JSON.stringify(settings.savedPrinters),
+    });
+  }
+  if (typeof settings.activePrinterId === 'string') {
+    await putInStore(db, STORE_SETTINGS, {
+      key: 'activePrinterId',
+      value: settings.activePrinterId.trim().slice(0, 64),
     });
   }
   if (typeof settings.publicAppUrl === 'string') {

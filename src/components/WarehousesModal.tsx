@@ -125,7 +125,7 @@ export function WarehousesModal({
   return (
     <div
       dir={lang === 'ar' ? 'rtl' : 'ltr'}
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 backdrop-blur-xs sm:items-center sm:p-4"
+      className="fixed inset-0 z-40 flex items-end justify-center bg-black/60 p-0 backdrop-blur-xs sm:items-center sm:p-4"
       onClick={onClose}
     >
       <div

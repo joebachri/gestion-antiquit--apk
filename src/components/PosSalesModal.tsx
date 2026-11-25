@@ -683,7 +683,13 @@ export function PosSalesModal({
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={() => setShowFilters((v) => !v)}
+                onClick={() => {
+                  setShowFilters((v) => {
+                    const next = !v;
+                    if (next) setShowNewSale(false);
+                    return next;
+                  });
+                }}
                 className={`flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl border px-3 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
                   showFilters || hasActiveFilters
                     ? 'border-[#115E3B] bg-[#ECF7F1] text-[#115E3B] dark:border-[#10B981] dark:bg-[#132B20] dark:text-[#34D399]'
@@ -696,7 +702,13 @@ export function PosSalesModal({
 
               <button
                 type="button"
-                onClick={() => setShowReport((v) => !v)}
+                onClick={() => {
+                  setShowReport((v) => {
+                    const next = !v;
+                    if (next) setShowNewSale(false);
+                    return next;
+                  });
+                }}
                 className={`flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl border px-3 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
                   showReport
                     ? 'border-[#115E3B] bg-[#ECF7F1] text-[#115E3B] dark:border-[#10B981] dark:bg-[#132B20] dark:text-[#34D399]'
@@ -740,7 +752,16 @@ export function PosSalesModal({
 
               <button
                 type="button"
-                onClick={() => setShowNewSale((v) => !v)}
+                onClick={() => {
+                  setShowNewSale((v) => {
+                    const next = !v;
+                    if (next) {
+                      setShowReport(false);
+                      setShowFilters(false);
+                    }
+                    return next;
+                  });
+                }}
                 className="flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-xl bg-[#115E3B] px-4 text-sm font-semibold text-white hover:bg-[#0D4A2E] whitespace-nowrap shrink-0 sm:flex-initial dark:bg-[#10B981] dark:text-[#052E1C]"
               >
                 <Plus className="h-4 w-4" />

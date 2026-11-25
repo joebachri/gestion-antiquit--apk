@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Camera, ImagePlus, Trash2, X, Check, Star, RefreshCw, Video } from 'lucide-react';
+import { Camera, ImagePlus, Trash2, X, Check, Star, RefreshCw, Video, Languages, ChevronDown, ChevronUp } from 'lucide-react';
 import type { Language, Product, ProductPayload, Supplier, Warehouse } from '../types';
 import { translations } from '../i18n';
 import {
@@ -10,6 +10,7 @@ import {
 } from '../utils/image';
 import { convertFromMad, convertToMad } from '../utils/currency';
 import { fetchNextCodeApi } from '../utils/api';
+import { populateBilingualProductFields, translateTextAuto } from '../utils/productTranslation';
 import { CameraModal } from './CameraModal';
 
 interface ProductFormModalProps {
@@ -43,10 +44,16 @@ export function ProductFormModal({
   const t = translations[lang];
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [category, setCategory] = useState('');
-  const [color, setColor] = useState('');
+  const [nameFr, setNameFr] = useState('');
+  const [nameAr, setNameAr] = useState('');
+  const [descriptionFr, setDescriptionFr] = useState('');
+  const [descriptionAr, setDescriptionAr] = useState('');
+  const [categoryFr, setCategoryFr] = useState('');
+  const [categoryAr, setCategoryAr] = useState('');
+  const [colorFr, setColorFr] = useState('');
+  const [colorAr, setColorAr] = useState('');
+  const [showBilingualFields, setShowBilingualFields] = useState(false);
+
   const [warehouseId, setWarehouseId] = useState('');
   const [supplierId, setSupplierId] = useState('');
   const [supplier, setSupplier] = useState('');
@@ -74,9 +81,32 @@ export function ProductFormModal({
     sellingPrice: string;
   }>({ referencePrice: '', expenses: '', sellingPrice: '' });
 
+  const name = lang === 'ar' ? nameAr : nameFr;
+  const description = lang === 'ar' ? descriptionAr : descriptionFr;
+  const category = lang === 'ar' ? categoryAr : categoryFr;
+  const color = lang === 'ar' ? colorAr : colorFr;
+
+  const setActiveName = (val: string) => {
+    if (lang === 'ar') setNameAr(val);
+    else setNameFr(val);
+  };
+  const setActiveDescription = (val: string) => {
+    if (lang === 'ar') setDescriptionAr(val);
+    else setDescriptionFr(val);
+  };
+  const setActiveCategory = (val: string) => {
+    if (lang === 'ar') setCategoryAr(val);
+    else setCategoryFr(val);
+  };
+  const setActiveColor = (val: string) => {
+    if (lang === 'ar') setColorAr(val);
+    else setColorFr(val);
+  };
+
   useEffect(() => {
     if (!isOpen) return;
     setErrorMsg('');
+    setShowBilingualFields(false);
     const defaultWh = warehouses.find((w) => w.isDefault) || warehouses[0];
     if (editingProduct) {
       const refStr = editingProduct.referencePrice
@@ -93,10 +123,15 @@ export function ProductFormModal({
         expenses: expStr,
         sellingPrice: sellStr,
       };
-      setName(editingProduct.name);
-      setDescription(editingProduct.description);
-      setCategory(editingProduct.category || '');
-      setColor(editingProduct.color || '');
+      const populated = populateBilingualProductFields(editingProduct);
+      setNameFr(populated.nameFr || '');
+      setNameAr(populated.nameAr || '');
+      setDescriptionFr(populated.descriptionFr || '');
+      setDescriptionAr(populated.descriptionAr || '');
+      setCategoryFr(populated.categoryFr || '');
+      setCategoryAr(populated.categoryAr || '');
+      setColorFr(populated.colorFr || '');
+      setColorAr(populated.colorAr || '');
       setWarehouseId(editingProduct.warehouseId || defaultWh?.id || '');
       const matchedSup =
         suppliers.find((s) => s.id === editingProduct.supplierId) ||
@@ -129,10 +164,14 @@ export function ProductFormModal({
         expenses: '',
         sellingPrice: '',
       };
-      setName('');
-      setDescription('');
-      setCategory('');
-      setColor('');
+      setNameFr('');
+      setNameAr('');
+      setDescriptionFr('');
+      setDescriptionAr('');
+      setCategoryFr('');
+      setCategoryAr('');
+      setColorFr('');
+      setColorAr('');
       setWarehouseId(defaultWh?.id || '');
       setSupplierId('');
       setSupplier('');
@@ -155,11 +194,12 @@ export function ProductFormModal({
   // Live preview automatic code based on first letter of product name
   useEffect(() => {
     if (!isOpen) return;
+    const codeNameSource = nameFr.trim() || nameAr.trim();
     const isAutoFormat = editingProduct ? /^[A-Z]\d{4}$/.test(editingProduct.code) : true;
     const shouldQuery =
       !editingProduct ||
       regenerateCode ||
-      (isAutoFormat && extractPrefixLetter(name) !== extractPrefixLetter(editingProduct.name));
+      (isAutoFormat && extractPrefixLetter(codeNameSource) !== extractPrefixLetter(editingProduct.name));
 
     if (!shouldQuery && editingProduct) {
       setPreviewCode(editingProduct.code);
@@ -169,7 +209,7 @@ export function ProductFormModal({
     let cancelled = false;
     const timer = setTimeout(async () => {
       try {
-        const nextCode = await fetchNextCodeApi(name || 'A', editingProduct?.id);
+        const nextCode = await fetchNextCodeApi(codeNameSource || 'A', editingProduct?.id);
         if (!cancelled) {
           setPreviewCode(nextCode);
         }
@@ -182,7 +222,7 @@ export function ProductFormModal({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [isOpen, name, editingProduct, regenerateCode]);
+  }, [isOpen, nameFr, nameAr, editingProduct, regenerateCode]);
 
   if (!isOpen) return null;
 
@@ -228,10 +268,24 @@ export function ProductFormModal({
     });
   };
 
+  const handleAutoTranslatePair = () => {
+    if (lang === 'ar') {
+      if (nameAr.trim()) setNameFr(translateTextAuto(nameAr, 'fr'));
+      if (descriptionAr.trim()) setDescriptionFr(translateTextAuto(descriptionAr, 'fr'));
+      if (categoryAr.trim()) setCategoryFr(translateTextAuto(categoryAr, 'fr'));
+      if (colorAr.trim()) setColorFr(translateTextAuto(colorAr, 'fr'));
+    } else {
+      if (nameFr.trim()) setNameAr(translateTextAuto(nameFr, 'ar'));
+      if (descriptionFr.trim()) setDescriptionAr(translateTextAuto(descriptionFr, 'ar'));
+      if (categoryFr.trim()) setCategoryAr(translateTextAuto(categoryFr, 'ar'));
+      if (colorFr.trim()) setColorAr(translateTextAuto(colorFr, 'ar'));
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const trimmedName = name.trim();
-    if (!trimmedName) {
+    const trimmedActiveName = (name.trim() || nameFr.trim() || nameAr.trim()).trim();
+    if (!trimmedActiveName) {
       setErrorMsg(t.validationNameRequired);
       return;
     }
@@ -255,12 +309,20 @@ export function ProductFormModal({
       const selectedWh = warehouses.find((w) => w.id === warehouseId);
       const selectedSup = suppliers.find((s) => s.id === supplierId);
 
-      await onSubmit(
+      const bilingualPayload = populateBilingualProductFields(
         {
-          name: trimmedName,
-          description: description.trim(),
-          category: category.trim(),
-          color: color.trim(),
+          name: trimmedActiveName,
+          nameFr: nameFr.trim(),
+          nameAr: nameAr.trim(),
+          description: description.trim() || descriptionFr.trim() || descriptionAr.trim(),
+          descriptionFr: descriptionFr.trim(),
+          descriptionAr: descriptionAr.trim(),
+          category: category.trim() || categoryFr.trim() || categoryAr.trim(),
+          categoryFr: categoryFr.trim(),
+          categoryAr: categoryAr.trim(),
+          color: color.trim() || colorFr.trim() || colorAr.trim(),
+          colorFr: colorFr.trim(),
+          colorAr: colorAr.trim(),
           warehouseId: selectedWh?.id || warehouseId || '',
           warehouseName: selectedWh?.name || editingProduct?.warehouseName || '',
           supplierId: selectedSup?.id || '',
@@ -278,8 +340,10 @@ export function ProductFormModal({
           photos,
           regenerateCode,
         },
-        editingProduct?.id
+        lang
       );
+
+      await onSubmit(bilingualPayload, editingProduct?.id);
       onClose();
     } catch {
       setErrorMsg(t.errorSave);
@@ -295,7 +359,7 @@ export function ProductFormModal({
     <>
       <div
         dir={lang === 'ar' ? 'rtl' : 'ltr'}
-        className="fixed inset-0 z-40 flex items-end justify-center bg-black/55 p-0 backdrop-blur-xs sm:items-center sm:p-4"
+        className="fixed inset-0 z-50 flex items-end justify-center bg-black/55 p-0 backdrop-blur-xs sm:items-center sm:p-4"
         onClick={onClose}
       >
         <div
@@ -487,7 +551,7 @@ export function ProductFormModal({
                 type="text"
                 required
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => setActiveName(e.target.value)}
                 placeholder={t.namePlaceholder}
                 className={inputClass}
               />
@@ -507,7 +571,7 @@ export function ProductFormModal({
                   type="text"
                   list="product-categories-list"
                   value={category}
-                  onChange={(e) => setCategory(e.target.value)}
+                  onChange={(e) => setActiveCategory(e.target.value)}
                   placeholder={t.productCategoryPlaceholder}
                   className={inputClass}
                 />
@@ -531,7 +595,7 @@ export function ProductFormModal({
                   id="product-color"
                   type="text"
                   value={color}
-                  onChange={(e) => setColor(e.target.value)}
+                  onChange={(e) => setActiveColor(e.target.value)}
                   placeholder={t.productColorPlaceholder}
                   className={inputClass}
                 />
@@ -574,10 +638,155 @@ export function ProductFormModal({
                 id="product-description"
                 rows={3}
                 value={description}
-                onChange={(e) => setDescription(e.target.value)}
+                onChange={(e) => setActiveDescription(e.target.value)}
                 placeholder={t.descriptionPlaceholder}
                 className={inputClass}
               />
+            </div>
+
+            {/* Bilingual Translations FR / AR Section */}
+            <div className="rounded-2xl border border-[#DCE7E0] bg-[#F7FAF8] p-3.5 dark:border-[#1E3A2D] dark:bg-[#091611]">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowBilingualFields((v) => !v)}
+                  className="flex items-center gap-2 text-xs font-bold text-[#115E3B] dark:text-[#34D399]"
+                >
+                  <Languages className="h-4 w-4" />
+                  <span>{t.bilingualSectionTitle}</span>
+                  {showBilingualFields ? (
+                    <ChevronUp className="h-4 w-4" />
+                  ) : (
+                    <ChevronDown className="h-4 w-4" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleAutoTranslatePair();
+                    setShowBilingualFields(true);
+                  }}
+                  className="flex min-h-[34px] items-center gap-1.5 rounded-lg border border-[#115E3B]/30 bg-white px-2.5 text-[11px] font-semibold text-[#115E3B] hover:bg-[#ECF7F1] dark:border-[#10B981]/30 dark:bg-[#102119] dark:text-[#34D399]"
+                >
+                  <Languages className="h-3.5 w-3.5" />
+                  <span>{t.autoTranslateButton}</span>
+                </button>
+              </div>
+              <p className="mt-1 text-[11px] text-[#335947] dark:text-[#9EC0AE]">
+                {t.bilingualSectionHint}
+              </p>
+
+              {showBilingualFields && (
+                <div className="mt-3 space-y-3 border-t border-[#DCE7E0] pt-3 dark:border-[#1E3A2D]">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-xs font-semibold text-[#335947] dark:text-[#9EC0AE]">
+                        {t.productNameFrLabel}
+                      </label>
+                      <input
+                        type="text"
+                        dir="ltr"
+                        value={nameFr}
+                        onChange={(e) => setNameFr(e.target.value)}
+                        className={inputClass}
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-semibold text-[#335947] dark:text-[#9EC0AE]">
+                        {t.productNameArLabel}
+                      </label>
+                      <input
+                        type="text"
+                        dir="rtl"
+                        value={nameAr}
+                        onChange={(e) => setNameAr(e.target.value)}
+                        className={inputClass}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-xs font-semibold text-[#335947] dark:text-[#9EC0AE]">
+                        {t.productCategoryFrLabel}
+                      </label>
+                      <input
+                        type="text"
+                        dir="ltr"
+                        value={categoryFr}
+                        onChange={(e) => setCategoryFr(e.target.value)}
+                        className={inputClass}
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-semibold text-[#335947] dark:text-[#9EC0AE]">
+                        {t.productCategoryArLabel}
+                      </label>
+                      <input
+                        type="text"
+                        dir="rtl"
+                        value={categoryAr}
+                        onChange={(e) => setCategoryAr(e.target.value)}
+                        className={inputClass}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-xs font-semibold text-[#335947] dark:text-[#9EC0AE]">
+                        {t.productColorFrLabel}
+                      </label>
+                      <input
+                        type="text"
+                        dir="ltr"
+                        value={colorFr}
+                        onChange={(e) => setColorFr(e.target.value)}
+                        className={inputClass}
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-semibold text-[#335947] dark:text-[#9EC0AE]">
+                        {t.productColorArLabel}
+                      </label>
+                      <input
+                        type="text"
+                        dir="rtl"
+                        value={colorAr}
+                        onChange={(e) => setColorAr(e.target.value)}
+                        className={inputClass}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-xs font-semibold text-[#335947] dark:text-[#9EC0AE]">
+                        {t.productDescFrLabel}
+                      </label>
+                      <textarea
+                        rows={2}
+                        dir="ltr"
+                        value={descriptionFr}
+                        onChange={(e) => setDescriptionFr(e.target.value)}
+                        className={inputClass}
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-semibold text-[#335947] dark:text-[#9EC0AE]">
+                        {t.productDescArLabel}
+                      </label>
+                      <textarea
+                        rows={2}
+                        dir="rtl"
+                        value={descriptionAr}
+                        onChange={(e) => setDescriptionAr(e.target.value)}
+                        className={inputClass}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Supplier: linked profile OR custom text */}

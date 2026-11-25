@@ -44,6 +44,7 @@ import {
   generateQrDataUrl,
 } from '../utils/qr';
 import { copyTextWithFallback, saveOrShareBlob } from '../utils/download';
+import { localizeProduct, localizeProductHistoryEvent } from '../utils/productTranslation';
 
 interface ProductDigitalFileModalProps {
   digitalFile: ProductDigitalFile | null;
@@ -143,7 +144,10 @@ export function ProductDigitalFileModal({
 
   if (!digitalFile) return null;
 
-  const { product, invoices, history, salesStats } = digitalFile;
+  const rawProduct = digitalFile.product;
+  const product = localizeProduct(rawProduct, lang);
+  const history = digitalFile.history.map((ev) => localizeProductHistoryEvent(ev, lang));
+  const { invoices, salesStats } = digitalFile;
   const photos = product.photos || [];
   const videoPhotos = photos.filter((ph) => isVideoMedia(ph.imageData));
   const activePhoto = photos[photoIdx] || photos[0];
@@ -1089,7 +1093,7 @@ export function ProductDigitalFileModal({
               type="button"
               onClick={() => {
                 onClose();
-                onEditProduct(product);
+                onEditProduct(rawProduct);
               }}
               className="flex min-h-[46px] flex-1 items-center justify-center gap-2 rounded-xl bg-[#115E3B] px-4 text-sm font-semibold text-white hover:bg-[#0D4A2E] dark:bg-[#10B981] dark:text-[#052E1C]"
             >

@@ -14,9 +14,17 @@ export interface Product {
   code: string;
   qrToken?: string;
   name: string;
+  nameFr?: string;
+  nameAr?: string;
   description: string;
+  descriptionFr?: string;
+  descriptionAr?: string;
   category?: string;
+  categoryFr?: string;
+  categoryAr?: string;
   color?: string;
+  colorFr?: string;
+  colorAr?: string;
   warehouseId?: string;
   warehouseName?: string;
   supplierId?: string;
@@ -46,6 +54,14 @@ export interface InventorySummary {
 export type PrinterMode = 'pdf_system' | 'thermal_bt' | 'browser';
 export type PrinterPaperFormat = 'a4' | 'label_50x30' | 'label_40x30' | 'roll_58' | 'roll_80';
 
+export interface SavedPrinterProfile {
+  id: string;
+  name: string;
+  mode: PrinterMode;
+  paper: PrinterPaperFormat;
+  isBluetooth?: boolean;
+}
+
 export interface ShopSettings {
   customLogo: string;
   storeName?: string;
@@ -57,15 +73,25 @@ export interface ShopSettings {
   printerPaper?: PrinterPaperFormat;
   printerName?: string;
   printerLinked?: boolean;
+  savedPrinters?: SavedPrinterProfile[];
+  activePrinterId?: string;
   publicAppUrl?: string;
 }
 
 export interface ProductPayload {
   code?: string;
   name: string;
+  nameFr?: string;
+  nameAr?: string;
   description: string;
+  descriptionFr?: string;
+  descriptionAr?: string;
   category?: string;
+  categoryFr?: string;
+  categoryAr?: string;
   color?: string;
+  colorFr?: string;
+  colorAr?: string;
   warehouseId?: string;
   warehouseName?: string;
   supplierId?: string;
