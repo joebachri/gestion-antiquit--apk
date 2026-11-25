@@ -15,6 +15,11 @@ export interface Product {
   qrToken?: string;
   name: string;
   description: string;
+  category?: string;
+  color?: string;
+  warehouseId?: string;
+  warehouseName?: string;
+  supplierId?: string;
   supplier?: string;
   lengthCm: number;
   widthCm: number;
@@ -59,6 +64,11 @@ export interface ProductPayload {
   code?: string;
   name: string;
   description: string;
+  category?: string;
+  color?: string;
+  warehouseId?: string;
+  warehouseName?: string;
+  supplierId?: string;
   supplier?: string;
   lengthCm: number;
   widthCm: number;
@@ -90,7 +100,9 @@ export type ProductHistoryEventType =
   | 'qr_scanned'
   | 'sold'
   | 'restocked'
-  | 'invoice_created';
+  | 'invoice_created'
+  | 'adjusted'
+  | 'transferred';
 
 export interface ProductHistoryEvent {
   id: string;
@@ -103,12 +115,31 @@ export interface ProductHistoryEvent {
   createdAt: string;
 }
 
+export interface PosInvoiceItem {
+  productId: string;
+  productCode: string;
+  productName: string;
+  category?: string;
+  color?: string;
+  warehouseId?: string;
+  warehouseName?: string;
+  supplier?: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+  purchasePrice: number;
+}
+
 export interface PosInvoice {
   id: string;
   invoiceNumber: string;
   productId: string;
   productCode: string;
   productName: string;
+  category?: string;
+  warehouseId?: string;
+  warehouseName?: string;
+  items?: PosInvoiceItem[];
   customerId: string;
   customerName: string;
   customerPhone: string;
@@ -119,13 +150,21 @@ export interface PosInvoice {
   paymentMethod: PurchasePaymentMethod;
   saleDate: string;
   notes: string;
+  printCount?: number;
   createdAt: string;
 }
 
-export interface PosSalePayload {
+export interface PosSaleItemPayload {
   productId: string;
+  quantity: number;
+  unitPrice: number;
+}
+
+export interface PosSalePayload {
+  productId?: string;
   quantity?: number;
   unitPrice?: number;
+  items?: PosSaleItemPayload[];
   customerId?: string;
   customerName?: string;
   customerPhone?: string;
@@ -273,3 +312,187 @@ export interface CustomerPurchasePayload {
   paymentMethod: PurchasePaymentMethod;
   notes: string;
 }
+
+export interface Warehouse {
+  id: string;
+  code: string;
+  name: string;
+  location: string;
+  address: string;
+  phone: string;
+  managerName: string;
+  notes: string;
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WarehousePayload {
+  name: string;
+  location: string;
+  address: string;
+  phone: string;
+  managerName: string;
+  notes: string;
+  isDefault?: boolean;
+}
+
+export type SupplierCategory = 'artisan' | 'wholesaler' | 'collector' | 'other';
+
+export interface SupplierGalleryImage {
+  id: string;
+  supplierId: string;
+  title: string;
+  source: CustomerImageSource;
+  sourceUrl: string;
+  imageData: string;
+  createdAt: string;
+}
+
+export interface SupplierGalleryPayload {
+  title?: string;
+  source: CustomerImageSource;
+  sourceUrl?: string;
+  imageData?: string;
+  imageUrl?: string;
+}
+
+export interface SupplierPurchase {
+  id: string;
+  supplierId: string;
+  productId?: string;
+  productCode: string;
+  productName: string;
+  category?: string;
+  warehouseId?: string;
+  warehouseName?: string;
+  quantity: number;
+  unitCost: number;
+  totalCost: number;
+  purchaseDate: string;
+  paymentMethod: PurchasePaymentMethod;
+  notes: string;
+  createdAt: string;
+}
+
+export interface Supplier {
+  id: string;
+  code: string;
+  name: string;
+  phone: string;
+  address: string;
+  city: string;
+  category: SupplierCategory;
+  notes: string;
+  facebookUrl?: string;
+  instagramUrl?: string;
+  websiteUrl?: string;
+  createdAt: string;
+  updatedAt: string;
+  purchases: SupplierPurchase[];
+  gallery: SupplierGalleryImage[];
+}
+
+export interface SupplierSummary {
+  totalSuppliers: number;
+  totalPurchases: number;
+  totalSpentMad: number;
+}
+
+export interface SupplierPayload {
+  name: string;
+  phone: string;
+  address: string;
+  city: string;
+  category: SupplierCategory;
+  notes: string;
+  facebookUrl?: string;
+  instagramUrl?: string;
+  websiteUrl?: string;
+}
+
+export interface SupplierPurchasePayload {
+  productId?: string;
+  productCode: string;
+  productName: string;
+  category?: string;
+  warehouseId?: string;
+  warehouseName?: string;
+  quantity: number;
+  unitCost: number;
+  purchaseDate: string;
+  paymentMethod: PurchasePaymentMethod;
+  notes: string;
+}
+
+export type AdjustmentType =
+  | 'deduction'
+  | 'restock'
+  | 'damage'
+  | 'loss'
+  | 'transfer'
+  | 'correction';
+
+export interface InventoryAdjustment {
+  id: string;
+  referenceNumber: string;
+  adjustmentType: AdjustmentType;
+  warehouseId: string;
+  warehouseName: string;
+  targetWarehouseId: string;
+  targetWarehouseName: string;
+  productId: string;
+  productCode: string;
+  productName: string;
+  category: string;
+  color: string;
+  supplierId: string;
+  supplierName: string;
+  quantityBefore: number;
+  quantityDelta: number;
+  quantityAfter: number;
+  unitCost: number;
+  totalValue: number;
+  reason: string;
+  notes: string;
+  adjustmentDate: string;
+  createdAt: string;
+}
+
+export interface InventoryAdjustmentPayload {
+  adjustmentType: AdjustmentType;
+  warehouseId?: string;
+  targetWarehouseId?: string;
+  productId: string;
+  quantityDelta: number;
+  supplierId?: string;
+  reason: string;
+  notes?: string;
+  adjustmentDate?: string;
+}
+
+export type ReportType =
+  | 'invoice_single'
+  | 'invoices_aggregate'
+  | 'inventory'
+  | 'customers'
+  | 'suppliers'
+  | 'purchases'
+  | 'sales'
+  | 'products'
+  | 'product_single'
+  | 'warehouses';
+
+export interface ReportFilters {
+  reportType: ReportType;
+  startDate?: string;
+  endDate?: string;
+  warehouseId?: string;
+  category?: string;
+  productId?: string;
+  customerId?: string;
+  supplierId?: string;
+  invoiceId?: string;
+  isCopy?: boolean;
+}
+

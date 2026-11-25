@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ArrowRightLeft,
   BarChart3,
   CheckCircle2,
   ChevronDown,
@@ -10,15 +11,19 @@ import {
   Package,
   Play,
   Plus,
+  Printer,
   QrCode,
   Receipt,
+  RotateCcw,
   Search,
   Share2,
   Trash2,
+  Truck,
   Upload,
   UserPlus,
   Users,
   Video,
+  Warehouse as WarehouseIcon,
   X,
 } from 'lucide-react';
 import type {
@@ -29,6 +34,8 @@ import type {
   CustomerPurchasePayload,
   CustomerSummary,
   ExcelImportMode,
+  InventoryAdjustment,
+  InventoryAdjustmentPayload,
   InventorySummary,
   Language,
   MetaAuthStatus,
@@ -37,21 +44,38 @@ import type {
   Product,
   ProductDigitalFile,
   ProductPayload,
+  ReportFilters,
   ShopSettings,
+  Supplier,
+  SupplierCategory,
+  SupplierGalleryPayload,
+  SupplierPayload,
+  SupplierPurchasePayload,
+  SupplierSummary,
+  Warehouse,
+  WarehousePayload,
 } from './types';
 import { formatCurrency, formatNumber, translations } from './i18n';
 import {
   buildCustomersExcelBlob,
   buildExcelBlob,
   buildStockPurchasesExcelBlob,
+  buildSuppliersExcelBlob,
 } from './utils/excel';
 import {
+  createAdjustmentApi,
   createPosSaleApi,
+  deleteAdjustmentApi,
   deleteCustomerApi,
   deleteCustomerGalleryImageApi,
   deleteCustomerPurchaseApi,
   deletePosSaleApi,
   deleteProductApi,
+  deleteSupplierApi,
+  deleteSupplierGalleryImageApi,
+  deleteSupplierPurchaseApi,
+  deleteWarehouseApi,
+  fetchAdjustmentsApi,
   fetchCustomersApi,
   fetchExchangeRatesApi,
   fetchMetaAuthStatusApi,
@@ -59,17 +83,25 @@ import {
   fetchProductDigitalFileApi,
   fetchProductsApi,
   fetchSettingsApi,
+  fetchSuppliersApi,
+  fetchWarehousesApi,
   importProductsExcelApi,
   lookupProductByQrApi,
+  markInvoicePrintedApi,
   saveCustomerApi,
   saveCustomerGalleryImagesApi,
   saveCustomerPurchaseApi,
   saveProductApi,
   saveSettingsApi,
+  saveSupplierApi,
+  saveSupplierGalleryImagesApi,
+  saveSupplierPurchaseApi,
+  saveWarehouseApi,
 } from './utils/api';
 import { saveOrShareBlob } from './utils/download';
 import { isVideoMedia } from './utils/image';
 import { extractQrParamFromLocation, extractSnapshotExtrasFromQrInput } from './utils/qr';
+import { buildReportSpec, executeReportOutput } from './utils/printReports';
 import { Header } from './components/Header';
 import { ProductFormModal } from './components/ProductFormModal';
 import { ProductDetailSheet } from './components/ProductDetailSheet';
@@ -80,6 +112,12 @@ import { GuideModal } from './components/GuideModal';
 import { CustomersView } from './components/CustomersView';
 import { CustomerFormModal } from './components/CustomerFormModal';
 import { CustomerDetailModal } from './components/CustomerDetailModal';
+import { SuppliersView } from './components/SuppliersView';
+import { SupplierFormModal } from './components/SupplierFormModal';
+import { SupplierDetailModal } from './components/SupplierDetailModal';
+import { WarehousesModal } from './components/WarehousesModal';
+import { InventoryAdjustmentModal } from './components/InventoryAdjustmentModal';
+import { ReportsPrintModal } from './components/ReportsPrintModal';
 import { CalculatorModal } from './components/CalculatorModal';
 import { QrScannerModal, type QrScanMode } from './components/QrScannerModal';
 import { ProductDigitalFileModal } from './components/ProductDigitalFileModal';
@@ -127,6 +165,9 @@ export default function App() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [inventoryFilter, setInventoryFilter] = useState<'in_stock' | 'sold' | 'all'>('in_stock');
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState('all');
+  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [selectedColor, setSelectedColor] = useState('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -179,8 +220,8 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState('');
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Customers & Purchase History state
-  const [activeTab, setActiveTab] = useState<'inventory' | 'customers'>('inventory');
+  // Module Navigation & Customers / Suppliers / Warehouses / Adjustments / Reports state
+  const [activeTab, setActiveTab] = useState<'inventory' | 'customers' | 'suppliers'>('inventory');
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customerSummary, setCustomerSummary] = useState<CustomerSummary>({
     totalCustomers: 0,
@@ -196,6 +237,33 @@ export default function App() {
   const [detailStartAddPurchase, setDetailStartAddPurchase] = useState(false);
   const [detailInitialTab, setDetailInitialTab] = useState<'purchases' | 'gallery'>('purchases');
   const [exportingCustomers, setExportingCustomers] = useState(false);
+
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [warehousesModalOpen, setWarehousesModalOpen] = useState(false);
+
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [supplierSummary, setSupplierSummary] = useState<SupplierSummary>({
+    totalSuppliers: 0,
+    totalPurchases: 0,
+    totalSpentMad: 0,
+  });
+  const [supplierSearch, setSupplierSearch] = useState('');
+  const [supplierCategory, setSupplierCategory] = useState<'all' | SupplierCategory>('all');
+  const [suppliersLoading, setSuppliersLoading] = useState(true);
+  const [supplierFormOpen, setSupplierFormOpen] = useState(false);
+  const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
+  const [detailSupplier, setDetailSupplier] = useState<Supplier | null>(null);
+  const [detailSupStartAdd, setDetailSupStartAdd] = useState(false);
+  const [detailSupInitialTab, setDetailSupInitialTab] = useState<'purchases' | 'gallery'>('purchases');
+  const [exportingSuppliers, setExportingSuppliers] = useState(false);
+
+  const [adjustments, setAdjustments] = useState<InventoryAdjustment[]>([]);
+  const [adjustmentsModalOpen, setAdjustmentsModalOpen] = useState(false);
+
+  const [reportsModalOpen, setReportsModalOpen] = useState(false);
+  const [reportsInitialFilters, setReportsInitialFilters] = useState<Partial<ReportFilters>>({
+    reportType: 'inventory',
+  });
 
   const showToast = useCallback((message: string) => {
     if (!message) return;
@@ -285,14 +353,34 @@ export default function App() {
     }
   }, []);
 
+  const fetchWarehouses = useCallback(async () => {
+    try {
+      const data = await fetchWarehousesApi();
+      setWarehouses(data.warehouses);
+    } catch {
+      // keep current warehouses
+    }
+  }, []);
+
+  const fetchAdjustments = useCallback(async () => {
+    try {
+      const data = await fetchAdjustmentsApi();
+      setAdjustments(data.adjustments);
+    } catch {
+      // keep current adjustments
+    }
+  }, []);
+
   const qrHandledOnMountRef = useRef(false);
 
   useEffect(() => {
     void fetchSettings();
     void refreshMetaStatus();
     void fetchPosSales();
+    void fetchWarehouses();
+    void fetchAdjustments();
     void fetchExchangeRatesApi().then(() => setRatesVersion((v) => v + 1));
-  }, [fetchSettings, refreshMetaStatus, fetchPosSales]);
+  }, [fetchSettings, refreshMetaStatus, fetchPosSales, fetchWarehouses, fetchAdjustments]);
 
   useEffect(() => {
     if (qrHandledOnMountRef.current) return;
@@ -348,6 +436,207 @@ export default function App() {
     }, 150);
     return () => clearTimeout(timer);
   }, [customerSearch, customerCategory, fetchCustomers]);
+
+  const fetchSuppliers = useCallback(
+    async (query: string, category: 'all' | SupplierCategory) => {
+      try {
+        const data = await fetchSuppliersApi(query, category);
+        setSuppliers(data.suppliers);
+        setSupplierSummary(data.summary);
+        setDetailSupplier((prev) =>
+          prev ? data.suppliers.find((s) => s.id === prev.id) || prev : null
+        );
+      } catch {
+        // keep current suppliers
+      } finally {
+        setSuppliersLoading(false);
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void fetchSuppliers(supplierSearch, supplierCategory);
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [supplierSearch, supplierCategory, fetchSuppliers]);
+
+  const handleSaveWarehouse = async (payload: WarehousePayload, editingId?: string) => {
+    await saveWarehouseApi(payload, editingId);
+    showToast(t.warehouseSavedToast);
+    await Promise.all([fetchWarehouses(), fetchProducts(searchQuery)]);
+  };
+
+  const handleDeleteWarehouse = async (warehouseId: string) => {
+    await deleteWarehouseApi(warehouseId);
+    showToast(t.warehouseDeletedToast);
+    await Promise.all([fetchWarehouses(), fetchProducts(searchQuery)]);
+  };
+
+  const handleSaveSupplier = async (payload: SupplierPayload, editingId?: string) => {
+    const saved = await saveSupplierApi(payload, editingId);
+    if (detailSupplier?.id === saved.id) {
+      setDetailSupplier(saved);
+    }
+    showToast(t.supplierSavedToast);
+    await fetchSuppliers(supplierSearch, supplierCategory);
+  };
+
+  const handleDeleteSupplier = async (supplierId: string) => {
+    await deleteSupplierApi(supplierId);
+    if (detailSupplier?.id === supplierId) {
+      setDetailSupplier(null);
+    }
+    showToast(t.supplierDeletedToast);
+    await fetchSuppliers(supplierSearch, supplierCategory);
+  };
+
+  const handleSaveSupplierPurchase = async (
+    supplierId: string,
+    payload: SupplierPurchasePayload,
+    editingPurchaseId?: string
+  ) => {
+    const updated = await saveSupplierPurchaseApi(supplierId, payload, editingPurchaseId);
+    setDetailSupplier(updated);
+    showToast(t.supplierPurchaseSavedToast);
+    await fetchSuppliers(supplierSearch, supplierCategory);
+  };
+
+  const handleDeleteSupplierPurchase = async (supplierId: string, purchaseId: string) => {
+    const updated = await deleteSupplierPurchaseApi(supplierId, purchaseId);
+    setDetailSupplier(updated);
+    await fetchSuppliers(supplierSearch, supplierCategory);
+  };
+
+  const handleSaveSupplierGalleryImages = async (
+    supplierId: string,
+    items: SupplierGalleryPayload[]
+  ) => {
+    const { supplier: updated } = await saveSupplierGalleryImagesApi(supplierId, items);
+    setDetailSupplier(updated);
+    showToast(t.supplierGallerySavedToast);
+    await fetchSuppliers(supplierSearch, supplierCategory);
+  };
+
+  const handleDeleteSupplierGalleryImage = async (supplierId: string, imageId: string) => {
+    const updated = await deleteSupplierGalleryImageApi(supplierId, imageId);
+    setDetailSupplier(updated);
+    await fetchSuppliers(supplierSearch, supplierCategory);
+  };
+
+  const handleExportSuppliersExcel = async (singleSupplier?: Supplier) => {
+    if (exportingSuppliers) return;
+    setExportingSuppliers(true);
+    try {
+      const dateStamp = new Date().toISOString().slice(0, 10);
+      const label = singleSupplier ? singleSupplier.code.toLowerCase() : 'tous';
+      const filename = `fournisseurs-approvisionnements-${label}-${dateStamp}.xlsx`;
+      let targetList: Supplier[];
+      if (singleSupplier) {
+        targetList = [singleSupplier];
+      } else if (supplierSearch.trim() || supplierCategory !== 'all') {
+        try {
+          const full = await fetchSuppliersApi('', 'all');
+          targetList = full.suppliers;
+        } catch {
+          targetList = suppliers;
+        }
+      } else {
+        targetList = suppliers;
+      }
+      const xlsxBlob = buildSuppliersExcelBlob(targetList, settings.currency, lang);
+      await saveOrShareBlob(
+        xlsxBlob,
+        filename,
+        singleSupplier ? `${singleSupplier.code} — ${singleSupplier.name}` : t.supplierExportExcel
+      );
+    } finally {
+      setExportingSuppliers(false);
+    }
+  };
+
+  const handleCreateAdjustment = async (payload: InventoryAdjustmentPayload) => {
+    await createAdjustmentApi(payload);
+    showToast(t.adjustmentSavedToast);
+    await Promise.all([fetchAdjustments(), fetchProducts(searchQuery), fetchWarehouses()]);
+  };
+
+  const handleDeleteAdjustment = async (adjustmentId: string) => {
+    await deleteAdjustmentApi(adjustmentId);
+    showToast(t.adjustmentDeletedToast);
+    await Promise.all([fetchAdjustments(), fetchProducts(searchQuery)]);
+  };
+
+  const openReportsHub = useCallback((filters: Partial<ReportFilters>) => {
+    setReportsInitialFilters({ ...filters });
+    setReportsModalOpen(true);
+  }, []);
+
+  const handleMarkInvoicePrinted = useCallback(
+    async (invoiceId: string) => {
+      try {
+        await markInvoicePrintedApi(invoiceId);
+        await fetchPosSales();
+      } catch {
+        // ignore if already printed locally
+      }
+    },
+    [fetchPosSales]
+  );
+
+  const handlePrintInvoice = useCallback(
+    async (invoice: PosInvoice, isCopy: boolean) => {
+      const spec = buildReportSpec(
+        {
+          reportType: 'invoice_single',
+          invoiceId: invoice.id,
+          isCopy,
+        },
+        {
+          products,
+          warehouses,
+          customers,
+          suppliers,
+          invoices: posInvoices.some((i) => i.id === invoice.id)
+            ? posInvoices
+            : [invoice, ...posInvoices],
+          adjustments,
+          storeName: settings.storeName || qrSnapshotExtras.storeName || '',
+          currency: settings.currency,
+          lang,
+        }
+      );
+      const outcome = await executeReportOutput({
+        mode: 'print',
+        spec,
+        filename: `${invoice.invoiceNumber.toLowerCase()}${isCopy ? '-copie' : ''}.pdf`,
+        lang,
+      });
+      await handleMarkInvoicePrinted(invoice.id);
+      if (outcome === 'pdf_fallback') {
+        showToast(t.reportPrintBlockedPdfToast);
+      } else {
+        showToast(`${t.invoicePrintedToast} ${invoice.invoiceNumber}`);
+      }
+    },
+    [
+      products,
+      warehouses,
+      customers,
+      suppliers,
+      posInvoices,
+      adjustments,
+      settings.storeName,
+      settings.currency,
+      qrSnapshotExtras.storeName,
+      lang,
+      handleMarkInvoicePrinted,
+      showToast,
+      t.reportPrintBlockedPdfToast,
+      t.invoicePrintedToast,
+    ]
+  );
 
   const handleSaveCustomer = async (payload: CustomerPayload, editingId?: string) => {
     const saved = await saveCustomerApi(payload, editingId);
@@ -515,7 +804,11 @@ export default function App() {
         fetchPosSales(),
         fetchCustomers(customerSearch, customerCategory),
       ]);
-      if (digitalFileData?.product.id === payload.productId) {
+      const matchedOpenProduct =
+        digitalFileData?.product.id &&
+        (digitalFileData.product.id === payload.productId ||
+          payload.items?.some((it) => it.productId === digitalFileData.product.id));
+      if (matchedOpenProduct) {
         setDigitalFileData(result.digitalFile);
       }
       showToast(`${t.qrScannerSoldSuccess} ${result.invoice.invoiceNumber}`);
@@ -545,7 +838,11 @@ export default function App() {
         fetchPosSales(),
         fetchCustomers(customerSearch, customerCategory),
       ]);
-      if (digitalFileData?.product.id === payload.productId) {
+      const matchedOpenProduct =
+        digitalFileData?.product.id &&
+        (digitalFileData.product.id === payload.productId ||
+          payload.items?.some((it) => it.productId === digitalFileData.product.id));
+      if (matchedOpenProduct) {
         setDigitalFileData(result.digitalFile);
       }
       showToast(`${t.qrScannerSoldSuccess} ${result.invoice.invoiceNumber}`);
@@ -727,11 +1024,33 @@ export default function App() {
     };
   }, [products, t.digitalMgmtNotSpecified]);
 
+  const availableCategories = useMemo(
+    () =>
+      Array.from(
+        new Set(products.map((p) => (p.category || '').trim()).filter(Boolean))
+      ).sort(),
+    [products]
+  );
+
+  const availableColors = useMemo(
+    () =>
+      Array.from(
+        new Set(products.map((p) => (p.color || '').trim()).filter(Boolean))
+      ).sort(),
+    [products]
+  );
+
   const inStockCount = products.filter((p) => (Number(p.quantity) || 0) > 0).length;
   const soldCount = products.filter((p) => (Number(p.quantity) || 0) <= 0).length;
+  const hasAttributeFilters =
+    selectedWarehouseId !== 'all' || selectedCategory !== 'all' || selectedColor !== 'all';
+
   const displayedProducts = products.filter((p) => {
-    if (inventoryFilter === 'in_stock') return (Number(p.quantity) || 0) > 0;
-    if (inventoryFilter === 'sold') return (Number(p.quantity) || 0) <= 0;
+    if (inventoryFilter === 'in_stock' && (Number(p.quantity) || 0) <= 0) return false;
+    if (inventoryFilter === 'sold' && (Number(p.quantity) || 0) > 0) return false;
+    if (selectedWarehouseId !== 'all' && (p.warehouseId || '') !== selectedWarehouseId) return false;
+    if (selectedCategory !== 'all' && (p.category || '').trim() !== selectedCategory) return false;
+    if (selectedColor !== 'all' && (p.color || '').trim() !== selectedColor) return false;
     return true;
   });
 
@@ -856,53 +1175,99 @@ export default function App() {
         dir={lang === 'ar' ? 'rtl' : 'ltr'}
         className="mx-auto max-w-7xl px-4 pb-28 pt-5 sm:px-6 sm:pb-12"
       >
-        {/* Top Module Switcher: Inventory | Customers & Purchases | POS & Invoices */}
-        <nav
-          aria-label="Sections"
-          className="mb-5 grid grid-cols-3 gap-1.5 rounded-2xl border border-[#DCE7E0] bg-white p-1.5 sm:inline-grid sm:w-auto sm:gap-2 dark:border-[#1E3A2D] dark:bg-[#0F2119]"
-        >
-          <button
-            type="button"
-            onClick={() => setActiveTab('inventory')}
-            className={`flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl px-2.5 text-xs font-bold transition-colors whitespace-nowrap sm:gap-2 sm:px-4 sm:text-sm ${
-              activeTab === 'inventory'
-                ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
-                : 'text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]'
-            }`}
+        {/* Top Module Switcher & Operations Toolbar */}
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-2.5">
+          <nav
+            aria-label="Sections"
+            className="grid w-full grid-cols-3 gap-1.5 rounded-2xl border border-[#DCE7E0] bg-white p-1.5 sm:inline-grid sm:w-auto sm:gap-2 dark:border-[#1E3A2D] dark:bg-[#0F2119]"
           >
-            <Package className="h-4 w-4 shrink-0" />
-            <span className="truncate">{t.tabInventory}</span>
-            <span className="tabular-nums opacity-80">({formatNumber(summary.totalReferences, lang)})</span>
-          </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('inventory')}
+              className={`flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl px-2.5 text-xs font-bold transition-colors whitespace-nowrap sm:gap-2 sm:px-4 sm:text-sm ${
+                activeTab === 'inventory'
+                  ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
+                  : 'text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]'
+              }`}
+            >
+              <Package className="h-4 w-4 shrink-0" />
+              <span className="truncate">{t.tabInventory}</span>
+              <span className="tabular-nums opacity-80">({formatNumber(summary.totalReferences, lang)})</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('customers')}
-            className={`flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl px-2.5 text-xs font-bold transition-colors whitespace-nowrap sm:gap-2 sm:px-4 sm:text-sm ${
-              activeTab === 'customers'
-                ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
-                : 'text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]'
-            }`}
-          >
-            <Users className="h-4 w-4 shrink-0" />
-            <span className="truncate">{t.tabCustomers}</span>
-            <span className="tabular-nums opacity-80">
-              ({formatNumber(customerSummary.totalCustomers, lang)})
-            </span>
-          </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('customers')}
+              className={`flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl px-2.5 text-xs font-bold transition-colors whitespace-nowrap sm:gap-2 sm:px-4 sm:text-sm ${
+                activeTab === 'customers'
+                  ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
+                  : 'text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]'
+              }`}
+            >
+              <Users className="h-4 w-4 shrink-0" />
+              <span className="truncate">{t.tabCustomers}</span>
+              <span className="tabular-nums opacity-80">
+                ({formatNumber(customerSummary.totalCustomers, lang)})
+              </span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setPosModalOpen(true)}
-            className="flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl px-2.5 text-xs font-bold text-[#335947] transition-colors hover:bg-[#ECF7F1] whitespace-nowrap sm:gap-2 sm:px-4 sm:text-sm dark:text-[#9EC0AE] dark:hover:bg-[#162E23]"
-          >
-            <Receipt className="h-4 w-4 shrink-0 text-[#115E3B] dark:text-[#34D399]" />
-            <span className="truncate">{t.posTabLabel}</span>
-            <span className="tabular-nums opacity-80">
-              ({formatNumber(posSummary.totalInvoices, lang)})
-            </span>
-          </button>
-        </nav>
+            <button
+              type="button"
+              onClick={() => setActiveTab('suppliers')}
+              className={`flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl px-2.5 text-xs font-bold transition-colors whitespace-nowrap sm:gap-2 sm:px-4 sm:text-sm ${
+                activeTab === 'suppliers'
+                  ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
+                  : 'text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]'
+              }`}
+            >
+              <Truck className="h-4 w-4 shrink-0" />
+              <span className="truncate">{t.suppliersNavLabel}</span>
+              <span className="tabular-nums opacity-80">
+                ({formatNumber(supplierSummary.totalSuppliers, lang)})
+              </span>
+            </button>
+          </nav>
+
+          <div className="grid w-full grid-cols-2 gap-1.5 sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:gap-2">
+            <button
+              type="button"
+              onClick={() => setPosModalOpen(true)}
+              className="flex min-h-[42px] items-center justify-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs font-bold text-[#0B1F16] transition-colors hover:bg-[#ECF7F1] whitespace-nowrap dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5] dark:hover:bg-[#162E23]"
+            >
+              <Receipt className="h-4 w-4 shrink-0 text-[#115E3B] dark:text-[#34D399]" />
+              <span className="truncate">{t.posTabLabel}</span>
+              <span className="tabular-nums opacity-75">({formatNumber(posSummary.totalInvoices, lang)})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setWarehousesModalOpen(true)}
+              className="flex min-h-[42px] items-center justify-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs font-bold text-[#0B1F16] transition-colors hover:bg-[#ECF7F1] whitespace-nowrap dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5] dark:hover:bg-[#162E23]"
+            >
+              <WarehouseIcon className="h-4 w-4 shrink-0 text-[#115E3B] dark:text-[#34D399]" />
+              <span className="truncate">{t.warehousesNavLabel}</span>
+              <span className="tabular-nums opacity-75">({formatNumber(warehouses.length, lang)})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setAdjustmentsModalOpen(true)}
+              className="flex min-h-[42px] items-center justify-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs font-bold text-[#0B1F16] transition-colors hover:bg-[#ECF7F1] whitespace-nowrap dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5] dark:hover:bg-[#162E23]"
+            >
+              <ArrowRightLeft className="h-4 w-4 shrink-0 text-[#115E3B] dark:text-[#34D399]" />
+              <span className="truncate">{t.adjustmentsNavLabel}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => openReportsHub({ reportType: 'inventory' })}
+              className="flex min-h-[42px] items-center justify-center gap-1.5 rounded-xl bg-[#ECF7F1] px-3 text-xs font-bold text-[#115E3B] transition-colors hover:bg-[#DCF0E4] whitespace-nowrap dark:bg-[#132B20] dark:text-[#34D399]"
+            >
+              <Printer className="h-4 w-4 shrink-0" />
+              <span className="truncate">{t.reportsNavLabel}</span>
+            </button>
+          </div>
+        </div>
 
         {activeTab === 'customers' ? (
           <CustomersView
@@ -932,6 +1297,58 @@ export default function App() {
               setDetailCustomer(cust);
             }}
             onDeleteCustomer={handleDeleteCustomer}
+            onPrintCustomersList={() =>
+              openReportsHub({
+                reportType: 'customers',
+              })
+            }
+            onPrintPurchasesReport={(filters) =>
+              openReportsHub({
+                reportType: 'purchases',
+                customerId: filters.customerId,
+                startDate: filters.startDate,
+                endDate: filters.endDate,
+              })
+            }
+          />
+        ) : activeTab === 'suppliers' ? (
+          <SuppliersView
+            lang={lang}
+            currency={settings.currency}
+            suppliers={suppliers}
+            summary={supplierSummary}
+            loading={suppliersLoading}
+            searchQuery={supplierSearch}
+            onChangeSearch={setSupplierSearch}
+            selectedCategory={supplierCategory}
+            onChangeCategory={setSupplierCategory}
+            exporting={exportingSuppliers}
+            onExportAllExcel={() => void handleExportSuppliersExcel()}
+            onExportSingleExcel={(sup) => void handleExportSuppliersExcel(sup)}
+            onAddSupplier={() => {
+              setEditingSupplier(null);
+              setSupplierFormOpen(true);
+            }}
+            onEditSupplier={(sup) => {
+              setEditingSupplier(sup);
+              setSupplierFormOpen(true);
+            }}
+            onViewSupplier={(sup, startAdd = false, initialTab = 'purchases') => {
+              setDetailSupStartAdd(startAdd);
+              setDetailSupInitialTab(initialTab);
+              setDetailSupplier(sup);
+            }}
+            onDeleteSupplier={handleDeleteSupplier}
+            onPrintSuppliersList={() =>
+              openReportsHub({
+                reportType: 'suppliers',
+              })
+            }
+            onPrintPurchasesReport={() =>
+              openReportsHub({
+                reportType: 'purchases',
+              })
+            }
           />
         ) : (
           <>
@@ -1028,76 +1445,161 @@ export default function App() {
           </div>
         </section>
 
-        {/* Inventory Stock Status Filter (En stock / Vendus / Tous) + Stock Purchases Report */}
-        <section className="mb-5 flex flex-wrap items-center justify-between gap-2.5">
-          <div className="inline-flex rounded-xl border border-[#DCE7E0] bg-white p-1 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
-            <button
-              type="button"
-              onClick={() => setInventoryFilter('in_stock')}
-              className={`min-h-[38px] rounded-lg px-3 text-xs font-semibold transition-colors whitespace-nowrap ${
-                inventoryFilter === 'in_stock'
-                  ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
-                  : 'text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]'
-              }`}
-            >
-              {t.inventoryFilterInStock}{' '}
-              <span className="tabular-nums opacity-80">({formatNumber(inStockCount, lang)})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setInventoryFilter('sold')}
-              className={`min-h-[38px] rounded-lg px-3 text-xs font-semibold transition-colors whitespace-nowrap ${
-                inventoryFilter === 'sold'
-                  ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
-                  : 'text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]'
-              }`}
-            >
-              {t.inventoryFilterSold}{' '}
-              <span className="tabular-nums opacity-80">({formatNumber(soldCount, lang)})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setInventoryFilter('all')}
-              className={`min-h-[38px] rounded-lg px-3 text-xs font-semibold transition-colors whitespace-nowrap ${
-                inventoryFilter === 'all'
-                  ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
-                  : 'text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]'
-              }`}
-            >
-              {t.inventoryFilterAll}{' '}
-              <span className="tabular-nums opacity-80">({formatNumber(products.length, lang)})</span>
-            </button>
+        {/* Inventory Stock Status Filter (En stock / Vendus / Tous) + Attribute Filters + Reports */}
+        <section className="mb-4 space-y-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2.5">
+            <div className="inline-flex rounded-xl border border-[#DCE7E0] bg-white p-1 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
+              <button
+                type="button"
+                onClick={() => setInventoryFilter('in_stock')}
+                className={`min-h-[38px] rounded-lg px-3 text-xs font-semibold transition-colors whitespace-nowrap ${
+                  inventoryFilter === 'in_stock'
+                    ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
+                    : 'text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]'
+                }`}
+              >
+                {t.inventoryFilterInStock}{' '}
+                <span className="tabular-nums opacity-80">({formatNumber(inStockCount, lang)})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setInventoryFilter('sold')}
+                className={`min-h-[38px] rounded-lg px-3 text-xs font-semibold transition-colors whitespace-nowrap ${
+                  inventoryFilter === 'sold'
+                    ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
+                    : 'text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]'
+                }`}
+              >
+                {t.inventoryFilterSold}{' '}
+                <span className="tabular-nums opacity-80">({formatNumber(soldCount, lang)})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setInventoryFilter('all')}
+                className={`min-h-[38px] rounded-lg px-3 text-xs font-semibold transition-colors whitespace-nowrap ${
+                  inventoryFilter === 'all'
+                    ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
+                    : 'text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]'
+                }`}
+              >
+                {t.inventoryFilterAll}{' '}
+                <span className="tabular-nums opacity-80">({formatNumber(products.length, lang)})</span>
+              </button>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowStockPurchasesReport((v) => !v)}
+                className={`flex min-h-[40px] items-center gap-1.5 rounded-xl border px-3 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
+                  showStockPurchasesReport
+                    ? 'border-[#115E3B] bg-[#ECF7F1] text-[#115E3B] dark:border-[#10B981] dark:bg-[#132B20] dark:text-[#34D399]'
+                    : 'border-[#DCE7E0] bg-white text-[#0B1F16] hover:bg-[#ECF7F1] dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5]'
+                }`}
+              >
+                <BarChart3 className="h-4 w-4" />
+                <span>{t.stockPurchasesReportToggle}</span>
+                {showStockPurchasesReport ? (
+                  <ChevronUp className="h-3.5 w-3.5" />
+                ) : (
+                  <ChevronDown className="h-3.5 w-3.5" />
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void handleExportStockPurchasesExcel()}
+                disabled={exportingStockPurchases || products.length === 0}
+                className="flex min-h-[40px] items-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs font-semibold text-[#115E3B] hover:bg-[#ECF7F1] disabled:opacity-60 whitespace-nowrap shrink-0 dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#34D399]"
+              >
+                <FileSpreadsheet className="h-4 w-4" />
+                <span>{t.stockPurchasesExportExcel}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  openReportsHub({
+                    reportType: 'products',
+                    warehouseId: selectedWarehouseId !== 'all' ? selectedWarehouseId : undefined,
+                    category: selectedCategory !== 'all' ? selectedCategory : undefined,
+                  })
+                }
+                className="flex min-h-[40px] items-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs font-semibold text-[#115E3B] hover:bg-[#ECF7F1] whitespace-nowrap shrink-0 dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#34D399]"
+              >
+                <Printer className="h-4 w-4" />
+                <span>{t.reportPrintNow}</span>
+              </button>
+            </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setShowStockPurchasesReport((v) => !v)}
-              className={`flex min-h-[40px] items-center gap-1.5 rounded-xl border px-3 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
-                showStockPurchasesReport
-                  ? 'border-[#115E3B] bg-[#ECF7F1] text-[#115E3B] dark:border-[#10B981] dark:bg-[#132B20] dark:text-[#34D399]'
-                  : 'border-[#DCE7E0] bg-white text-[#0B1F16] hover:bg-[#ECF7F1] dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5]'
-              }`}
-            >
-              <BarChart3 className="h-4 w-4" />
-              <span>{t.stockPurchasesReportToggle}</span>
-              {showStockPurchasesReport ? (
-                <ChevronUp className="h-3.5 w-3.5" />
-              ) : (
-                <ChevronDown className="h-3.5 w-3.5" />
+          {/* Warehouse / Category / Color Attribute Filters */}
+          {(warehouses.length > 0 || availableCategories.length > 0 || availableColors.length > 0) && (
+            <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-[#DCE7E0] bg-white p-2.5 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
+              {warehouses.length > 0 && (
+                <select
+                  value={selectedWarehouseId}
+                  onChange={(e) => setSelectedWarehouseId(e.target.value)}
+                  aria-label={t.productWarehouseLabel}
+                  className="min-h-[38px] rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-3 text-xs font-medium text-[#0B1F16] focus:border-[#115E3B] focus:outline-none dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#F2F9F5]"
+                >
+                  <option value="all">{t.productAllWarehouses}</option>
+                  {warehouses.map((wh) => (
+                    <option key={wh.id} value={wh.id}>
+                      {wh.code} — {wh.name}
+                    </option>
+                  ))}
+                </select>
               )}
-            </button>
 
-            <button
-              type="button"
-              onClick={() => void handleExportStockPurchasesExcel()}
-              disabled={exportingStockPurchases || products.length === 0}
-              className="flex min-h-[40px] items-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs font-semibold text-[#115E3B] hover:bg-[#ECF7F1] disabled:opacity-60 whitespace-nowrap shrink-0 dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#34D399]"
-            >
-              <FileSpreadsheet className="h-4 w-4" />
-              <span>{t.stockPurchasesExportExcel}</span>
-            </button>
-          </div>
+              {availableCategories.length > 0 && (
+                <select
+                  value={selectedCategory}
+                  onChange={(e) => setSelectedCategory(e.target.value)}
+                  aria-label={t.productCategoryLabel}
+                  className="min-h-[38px] rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-3 text-xs font-medium text-[#0B1F16] focus:border-[#115E3B] focus:outline-none dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#F2F9F5]"
+                >
+                  <option value="all">{t.productAllCategories}</option>
+                  {availableCategories.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              {availableColors.length > 0 && (
+                <select
+                  value={selectedColor}
+                  onChange={(e) => setSelectedColor(e.target.value)}
+                  aria-label={t.productColorLabel}
+                  className="min-h-[38px] rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-3 text-xs font-medium text-[#0B1F16] focus:border-[#115E3B] focus:outline-none dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#F2F9F5]"
+                >
+                  <option value="all">{t.productAllColors}</option>
+                  {availableColors.map((col) => (
+                    <option key={col} value={col}>
+                      {col}
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              {hasAttributeFilters && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedWarehouseId('all');
+                    setSelectedCategory('all');
+                    setSelectedColor('all');
+                  }}
+                  className="inline-flex min-h-[38px] items-center gap-1 rounded-xl px-2.5 text-xs font-semibold text-[#115E3B] hover:bg-[#ECF7F1] dark:text-[#34D399]"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  <span>{t.purchasesFilterReset}</span>
+                </button>
+              )}
+            </div>
+          )}
         </section>
 
         {/* Detailed Inventory Stock Purchases Balance / Report */}
@@ -1197,7 +1699,7 @@ export default function App() {
             {[1, 2, 3].map((item) => (
               <div
                 key={item}
-                className="h-80 animate-pulse rounded-2xl border border-[#DCE7E0] bg-white p-4 dark:border-[#1E3A2D] dark:bg-[#0F2119]"
+                className="h-80 rounded-2xl border border-[#DCE7E0] bg-white p-4 opacity-70 dark:border-[#1E3A2D] dark:bg-[#0F2119]"
               />
             ))}
           </div>
@@ -1210,12 +1712,15 @@ export default function App() {
               {t.emptyDescription}
             </p>
             <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-              {(searchQuery || inventoryFilter !== 'all') && (
+              {(searchQuery || inventoryFilter !== 'all' || hasAttributeFilters) && (
                 <button
                   type="button"
                   onClick={() => {
                     setSearchQuery('');
                     setInventoryFilter('all');
+                    setSelectedWarehouseId('all');
+                    setSelectedCategory('all');
+                    setSelectedColor('all');
                   }}
                   className="min-h-[44px] rounded-xl border border-[#DCE7E0] px-4 text-sm font-semibold text-[#115E3B] hover:bg-[#ECF7F1] dark:border-[#1E3A2D] dark:text-[#34D399]"
                 >
@@ -1353,6 +1858,24 @@ export default function App() {
                           ? t.digitalStatusSold
                           : `${t.quantityLabel.replace(/^5\.\s*/, '')} : ${formatNumber(product.quantity, lang)}`}
                       </span>
+                      {product.category && (
+                        <>
+                          <span aria-hidden="true">·</span>
+                          <span>{product.category}</span>
+                        </>
+                      )}
+                      {product.color && (
+                        <>
+                          <span aria-hidden="true">·</span>
+                          <span>{product.color}</span>
+                        </>
+                      )}
+                      {product.warehouseName && (
+                        <>
+                          <span aria-hidden="true">·</span>
+                          <span className="truncate">{product.warehouseName}</span>
+                        </>
+                      )}
                       {product.supplier && (
                         <>
                           <span aria-hidden="true">·</span>
@@ -1494,6 +2017,30 @@ export default function App() {
               <span>{t.addCustomer}</span>
             </button>
           </div>
+        ) : activeTab === 'suppliers' ? (
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() => void handleExportSuppliersExcel()}
+              disabled={exportingSuppliers || supplierSummary.totalSuppliers === 0}
+              className="flex min-h-[46px] items-center justify-center gap-2 rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-4 text-xs font-semibold text-[#115E3B] disabled:opacity-60 whitespace-nowrap shrink-0 dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#34D399]"
+            >
+              <FileSpreadsheet className="h-4 w-4" />
+              <span>{t.exportExcel}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setEditingSupplier(null);
+                setSupplierFormOpen(true);
+              }}
+              className="flex min-h-[46px] flex-1 items-center justify-center gap-2 rounded-xl bg-[#115E3B] px-4 text-sm font-semibold text-white whitespace-nowrap dark:bg-[#10B981] dark:text-[#052E1C]"
+            >
+              <Truck className="h-4 w-4" />
+              <span>{t.newSupplierButton}</span>
+            </button>
+          </div>
         ) : (
           <div className="flex items-center gap-1.5">
             <button
@@ -1513,7 +2060,7 @@ export default function App() {
               className="flex min-h-[46px] items-center justify-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-2.5 text-xs font-semibold text-[#115E3B] disabled:opacity-60 whitespace-nowrap shrink-0 dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#34D399]"
             >
               <FileSpreadsheet className="h-4 w-4" />
-              <span>Excel</span>
+              <span>{t.exportExcel}</span>
             </button>
 
             <button
@@ -1552,6 +2099,9 @@ export default function App() {
         lang={lang}
         currency={settings.currency}
         editingProduct={editingProduct}
+        warehouses={warehouses}
+        suppliers={suppliers}
+        existingCategories={availableCategories}
         onClose={() => {
           setFormOpen(false);
           setEditingProduct(null);
@@ -1572,6 +2122,12 @@ export default function App() {
         onShare={(prod) => setShareProduct(prod)}
         onOpenQrLabel={(prod) => setQrCodeProduct(prod)}
         onOpenDigitalFile={(prod) => void openDigitalFileForProduct(prod.id, 'management')}
+        onPrintProductReport={(prod) =>
+          openReportsHub({
+            reportType: 'product_single',
+            productId: prod.id,
+          })
+        }
       />
 
       <ShareModal
@@ -1684,6 +2240,8 @@ export default function App() {
         }}
         onExportCustomerExcel={(cust) => void handleExportCustomersExcel(cust)}
         onSavePurchase={handleSavePurchase}
+        onCreateMultiSale={handleRecordPosSale}
+        onPrintInvoice={handlePrintInvoice}
         onDeletePurchase={handleDeletePurchase}
         onSaveGalleryImages={handleSaveGalleryImages}
         onDeleteGalleryImage={handleDeleteGalleryImage}
@@ -1693,6 +2251,96 @@ export default function App() {
           setQrScannerClientOnly(false);
           setQrScannerOpen(true);
         }}
+      />
+
+      <SupplierFormModal
+        isOpen={supplierFormOpen}
+        lang={lang}
+        editingSupplier={editingSupplier}
+        onClose={() => {
+          setSupplierFormOpen(false);
+          setEditingSupplier(null);
+        }}
+        onSubmit={handleSaveSupplier}
+      />
+
+      <SupplierDetailModal
+        supplier={detailSupplier}
+        lang={lang}
+        currency={settings.currency}
+        products={products}
+        warehouses={warehouses}
+        initialAddPurchase={detailSupStartAdd}
+        initialTab={detailSupInitialTab}
+        onClose={() => {
+          setDetailSupplier(null);
+          setDetailSupStartAdd(false);
+          setDetailSupInitialTab('purchases');
+        }}
+        onEditProfile={(sup) => {
+          setEditingSupplier(sup);
+          setSupplierFormOpen(true);
+        }}
+        onExportSupplierExcel={(sup) => void handleExportSuppliersExcel(sup)}
+        onSavePurchase={handleSaveSupplierPurchase}
+        onDeletePurchase={handleDeleteSupplierPurchase}
+        onSaveGalleryImages={handleSaveSupplierGalleryImages}
+        onDeleteGalleryImage={handleDeleteSupplierGalleryImage}
+      />
+
+      <WarehousesModal
+        isOpen={warehousesModalOpen}
+        lang={lang}
+        currency={settings.currency}
+        warehouses={warehouses}
+        products={products}
+        onClose={() => setWarehousesModalOpen(false)}
+        onSaveWarehouse={handleSaveWarehouse}
+        onDeleteWarehouse={handleDeleteWarehouse}
+        onPrintWarehouseReport={(whId) =>
+          openReportsHub({
+            reportType: 'warehouses',
+            warehouseId: whId,
+          })
+        }
+      />
+
+      <InventoryAdjustmentModal
+        isOpen={adjustmentsModalOpen}
+        lang={lang}
+        currency={settings.currency}
+        products={products}
+        warehouses={warehouses}
+        suppliers={suppliers}
+        adjustments={adjustments}
+        onClose={() => setAdjustmentsModalOpen(false)}
+        onCreateAdjustment={handleCreateAdjustment}
+        onDeleteAdjustment={handleDeleteAdjustment}
+        onPrintInventoryReport={(filters) =>
+          openReportsHub({
+            reportType: 'inventory',
+            warehouseId: filters.warehouseId,
+            category: filters.category,
+            productId: filters.productId,
+          })
+        }
+      />
+
+      <ReportsPrintModal
+        isOpen={reportsModalOpen}
+        lang={lang}
+        currency={settings.currency}
+        storeName={settings.storeName || ''}
+        initialFilters={reportsInitialFilters}
+        products={products}
+        warehouses={warehouses}
+        customers={customers}
+        suppliers={suppliers}
+        invoices={posInvoices}
+        adjustments={adjustments}
+        onClose={() => setReportsModalOpen(false)}
+        onMarkInvoicePrinted={handleMarkInvoicePrinted}
+        onNotify={showToast}
       />
 
       <CalculatorModal
@@ -1719,6 +2367,7 @@ export default function App() {
         }}
         onLookupQr={lookupProductByQrApi}
         onExecuteQrSale={handleExecuteQrSale}
+        onPrintInvoice={handlePrintInvoice}
         onOpenDigitalFile={(file, view) => {
           const keepClientLock = qrScannerClientOnly;
           setQrScannerClientOnly(false);
@@ -1780,6 +2429,13 @@ export default function App() {
         }}
         onRecordSale={handleRecordPosSale}
         onCancelInvoice={handleCancelPosInvoice}
+        onPrintInvoice={handlePrintInvoice}
+        onPrintProductReport={(prod) =>
+          openReportsHub({
+            reportType: 'product_single',
+            productId: prod.id,
+          })
+        }
         onOpenClientQrScanner={() => {
           setDigitalFileData(null);
           setQrScannerLockedCustomer(null);
@@ -1797,15 +2453,37 @@ export default function App() {
         storeName={settings.storeName}
         products={products}
         customers={customers}
+        warehouses={warehouses}
         invoices={posInvoices}
         summary={posSummary}
         onClose={() => setPosModalOpen(false)}
         onCreateSale={handleRecordPosSale}
         onCancelInvoice={handleCancelPosInvoice}
+        onPrintInvoice={handlePrintInvoice}
         onOpenProductDigitalFile={(productId) => {
           setPosModalOpen(false);
           void openDigitalFileForProduct(productId, 'management');
         }}
+        onPrintAggregateInvoices={(filters) =>
+          openReportsHub({
+            reportType: 'invoices_aggregate',
+            startDate: filters.startDate,
+            endDate: filters.endDate,
+            customerId: filters.customerId,
+            productId: filters.productId,
+            category: filters.category,
+          })
+        }
+        onPrintSalesReport={(filters) =>
+          openReportsHub({
+            reportType: 'sales',
+            startDate: filters.startDate,
+            endDate: filters.endDate,
+            customerId: filters.customerId,
+            productId: filters.productId,
+            category: filters.category,
+          })
+        }
       />
 
       {/* Global Confirmation Toast */}

@@ -1,4 +1,5 @@
 import type {
+  AdjustmentType,
   Customer,
   CustomerCategory,
   CustomerGalleryImage,
@@ -10,8 +11,11 @@ import type {
   CustomerSummary,
   ExcelImportMode,
   ExcelImportResult,
+  InventoryAdjustment,
+  InventoryAdjustmentPayload,
   InventorySummary,
   PosInvoice,
+  PosInvoiceItem,
   PosSalePayload,
   Product,
   ProductDigitalFile,
@@ -21,6 +25,16 @@ import type {
   ProductPhoto,
   PurchasePaymentMethod,
   ShopSettings,
+  Supplier,
+  SupplierCategory,
+  SupplierGalleryImage,
+  SupplierGalleryPayload,
+  SupplierPayload,
+  SupplierPurchase,
+  SupplierPurchasePayload,
+  SupplierSummary,
+  Warehouse,
+  WarehousePayload,
 } from '../types';
 import { extractPrefixLetter } from './image';
 import lanternImg from '../assets/images/antique_copper_lantern_1794787509666.jpg';
@@ -29,12 +43,15 @@ import ceramicImg from '../assets/images/antique_fez_ceramic_1794787509914.jpg';
 import teaServiceImg from '../assets/images/antique_silver_tea_service_1794787510384.jpg';
 
 const DB_NAME = 'gestion_antiquites_db';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const STORE_PRODUCTS = 'products';
 const STORE_SETTINGS = 'settings';
 const STORE_CUSTOMERS = 'customers';
 const STORE_INVOICES = 'sales_invoices';
 const STORE_HISTORY = 'product_history';
+const STORE_WAREHOUSES = 'warehouses';
+const STORE_SUPPLIERS = 'suppliers';
+const STORE_ADJUSTMENTS = 'inventory_adjustments';
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -55,6 +72,15 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(STORE_HISTORY)) {
         db.createObjectStore(STORE_HISTORY, { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains(STORE_WAREHOUSES)) {
+        db.createObjectStore(STORE_WAREHOUSES, { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains(STORE_SUPPLIERS)) {
+        db.createObjectStore(STORE_SUPPLIERS, { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains(STORE_ADJUSTMENTS)) {
+        db.createObjectStore(STORE_ADJUSTMENTS, { keyPath: 'id' });
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -153,8 +179,35 @@ function normalizeProductRecord(p: Product): Product {
   return {
     ...p,
     qrToken: p.qrToken || `GA-QR-${p.code}`,
+    category: p.category || '',
+    color: p.color || '',
+    warehouseId: p.warehouseId || '',
+    warehouseName: p.warehouseName || '',
+    supplierId: p.supplierId || '',
     supplier: p.supplier || '',
   };
+}
+
+async function ensureDefaultLocalWarehouse(db: IDBDatabase): Promise<Warehouse> {
+  const all = await getAllFromStore<Warehouse>(db, STORE_WAREHOUSES);
+  const def = all.find((w) => w.isDefault) || all[0];
+  if (def) return def;
+  const now = new Date().toISOString();
+  const created: Warehouse = {
+    id: crypto.randomUUID ? crypto.randomUUID() : `wh-${Date.now()}`,
+    code: 'WH0001',
+    name: 'Magasin Principal',
+    location: 'Fès',
+    address: '',
+    phone: '',
+    managerName: '',
+    notes: '',
+    isDefault: true,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await putInStore(db, STORE_WAREHOUSES, created);
+  return created;
 }
 
 async function ensureSeeded(db: IDBDatabase): Promise<void> {
@@ -251,6 +304,7 @@ async function ensureSeeded(db: IDBDatabase): Promise<void> {
     },
   ];
 
+  const defWh = await ensureDefaultLocalWarehouse(db);
   const createdList: Product[] = [];
   for (const s of seeds) {
     const id = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
@@ -261,6 +315,11 @@ async function ensureSeeded(db: IDBDatabase): Promise<void> {
       qrToken: `GA-QR-${code}`,
       name: s.name,
       description: s.description,
+      category: '',
+      color: '',
+      warehouseId: defWh.id,
+      warehouseName: defWh.name,
+      supplierId: '',
       supplier: s.supplier,
       lengthCm: s.lengthCm,
       widthCm: s.widthCm,
@@ -290,8 +349,8 @@ async function ensureSeeded(db: IDBDatabase): Promise<void> {
     await appendHistoryEvent(db, {
       productId: id,
       eventType: 'created',
-      summary: `Article créé (${code})`,
-      details: s.supplier ? `Fournisseur: ${s.supplier}` : '',
+      summary: `${code}`,
+      details: s.supplier || '',
       quantityDelta: s.quantity,
       quantityAfter: s.quantity,
       createdAt: now,
@@ -320,6 +379,9 @@ export async function localListProducts(
           p.name.toLowerCase().includes(q) ||
           p.code.toLowerCase().includes(q) ||
           (p.supplier || '').toLowerCase().includes(q) ||
+          (p.category || '').toLowerCase().includes(q) ||
+          (p.color || '').toLowerCase().includes(q) ||
+          (p.warehouseName || '').toLowerCase().includes(q) ||
           (p.qrToken || '').toLowerCase().includes(q) ||
           p.photos.some((ph) => ph.photoCode.toLowerCase().includes(q))
       )
@@ -369,11 +431,25 @@ export async function localCreateProduct(payload: ProductPayload): Promise<Produ
   const db = await openDb();
   await ensureSeeded(db);
   const all = await getAllFromStore<Product>(db, STORE_PRODUCTS);
+  const defWh = await ensureDefaultLocalWarehouse(db);
+  const warehouses = await getAllFromStore<Warehouse>(db, STORE_WAREHOUSES);
+  const suppliers = await getAllFromStore<Supplier>(db, STORE_SUPPLIERS);
+
   const now = new Date().toISOString();
   const id = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
   const customCode = payload.code ? ensureUniqueCustomCode(all, payload.code) : '';
   const code = customCode || computeNextCode(all, payload.name);
-  const supplier = (payload.supplier || '').trim();
+
+  let supplierId = (payload.supplierId || '').trim();
+  let supplier = (payload.supplier || '').trim();
+  if (supplierId) {
+    const matchedSup = suppliers.find((s) => s.id === supplierId);
+    if (matchedSup && !supplier) supplier = matchedSup.name;
+  }
+
+  let warehouseId = (payload.warehouseId || '').trim() || defWh.id;
+  const matchedWh = warehouses.find((w) => w.id === warehouseId);
+  const warehouseName = matchedWh?.name || (payload.warehouseName || '').trim() || defWh.name;
   const initialQty = Math.max(0, payload.quantity ?? 1);
 
   const photos: ProductPhoto[] = (payload.photos || []).map((p, idx) => ({
@@ -391,6 +467,11 @@ export async function localCreateProduct(payload: ProductPayload): Promise<Produ
     qrToken: `GA-QR-${code}`,
     name: payload.name.trim(),
     description: payload.description.trim(),
+    category: (payload.category || '').trim(),
+    color: (payload.color || '').trim(),
+    warehouseId,
+    warehouseName,
+    supplierId,
     supplier,
     lengthCm: payload.lengthCm || 0,
     widthCm: payload.widthCm || 0,
@@ -411,8 +492,8 @@ export async function localCreateProduct(payload: ProductPayload): Promise<Produ
   await appendHistoryEvent(db, {
     productId: id,
     eventType: 'created',
-    summary: `Article créé (${code})`,
-    details: supplier ? `Fournisseur: ${supplier}` : '',
+    summary: `${code}`,
+    details: [warehouseName, supplier, product.color].filter(Boolean).join(' · '),
     quantityDelta: initialQty,
     quantityAfter: initialQty,
     createdAt: now,
@@ -427,6 +508,10 @@ export async function localUpdateProduct(id: string, payload: ProductPayload): P
   const existing = all.find((p) => p.id === id);
   if (!existing) throw new Error('Product not found');
 
+  const warehouses = await getAllFromStore<Warehouse>(db, STORE_WAREHOUSES);
+  const suppliers = await getAllFromStore<Supplier>(db, STORE_SUPPLIERS);
+  const defWh = await ensureDefaultLocalWarehouse(db);
+
   const now = new Date().toISOString();
   const explicitCode = payload.code ? sanitizeCustomCode(payload.code) : '';
   const isAutoFormatCode = /^[A-Z]\d{4}$/.test(existing.code);
@@ -440,7 +525,19 @@ export async function localUpdateProduct(id: string, payload: ProductPayload): P
         ? computeNextCode(all, payload.name, id)
         : existing.code;
   const qrToken = code !== existing.code ? `GA-QR-${code}` : existing.qrToken || `GA-QR-${code}`;
-  const supplier = (payload.supplier ?? existing.supplier ?? '').trim();
+
+  const supplierId = (payload.supplierId ?? existing.supplierId ?? '').trim();
+  let supplier = (payload.supplier ?? existing.supplier ?? '').trim();
+  if (supplierId) {
+    const matchedSup = suppliers.find((s) => s.id === supplierId);
+    if (matchedSup && !supplier) supplier = matchedSup.name;
+  }
+
+  const warehouseId = (payload.warehouseId ?? existing.warehouseId ?? '').trim() || defWh.id;
+  const matchedWh = warehouses.find((w) => w.id === warehouseId);
+  const warehouseName =
+    matchedWh?.name || (payload.warehouseName ?? existing.warehouseName ?? '').trim() || defWh.name;
+
   const nextQty = Math.max(0, payload.quantity ?? 1);
   const qtyDelta = nextQty - (Number(existing.quantity) || 0);
 
@@ -459,6 +556,11 @@ export async function localUpdateProduct(id: string, payload: ProductPayload): P
     qrToken,
     name: payload.name.trim(),
     description: payload.description.trim(),
+    category: (payload.category ?? existing.category ?? '').trim(),
+    color: (payload.color ?? existing.color ?? '').trim(),
+    warehouseId,
+    warehouseName,
+    supplierId,
     supplier,
     lengthCm: payload.lengthCm || 0,
     widthCm: payload.widthCm || 0,
@@ -478,8 +580,8 @@ export async function localUpdateProduct(id: string, payload: ProductPayload): P
   await appendHistoryEvent(db, {
     productId: id,
     eventType: qtyDelta > 0 ? 'restocked' : 'updated',
-    summary: qtyDelta > 0 ? `Réapprovisionnement (+${qtyDelta})` : `Fiche mise à jour (${code})`,
-    details: qtyDelta !== 0 ? `Stock: ${existing.quantity} → ${nextQty}` : '',
+    summary: qtyDelta > 0 ? `+${qtyDelta}` : `${code}`,
+    details: qtyDelta !== 0 ? `${existing.quantity} → ${nextQty}` : '',
     quantityDelta: qtyDelta,
     quantityAfter: nextQty,
     createdAt: now,
@@ -494,6 +596,8 @@ export async function localImportProducts(
   const db = await openDb();
   await ensureSeeded(db);
   const all = (await getAllFromStore<Product>(db, STORE_PRODUCTS)).map(normalizeProductRecord);
+  const warehouses = await getAllFromStore<Warehouse>(db, STORE_WAREHOUSES);
+  const defWh = await ensureDefaultLocalWarehouse(db);
   const now = new Date().toISOString();
 
   let addedCount = 0;
@@ -507,6 +611,13 @@ export async function localImportProducts(
       skippedCount += 1;
       continue;
     }
+
+    const rawWhName = (rawItem.warehouseName || '').trim();
+    const matchedWh = rawWhName
+      ? warehouses.find((w) => w.name.toLowerCase() === rawWhName.toLowerCase())
+      : undefined;
+    const resolvedWhId = matchedWh?.id || rawItem.warehouseId || defWh.id;
+    const resolvedWhName = matchedWh?.name || rawWhName || defWh.name;
 
     const existing = cleanCode
       ? all.find((p) => p.code.toUpperCase() === cleanCode.toUpperCase())
@@ -524,6 +635,10 @@ export async function localImportProducts(
         ...existing,
         name: cleanName,
         description: (rawItem.description ?? existing.description ?? '').trim(),
+        category: (rawItem.category ?? existing.category ?? '').trim(),
+        color: (rawItem.color ?? existing.color ?? '').trim(),
+        warehouseId: resolvedWhId || existing.warehouseId,
+        warehouseName: resolvedWhName || existing.warehouseName,
         supplier: (rawItem.supplier ?? existing.supplier ?? '').trim(),
         lengthCm: rawItem.lengthCm ?? existing.lengthCm,
         widthCm: rawItem.widthCm ?? existing.widthCm,
@@ -543,8 +658,8 @@ export async function localImportProducts(
       await appendHistoryEvent(db, {
         productId: existing.id,
         eventType: qtyDelta > 0 ? 'restocked' : 'updated',
-        summary: `Import Excel (${existing.code})`,
-        details: qtyDelta !== 0 ? `Stock: ${existing.quantity} → ${nextQty}` : '',
+        summary: `Excel (${existing.code})`,
+        details: qtyDelta !== 0 ? `${existing.quantity} → ${nextQty}` : '',
         quantityDelta: qtyDelta,
         quantityAfter: nextQty,
         createdAt: now,
@@ -563,6 +678,11 @@ export async function localImportProducts(
       qrToken: `GA-QR-${finalCode}`,
       name: cleanName,
       description: (rawItem.description || '').trim(),
+      category: (rawItem.category || '').trim(),
+      color: (rawItem.color || '').trim(),
+      warehouseId: resolvedWhId,
+      warehouseName: resolvedWhName,
+      supplierId: '',
       supplier,
       lengthCm: rawItem.lengthCm || 0,
       widthCm: rawItem.widthCm || 0,
@@ -583,8 +703,8 @@ export async function localImportProducts(
     await appendHistoryEvent(db, {
       productId: id,
       eventType: 'created',
-      summary: `Import Excel (${finalCode})`,
-      details: supplier ? `Fournisseur: ${supplier}` : '',
+      summary: `Excel (${finalCode})`,
+      details: supplier || resolvedWhName || '',
       quantityDelta: initialQty,
       quantityAfter: initialQty,
       createdAt: now,
@@ -1030,7 +1150,11 @@ async function buildLocalDigitalFile(db: IDBDatabase, rawProduct: Product): Prom
   const product = normalizeProductRecord(rawProduct);
   const allInvoices = await getAllFromStore<PosInvoice>(db, STORE_INVOICES);
   const invoices = allInvoices
-    .filter((inv) => inv.productId === product.id)
+    .filter(
+      (inv) =>
+        inv.productId === product.id ||
+        (Array.isArray(inv.items) && inv.items.some((item) => item.productId === product.id))
+    )
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
   const allHistory = await getAllFromStore<ProductHistoryEvent>(db, STORE_HISTORY);
@@ -1043,8 +1167,8 @@ async function buildLocalDigitalFile(db: IDBDatabase, rawProduct: Product): Prom
       id: `${product.id}-init`,
       productId: product.id,
       eventType: 'created',
-      summary: `Article initialisé (${product.code})`,
-      details: product.supplier ? `Fournisseur: ${product.supplier}` : '',
+      summary: `${product.code}`,
+      details: product.supplier || '',
       quantityDelta: product.quantity,
       quantityAfter: product.quantity,
       createdAt: product.createdAt,
@@ -1052,13 +1176,28 @@ async function buildLocalDigitalFile(db: IDBDatabase, rawProduct: Product): Prom
     history = [fallbackEv];
   }
 
+  let totalUnitsSold = 0;
+  let totalRevenueMad = 0;
+  for (const inv of invoices) {
+    const matched = (inv.items || []).filter((item) => item.productId === product.id);
+    if (matched.length > 0) {
+      for (const item of matched) {
+        totalUnitsSold += Number(item.quantity) || 0;
+        totalRevenueMad += Number(item.totalPrice) || 0;
+      }
+    } else if (inv.productId === product.id) {
+      totalUnitsSold += Number(inv.quantity) || 0;
+      totalRevenueMad += Number(inv.totalPrice) || 0;
+    }
+  }
+
   return {
     product,
     invoices,
     history,
     salesStats: {
-      totalUnitsSold: invoices.reduce((s, inv) => s + (Number(inv.quantity) || 0), 0),
-      totalRevenueMad: invoices.reduce((s, inv) => s + (Number(inv.totalPrice) || 0), 0),
+      totalUnitsSold,
+      totalRevenueMad,
       totalInvoices: invoices.length,
       lastSaleDate: invoices[0]?.saleDate || '',
     },
@@ -1086,7 +1225,7 @@ export async function localGetProductDigitalFileByQr(
     await appendHistoryEvent(db, {
       productId: found.id,
       eventType: 'qr_scanned' as ProductHistoryEventType,
-      summary: `QR scanné (consultation ${found.code})`,
+      summary: `QR (${found.code})`,
       details: '',
       quantityDelta: 0,
       quantityAfter: found.quantity,
@@ -1108,7 +1247,7 @@ export async function localGetProductDigitalFile(
     await appendHistoryEvent(db, {
       productId: found.id,
       eventType: 'qr_scanned' as ProductHistoryEventType,
-      summary: `Fiche numérique ouverte (${found.code})`,
+      summary: `QR (${found.code})`,
       details: '',
       quantityDelta: 0,
       quantityAfter: found.quantity,
@@ -1129,13 +1268,41 @@ export async function localListPosSales(): Promise<{
 }> {
   const db = await openDb();
   await ensureSeeded(db);
-  const invoices = await getAllFromStore<PosInvoice>(db, STORE_INVOICES);
+  const invoices = (await getAllFromStore<PosInvoice>(db, STORE_INVOICES)).map((inv) => ({
+    ...inv,
+    printCount: Number(inv.printCount) || 0,
+    items:
+      Array.isArray(inv.items) && inv.items.length > 0
+        ? inv.items
+        : [
+            {
+              productId: inv.productId,
+              productCode: inv.productCode,
+              productName: inv.productName,
+              category: inv.category || '',
+              warehouseId: inv.warehouseId || '',
+              warehouseName: inv.warehouseName || '',
+              quantity: Number(inv.quantity) || 1,
+              unitPrice: Number(inv.unitPrice) || 0,
+              totalPrice: Number(inv.totalPrice) || 0,
+              purchasePrice: Number(inv.purchasePrice) || 0,
+            },
+          ],
+  }));
   invoices.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const totalRevenueMad = invoices.reduce((s, inv) => s + (Number(inv.totalPrice) || 0), 0);
-  const totalCostMad = invoices.reduce(
-    (s, inv) => s + (Number(inv.purchasePrice) || 0) * (Number(inv.quantity) || 1),
-    0
-  );
+  const totalCostMad = invoices.reduce((s, inv) => {
+    if (Array.isArray(inv.items) && inv.items.length > 0) {
+      return (
+        s +
+        inv.items.reduce(
+          (sum, item) => sum + (Number(item.purchasePrice) || 0) * (Number(item.quantity) || 1),
+          0
+        )
+      );
+    }
+    return s + (Number(inv.purchasePrice) || 0) * (Number(inv.quantity) || 1);
+  }, 0);
   const totalUnitsSold = invoices.reduce((s, inv) => s + (Number(inv.quantity) || 0), 0);
   return {
     invoices,
@@ -1156,12 +1323,41 @@ export async function localCreatePosSale(payload: PosSalePayload): Promise<{
   const db = await openDb();
   await ensureSeeded(db);
   const allProducts = (await getAllFromStore<Product>(db, STORE_PRODUCTS)).map(normalizeProductRecord);
-  const product = allProducts.find((p) => p.id === payload.productId);
-  if (!product) throw new Error('Product not found');
+  const rawLineItems =
+    Array.isArray(payload.items) && payload.items.length > 0
+      ? payload.items
+      : payload.productId
+        ? [{ productId: payload.productId, quantity: payload.quantity ?? 1, unitPrice: payload.unitPrice }]
+        : [];
+  if (rawLineItems.length === 0) throw new Error('At least one product is required');
 
-  const qty = Math.max(1, Math.floor(Number(payload.quantity) || 1));
-  if (product.quantity < qty) {
-    throw new Error('OUT_OF_STOCK');
+  const resolved: Array<{
+    product: Product;
+    quantity: number;
+    unitPrice: number;
+    totalPrice: number;
+    purchasePrice: number;
+  }> = [];
+
+  const neededByProduct = new Map<string, number>();
+  for (const item of rawLineItems) {
+    const prod = allProducts.find((p) => p.id === item.productId);
+    if (!prod) throw new Error('Product not found');
+    const qty = Math.max(1, Math.floor(Number(item.quantity) || 1));
+    const totalNeeded = (neededByProduct.get(prod.id) || 0) + qty;
+    if (prod.quantity < totalNeeded) throw new Error('OUT_OF_STOCK');
+    neededByProduct.set(prod.id, totalNeeded);
+    const unitPrice =
+      typeof item.unitPrice === 'number' && Number.isFinite(item.unitPrice)
+        ? Math.max(0, item.unitPrice)
+        : prod.sellingPrice;
+    resolved.push({
+      product: prod,
+      quantity: qty,
+      unitPrice,
+      totalPrice: Math.round(qty * unitPrice * 100) / 100,
+      purchasePrice: (Number(prod.referencePrice) || 0) + (Number(prod.expenses) || 0),
+    });
   }
 
   const allInvoices = await getAllFromStore<PosInvoice>(db, STORE_INVOICES);
@@ -1174,96 +1370,148 @@ export async function localCreatePosSale(payload: PosSalePayload): Promise<{
   }
   const invoiceNumber = `FAC-${String(maxInv + 1).padStart(4, '0')}`;
   const now = new Date().toISOString();
-  const unitPrice =
-    typeof payload.unitPrice === 'number' && Number.isFinite(payload.unitPrice)
-      ? Math.max(0, payload.unitPrice)
-      : product.sellingPrice;
-  const totalPrice = Math.round(qty * unitPrice * 100) / 100;
-  const purchasePrice = (Number(product.referencePrice) || 0) + (Number(product.expenses) || 0);
-  const nextQty = Math.max(0, product.quantity - qty);
 
   let customerName = (payload.customerName || '').trim();
   let customerPhone = (payload.customerPhone || '').trim();
   const customerId = (payload.customerId || '').trim();
-  if (customerId) {
-    const cust = await getFromStore<Customer>(db, STORE_CUSTOMERS, customerId);
-    if (cust) {
-      if (!customerName) customerName = cust.name;
-      if (!customerPhone) customerPhone = cust.phone;
-      const purchase: CustomerPurchase = {
+  let customerRecord = customerId ? await getFromStore<Customer>(db, STORE_CUSTOMERS, customerId) : undefined;
+  if (customerRecord) {
+    if (!customerName) customerName = customerRecord.name;
+    if (!customerPhone) customerPhone = customerRecord.phone;
+  }
+
+  const updatedProductsMap = new Map<string, Product>();
+  const newCustomerPurchases: CustomerPurchase[] = [];
+
+  for (const entry of resolved) {
+    const baseProd = updatedProductsMap.get(entry.product.id) || entry.product;
+    const nextQty = Math.max(0, baseProd.quantity - entry.quantity);
+    const updatedProduct: Product = {
+      ...baseProd,
+      quantity: nextQty,
+      updatedAt: now,
+    };
+    updatedProductsMap.set(entry.product.id, updatedProduct);
+
+    if (customerRecord) {
+      newCustomerPurchases.push({
         id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
         customerId,
-        productId: product.id,
-        productCode: product.code,
-        productName: product.name,
-        quantity: qty,
-        unitPrice,
-        totalPrice,
+        productId: entry.product.id,
+        productCode: entry.product.code,
+        productName: entry.product.name,
+        quantity: entry.quantity,
+        unitPrice: entry.unitPrice,
+        totalPrice: entry.totalPrice,
         purchaseDate: payload.saleDate || now.slice(0, 10),
         paymentMethod: (payload.paymentMethod || 'cash') as PurchasePaymentMethod,
         notes: payload.notes ? `${invoiceNumber} · ${payload.notes}` : invoiceNumber,
         createdAt: now,
-      };
-      await putInStore<Customer>(db, STORE_CUSTOMERS, {
-        ...cust,
-        updatedAt: now,
-        purchases: [purchase, ...(cust.purchases || [])],
       });
     }
+
+    await appendHistoryEvent(db, {
+      productId: entry.product.id,
+      eventType: 'sold',
+      summary: `${invoiceNumber} (-${entry.quantity})`,
+      details: customerName ? `${customerName} · ${entry.totalPrice} MAD` : `${entry.totalPrice} MAD`,
+      quantityDelta: -entry.quantity,
+      quantityAfter: nextQty,
+      createdAt: now,
+    });
+    await appendHistoryEvent(db, {
+      productId: entry.product.id,
+      eventType: 'invoice_created',
+      summary: `${invoiceNumber}`,
+      details: `${entry.totalPrice} MAD`,
+      quantityDelta: 0,
+      quantityAfter: nextQty,
+      createdAt: now,
+    });
   }
 
-  const updatedProduct: Product = {
-    ...product,
-    quantity: nextQty,
-    updatedAt: now,
-  };
-  await putInStore(db, STORE_PRODUCTS, updatedProduct);
+  for (const updatedProd of updatedProductsMap.values()) {
+    await putInStore(db, STORE_PRODUCTS, updatedProd);
+  }
+
+  if (customerRecord && newCustomerPurchases.length > 0) {
+    await putInStore<Customer>(db, STORE_CUSTOMERS, {
+      ...customerRecord,
+      updatedAt: now,
+      purchases: [...newCustomerPurchases, ...(customerRecord.purchases || [])],
+    });
+  }
+
+  const invoiceItems: PosInvoiceItem[] = resolved.map((entry) => ({
+    productId: entry.product.id,
+    productCode: entry.product.code,
+    productName: entry.product.name,
+    category: entry.product.category || '',
+    color: entry.product.color || '',
+    warehouseId: entry.product.warehouseId || '',
+    warehouseName: entry.product.warehouseName || '',
+    supplier: entry.product.supplier || '',
+    quantity: entry.quantity,
+    unitPrice: entry.unitPrice,
+    totalPrice: entry.totalPrice,
+    purchasePrice: entry.purchasePrice,
+  }));
+
+  const primaryProduct = resolved[0].product;
+  const totalQuantity = invoiceItems.reduce((s, i) => s + i.quantity, 0);
+  const grandTotalPrice = Math.round(invoiceItems.reduce((s, i) => s + i.totalPrice, 0) * 100) / 100;
+  const avgUnitPrice = totalQuantity > 0 ? Math.round((grandTotalPrice / totalQuantity) * 100) / 100 : 0;
+  const totalPurchaseCost = invoiceItems.reduce((s, i) => s + i.purchasePrice * i.quantity, 0);
+  const avgPurchaseCost = totalQuantity > 0 ? Math.round((totalPurchaseCost / totalQuantity) * 100) / 100 : 0;
 
   const invoice: PosInvoice = {
     id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
     invoiceNumber,
-    productId: product.id,
-    productCode: product.code,
-    productName: product.name,
+    productId: primaryProduct.id,
+    productCode:
+      invoiceItems.length === 1 ? primaryProduct.code : invoiceItems.map((i) => i.productCode).join(', '),
+    productName:
+      invoiceItems.length === 1
+        ? primaryProduct.name
+        : `${primaryProduct.name} (+${invoiceItems.length - 1})`,
+    category: primaryProduct.category || '',
+    warehouseId: primaryProduct.warehouseId || '',
+    warehouseName: primaryProduct.warehouseName || '',
+    items: invoiceItems,
     customerId,
     customerName,
     customerPhone,
-    quantity: qty,
-    unitPrice,
-    totalPrice,
-    purchasePrice,
+    quantity: totalQuantity,
+    unitPrice: avgUnitPrice,
+    totalPrice: grandTotalPrice,
+    purchasePrice: avgPurchaseCost,
     paymentMethod: (payload.paymentMethod || 'cash') as PurchasePaymentMethod,
     saleDate: payload.saleDate || now.slice(0, 10),
     notes: (payload.notes || '').trim(),
+    printCount: 0,
     createdAt: now,
   };
   await putInStore(db, STORE_INVOICES, invoice);
 
-  await appendHistoryEvent(db, {
-    productId: product.id,
-    eventType: 'sold',
-    summary: `${payload.source === 'qr_scan' ? 'Vente instantanée QR' : 'Vente POS'} — ${qty} u. (${invoiceNumber})`,
-    details: customerName ? `Client: ${customerName} · ${totalPrice} MAD` : `${totalPrice} MAD`,
-    quantityDelta: -qty,
-    quantityAfter: nextQty,
-    createdAt: now,
-  });
-  await appendHistoryEvent(db, {
-    productId: product.id,
-    eventType: 'invoice_created',
-    summary: `Facture ${invoiceNumber} générée`,
-    details: `Montant: ${totalPrice} MAD`,
-    quantityDelta: 0,
-    quantityAfter: nextQty,
-    createdAt: now,
-  });
-
-  const nextProducts = allProducts.map((p) => (p.id === updatedProduct.id ? updatedProduct : p));
+  const nextProducts = allProducts.map((p) => updatedProductsMap.get(p.id) || p);
+  const primaryUpdated = updatedProductsMap.get(primaryProduct.id) || primaryProduct;
   return {
     invoice,
-    digitalFile: await buildLocalDigitalFile(db, updatedProduct),
+    digitalFile: await buildLocalDigitalFile(db, primaryUpdated),
     summary: computeSummary(nextProducts),
   };
+}
+
+export async function localMarkInvoicePrinted(invoiceId: string): Promise<PosInvoice> {
+  const db = await openDb();
+  const inv = await getFromStore<PosInvoice>(db, STORE_INVOICES, invoiceId);
+  if (!inv) throw new Error('Invoice not found');
+  const updated: PosInvoice = {
+    ...inv,
+    printCount: (Number(inv.printCount) || 0) + 1,
+  };
+  await putInStore(db, STORE_INVOICES, updated);
+  return updated;
 }
 
 export async function localDeletePosSale(invoiceId: string): Promise<void> {
@@ -1271,24 +1519,534 @@ export async function localDeletePosSale(invoiceId: string): Promise<void> {
   const inv = await getFromStore<PosInvoice>(db, STORE_INVOICES, invoiceId);
   if (!inv) return;
   await deleteFromStore(db, STORE_INVOICES, invoiceId);
-  const product = await getFromStore<Product>(db, STORE_PRODUCTS, inv.productId);
-  if (product) {
-    const restoredQty = (Number(product.quantity) || 0) + (Number(inv.quantity) || 1);
-    const now = new Date().toISOString();
-    await putInStore(db, STORE_PRODUCTS, {
-      ...product,
-      quantity: restoredQty,
-      updatedAt: now,
-    });
-    await appendHistoryEvent(db, {
-      productId: product.id,
-      eventType: 'restocked',
-      summary: `Annulation facture ${inv.invoiceNumber}`,
-      details: `Stock restauré (+${inv.quantity})`,
-      quantityDelta: Number(inv.quantity) || 1,
-      quantityAfter: restoredQty,
-      createdAt: now,
-    });
+  const items: PosInvoiceItem[] =
+    Array.isArray(inv.items) && inv.items.length > 0
+      ? inv.items
+      : [
+          {
+            productId: inv.productId,
+            productCode: inv.productCode,
+            productName: inv.productName,
+            quantity: Number(inv.quantity) || 1,
+            unitPrice: Number(inv.unitPrice) || 0,
+            totalPrice: Number(inv.totalPrice) || 0,
+            purchasePrice: Number(inv.purchasePrice) || 0,
+          },
+        ];
+
+  const now = new Date().toISOString();
+  for (const item of items) {
+    const product = await getFromStore<Product>(db, STORE_PRODUCTS, item.productId);
+    if (product) {
+      const qtyToRestore = Number(item.quantity) || 1;
+      const restoredQty = (Number(product.quantity) || 0) + qtyToRestore;
+      await putInStore(db, STORE_PRODUCTS, {
+        ...product,
+        quantity: restoredQty,
+        updatedAt: now,
+      });
+      await appendHistoryEvent(db, {
+        productId: product.id,
+        eventType: 'restocked',
+        summary: `${inv.invoiceNumber} (+${qtyToRestore})`,
+        details: `+${qtyToRestore}`,
+        quantityDelta: qtyToRestore,
+        quantityAfter: restoredQty,
+        createdAt: now,
+      });
+    }
   }
 }
+
+// Local Warehouses CRUD
+function computeNextWarehouseCode(warehouses: Warehouse[]): string {
+  let maxNum = 0;
+  for (const w of warehouses) {
+    if (w.code.startsWith('WH')) {
+      const n = Number.parseInt(w.code.slice(2), 10);
+      if (Number.isFinite(n) && n > maxNum) maxNum = n;
+    }
+  }
+  return `WH${String(maxNum + 1).padStart(4, '0')}`;
+}
+
+export async function localListWarehouses(): Promise<{ warehouses: Warehouse[] }> {
+  const db = await openDb();
+  await ensureSeeded(db);
+  await ensureDefaultLocalWarehouse(db);
+  const all = await getAllFromStore<Warehouse>(db, STORE_WAREHOUSES);
+  all.sort((a, b) => (b.isDefault ? 1 : 0) - (a.isDefault ? 1 : 0) || a.createdAt.localeCompare(b.createdAt));
+  return { warehouses: all };
+}
+
+export async function localCreateWarehouse(payload: WarehousePayload): Promise<Warehouse> {
+  const db = await openDb();
+  const all = await getAllFromStore<Warehouse>(db, STORE_WAREHOUSES);
+  const now = new Date().toISOString();
+  const id = crypto.randomUUID ? crypto.randomUUID() : `wh-${Date.now()}`;
+  const isDefault = Boolean(payload.isDefault) || all.length === 0;
+  if (isDefault) {
+    for (const w of all) {
+      if (w.isDefault) await putInStore(db, STORE_WAREHOUSES, { ...w, isDefault: false });
+    }
+  }
+  const warehouse: Warehouse = {
+    id,
+    code: computeNextWarehouseCode(all),
+    name: payload.name.trim(),
+    location: payload.location.trim(),
+    address: payload.address.trim(),
+    phone: payload.phone.trim(),
+    managerName: payload.managerName.trim(),
+    notes: payload.notes.trim(),
+    isDefault,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await putInStore(db, STORE_WAREHOUSES, warehouse);
+  return warehouse;
+}
+
+export async function localUpdateWarehouse(id: string, payload: WarehousePayload): Promise<Warehouse> {
+  const db = await openDb();
+  const all = await getAllFromStore<Warehouse>(db, STORE_WAREHOUSES);
+  const existing = all.find((w) => w.id === id);
+  if (!existing) throw new Error('Warehouse not found');
+  const now = new Date().toISOString();
+  const isDefault = payload.isDefault !== undefined ? Boolean(payload.isDefault) : existing.isDefault;
+  if (isDefault) {
+    for (const w of all) {
+      if (w.id !== id && w.isDefault) {
+        await putInStore(db, STORE_WAREHOUSES, { ...w, isDefault: false });
+      }
+    }
+  }
+  const updated: Warehouse = {
+    ...existing,
+    name: payload.name.trim(),
+    location: payload.location.trim(),
+    address: payload.address.trim(),
+    phone: payload.phone.trim(),
+    managerName: payload.managerName.trim(),
+    notes: payload.notes.trim(),
+    isDefault,
+    updatedAt: now,
+  };
+  await putInStore(db, STORE_WAREHOUSES, updated);
+  const allProducts = await getAllFromStore<Product>(db, STORE_PRODUCTS);
+  for (const prod of allProducts) {
+    if (prod.warehouseId === id) {
+      await putInStore(db, STORE_PRODUCTS, { ...prod, warehouseName: updated.name });
+    }
+  }
+  return updated;
+}
+
+export async function localDeleteWarehouse(id: string): Promise<void> {
+  const db = await openDb();
+  await deleteFromStore(db, STORE_WAREHOUSES, id);
+  const defWh = await ensureDefaultLocalWarehouse(db);
+  const allProducts = await getAllFromStore<Product>(db, STORE_PRODUCTS);
+  for (const prod of allProducts) {
+    if (prod.warehouseId === id) {
+      await putInStore(db, STORE_PRODUCTS, {
+        ...prod,
+        warehouseId: defWh.id,
+        warehouseName: defWh.name,
+      });
+    }
+  }
+}
+
+// Local Suppliers CRUD
+function computeNextSupplierCode(suppliers: Supplier[]): string {
+  let maxNum = 0;
+  for (const s of suppliers) {
+    if (s.code.startsWith('FR')) {
+      const n = Number.parseInt(s.code.slice(2), 10);
+      if (Number.isFinite(n) && n > maxNum) maxNum = n;
+    }
+  }
+  return `FR${String(maxNum + 1).padStart(4, '0')}`;
+}
+
+function computeSupplierSummary(suppliers: Supplier[]): SupplierSummary {
+  let totalPurchases = 0;
+  let totalSpentMad = 0;
+  for (const s of suppliers) {
+    const purchases = s.purchases || [];
+    totalPurchases += purchases.length;
+    for (const p of purchases) {
+      totalSpentMad += Number(p.totalCost) || 0;
+    }
+  }
+  return {
+    totalSuppliers: suppliers.length,
+    totalPurchases,
+    totalSpentMad,
+  };
+}
+
+export async function localListSuppliers(
+  query: string,
+  category?: string
+): Promise<{ suppliers: Supplier[]; summary: SupplierSummary }> {
+  const db = await openDb();
+  await ensureSeeded(db);
+  const all = await getAllFromStore<Supplier>(db, STORE_SUPPLIERS);
+  all.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+  const q = query.trim().toLowerCase();
+  const filtered = all.filter((s) => {
+    if (category && category !== 'all' && s.category !== category) return false;
+    if (!q) return true;
+    return (
+      s.name.toLowerCase().includes(q) ||
+      s.code.toLowerCase().includes(q) ||
+      s.phone.toLowerCase().includes(q) ||
+      s.city.toLowerCase().includes(q) ||
+      s.address.toLowerCase().includes(q) ||
+      (s.purchases || []).some(
+        (p) =>
+          p.productName.toLowerCase().includes(q) ||
+          (p.productCode || '').toLowerCase().includes(q)
+      )
+    );
+  });
+
+  return {
+    suppliers: filtered.map((s) => ({ ...s, gallery: s.gallery || [] })),
+    summary: computeSupplierSummary(all),
+  };
+}
+
+export async function localCreateSupplier(payload: SupplierPayload): Promise<Supplier> {
+  const db = await openDb();
+  const all = await getAllFromStore<Supplier>(db, STORE_SUPPLIERS);
+  const now = new Date().toISOString();
+  const id = crypto.randomUUID ? crypto.randomUUID() : `sup-${Date.now()}`;
+  const supplier: Supplier = {
+    id,
+    code: computeNextSupplierCode(all),
+    name: payload.name.trim(),
+    phone: payload.phone.trim(),
+    address: payload.address.trim(),
+    city: payload.city.trim(),
+    category: (payload.category || 'artisan') as SupplierCategory,
+    notes: payload.notes.trim(),
+    facebookUrl: (payload.facebookUrl || '').trim(),
+    instagramUrl: (payload.instagramUrl || '').trim(),
+    websiteUrl: (payload.websiteUrl || '').trim(),
+    createdAt: now,
+    updatedAt: now,
+    purchases: [],
+    gallery: [],
+  };
+  await putInStore(db, STORE_SUPPLIERS, supplier);
+  return supplier;
+}
+
+export async function localUpdateSupplier(id: string, payload: SupplierPayload): Promise<Supplier> {
+  const db = await openDb();
+  const existing = await getFromStore<Supplier>(db, STORE_SUPPLIERS, id);
+  if (!existing) throw new Error('Supplier not found');
+  const updated: Supplier = {
+    ...existing,
+    name: payload.name.trim(),
+    phone: payload.phone.trim(),
+    address: payload.address.trim(),
+    city: payload.city.trim(),
+    category: (payload.category || 'artisan') as SupplierCategory,
+    notes: payload.notes.trim(),
+    facebookUrl: (payload.facebookUrl || '').trim(),
+    instagramUrl: (payload.instagramUrl || '').trim(),
+    websiteUrl: (payload.websiteUrl || '').trim(),
+    updatedAt: new Date().toISOString(),
+  };
+  await putInStore(db, STORE_SUPPLIERS, updated);
+  return updated;
+}
+
+export async function localDeleteSupplier(id: string): Promise<void> {
+  const db = await openDb();
+  await deleteFromStore(db, STORE_SUPPLIERS, id);
+}
+
+export async function localAddSupplierPurchase(
+  supplierId: string,
+  payload: SupplierPurchasePayload
+): Promise<Supplier> {
+  const db = await openDb();
+  const existing = await getFromStore<Supplier>(db, STORE_SUPPLIERS, supplierId);
+  if (!existing) throw new Error('Supplier not found');
+  const now = new Date().toISOString();
+  const qty = Math.max(1, Math.floor(Number(payload.quantity) || 1));
+  const unitCost = Math.max(0, Number(payload.unitCost) || 0);
+  const purchase: SupplierPurchase = {
+    id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
+    supplierId,
+    productId: payload.productId || '',
+    productCode: payload.productCode.trim(),
+    productName: payload.productName.trim(),
+    category: (payload.category || '').trim(),
+    warehouseId: payload.warehouseId || '',
+    warehouseName: (payload.warehouseName || '').trim(),
+    quantity: qty,
+    unitCost,
+    totalCost: Math.round(qty * unitCost * 100) / 100,
+    purchaseDate: payload.purchaseDate || now.slice(0, 10),
+    paymentMethod: (payload.paymentMethod || 'cash') as PurchasePaymentMethod,
+    notes: payload.notes.trim(),
+    createdAt: now,
+  };
+  const updated: Supplier = {
+    ...existing,
+    updatedAt: now,
+    purchases: [purchase, ...(existing.purchases || [])],
+  };
+  await putInStore(db, STORE_SUPPLIERS, updated);
+  return updated;
+}
+
+export async function localUpdateSupplierPurchase(
+  supplierId: string,
+  purchaseId: string,
+  payload: SupplierPurchasePayload
+): Promise<Supplier> {
+  const db = await openDb();
+  const existing = await getFromStore<Supplier>(db, STORE_SUPPLIERS, supplierId);
+  if (!existing) throw new Error('Supplier not found');
+  const now = new Date().toISOString();
+  const qty = Math.max(1, Math.floor(Number(payload.quantity) || 1));
+  const unitCost = Math.max(0, Number(payload.unitCost) || 0);
+  const purchases = (existing.purchases || []).map((p) =>
+    p.id === purchaseId
+      ? {
+          ...p,
+          productId: payload.productId || '',
+          productCode: payload.productCode.trim(),
+          productName: payload.productName.trim(),
+          category: (payload.category || '').trim(),
+          warehouseId: payload.warehouseId || '',
+          warehouseName: (payload.warehouseName || '').trim(),
+          quantity: qty,
+          unitCost,
+          totalCost: Math.round(qty * unitCost * 100) / 100,
+          purchaseDate: payload.purchaseDate || p.purchaseDate,
+          paymentMethod: (payload.paymentMethod || 'cash') as PurchasePaymentMethod,
+          notes: payload.notes.trim(),
+        }
+      : p
+  );
+  const updated: Supplier = {
+    ...existing,
+    updatedAt: now,
+    purchases,
+  };
+  await putInStore(db, STORE_SUPPLIERS, updated);
+  return updated;
+}
+
+export async function localDeleteSupplierPurchase(
+  supplierId: string,
+  purchaseId: string
+): Promise<Supplier> {
+  const db = await openDb();
+  const existing = await getFromStore<Supplier>(db, STORE_SUPPLIERS, supplierId);
+  if (!existing) throw new Error('Supplier not found');
+  const updated: Supplier = {
+    ...existing,
+    updatedAt: new Date().toISOString(),
+    purchases: (existing.purchases || []).filter((p) => p.id !== purchaseId),
+    gallery: existing.gallery || [],
+  };
+  await putInStore(db, STORE_SUPPLIERS, updated);
+  return updated;
+}
+
+export async function localAddSupplierGalleryImages(
+  supplierId: string,
+  items: SupplierGalleryPayload[]
+): Promise<Supplier> {
+  const db = await openDb();
+  const existing = await getFromStore<Supplier>(db, STORE_SUPPLIERS, supplierId);
+  if (!existing) throw new Error('Supplier not found');
+  const now = new Date().toISOString();
+  const newImages: SupplierGalleryImage[] = items
+    .filter((item) =>
+      Boolean(
+        item.imageData &&
+          (item.imageData.startsWith('data:image/') || item.imageData.startsWith('data:video/'))
+      )
+    )
+    .map((item) => ({
+      id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
+      supplierId,
+      title: (item.title || '').trim(),
+      source: (item.source || 'upload') as CustomerImageSource,
+      sourceUrl: (item.sourceUrl || '').trim(),
+      imageData: String(item.imageData),
+      createdAt: now,
+    }));
+
+  const updated: Supplier = {
+    ...existing,
+    updatedAt: now,
+    gallery: [...newImages, ...(existing.gallery || [])],
+  };
+  await putInStore(db, STORE_SUPPLIERS, updated);
+  return updated;
+}
+
+export async function localDeleteSupplierGalleryImage(
+  supplierId: string,
+  imageId: string
+): Promise<Supplier> {
+  const db = await openDb();
+  const existing = await getFromStore<Supplier>(db, STORE_SUPPLIERS, supplierId);
+  if (!existing) throw new Error('Supplier not found');
+  const updated: Supplier = {
+    ...existing,
+    updatedAt: new Date().toISOString(),
+    gallery: (existing.gallery || []).filter((img) => img.id !== imageId),
+  };
+  await putInStore(db, STORE_SUPPLIERS, updated);
+  return updated;
+}
+
+// Local Inventory Adjustments
+export async function localListAdjustments(): Promise<{ adjustments: InventoryAdjustment[] }> {
+  const db = await openDb();
+  const all = await getAllFromStore<InventoryAdjustment>(db, STORE_ADJUSTMENTS);
+  all.sort(
+    (a, b) =>
+      b.adjustmentDate.localeCompare(a.adjustmentDate) || b.createdAt.localeCompare(a.createdAt)
+  );
+  return { adjustments: all };
+}
+
+export async function localCreateAdjustment(
+  payload: InventoryAdjustmentPayload
+): Promise<{ adjustment: InventoryAdjustment; summary: InventorySummary }> {
+  const db = await openDb();
+  const allProducts = (await getAllFromStore<Product>(db, STORE_PRODUCTS)).map(normalizeProductRecord);
+  const product = allProducts.find((p) => p.id === payload.productId);
+  if (!product) throw new Error('Product not found');
+
+  const warehouses = await getAllFromStore<Warehouse>(db, STORE_WAREHOUSES);
+  const suppliers = await getAllFromStore<Supplier>(db, STORE_SUPPLIERS);
+  const allAdj = await getAllFromStore<InventoryAdjustment>(db, STORE_ADJUSTMENTS);
+
+  let maxAdj = 0;
+  for (const a of allAdj) {
+    if (a.referenceNumber.startsWith('ADJ-')) {
+      const n = Number.parseInt(a.referenceNumber.slice(4), 10);
+      if (Number.isFinite(n) && n > maxAdj) maxAdj = n;
+    }
+  }
+  const refNumber = `ADJ-${String(maxAdj + 1).padStart(4, '0')}`;
+
+  const rawDelta = Math.trunc(Number(payload.quantityDelta) || 0);
+  if (rawDelta === 0) throw new Error('Non-zero quantity required');
+
+  let signedDelta = rawDelta;
+  if (
+    payload.adjustmentType === 'deduction' ||
+    payload.adjustmentType === 'damage' ||
+    payload.adjustmentType === 'loss'
+  ) {
+    signedDelta = -Math.abs(rawDelta);
+  } else if (payload.adjustmentType === 'restock') {
+    signedDelta = Math.abs(rawDelta);
+  }
+
+  const qtyBefore = Number(product.quantity) || 0;
+  const qtyAfter =
+    payload.adjustmentType === 'transfer' ? qtyBefore : Math.max(0, qtyBefore + signedDelta);
+  const effectiveDelta = payload.adjustmentType === 'transfer' ? 0 : qtyAfter - qtyBefore;
+
+  const warehouseId = (payload.warehouseId || product.warehouseId || '').trim();
+  const wh = warehouses.find((w) => w.id === warehouseId);
+  const warehouseName = wh?.name || product.warehouseName || '';
+
+  const targetWarehouseId = (payload.targetWarehouseId || '').trim();
+  const targetWh = warehouses.find((w) => w.id === targetWarehouseId);
+  const targetWarehouseName = targetWh?.name || '';
+
+  const supplierId = (payload.supplierId || product.supplierId || '').trim();
+  const sup = suppliers.find((s) => s.id === supplierId);
+  const supplierName = sup?.name || product.supplier || '';
+
+  const unitCost = (Number(product.referencePrice) || 0) + (Number(product.expenses) || 0);
+  const now = new Date().toISOString();
+  const adjustmentDate = (payload.adjustmentDate || now.slice(0, 10)).trim();
+
+  const adjustment: InventoryAdjustment = {
+    id: crypto.randomUUID ? crypto.randomUUID() : `adj-${Date.now()}`,
+    referenceNumber: refNumber,
+    adjustmentType: (payload.adjustmentType || 'deduction') as AdjustmentType,
+    warehouseId,
+    warehouseName,
+    targetWarehouseId,
+    targetWarehouseName,
+    productId: product.id,
+    productCode: product.code,
+    productName: product.name,
+    category: product.category || '',
+    color: product.color || '',
+    supplierId,
+    supplierName,
+    quantityBefore: qtyBefore,
+    quantityDelta: payload.adjustmentType === 'transfer' ? Math.abs(rawDelta) : effectiveDelta,
+    quantityAfter: qtyAfter,
+    unitCost,
+    totalValue: Math.round(Math.abs(rawDelta) * unitCost * 100) / 100,
+    reason: (payload.reason || '').trim(),
+    notes: (payload.notes || '').trim(),
+    adjustmentDate,
+    createdAt: now,
+  };
+
+  await putInStore(db, STORE_ADJUSTMENTS, adjustment);
+
+  const updatedProduct: Product =
+    payload.adjustmentType === 'transfer' && targetWarehouseId && targetWarehouseName
+      ? {
+          ...product,
+          warehouseId: targetWarehouseId,
+          warehouseName: targetWarehouseName,
+          updatedAt: now,
+        }
+      : {
+          ...product,
+          quantity: qtyAfter,
+          updatedAt: now,
+        };
+
+  await putInStore(db, STORE_PRODUCTS, updatedProduct);
+  await appendHistoryEvent(db, {
+    productId: product.id,
+    eventType: payload.adjustmentType === 'transfer' ? 'transferred' : 'adjusted',
+    summary:
+      payload.adjustmentType === 'transfer'
+        ? `${refNumber} (${targetWarehouseName})`
+        : `${refNumber} (${effectiveDelta >= 0 ? `+${effectiveDelta}` : effectiveDelta})`,
+    details: adjustment.reason || warehouseName,
+    quantityDelta: effectiveDelta,
+    quantityAfter: qtyAfter,
+    createdAt: now,
+  });
+
+  const nextProducts = allProducts.map((p) => (p.id === updatedProduct.id ? updatedProduct : p));
+  return {
+    adjustment,
+    summary: computeSummary(nextProducts),
+  };
+}
+
+export async function localDeleteAdjustment(id: string): Promise<void> {
+  const db = await openDb();
+  await deleteFromStore(db, STORE_ADJUSTMENTS, id);
+}
+
 

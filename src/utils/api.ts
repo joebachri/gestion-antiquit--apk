@@ -9,6 +9,8 @@ import type {
   ExcelImportResult,
   FacebookPublishPayload,
   InstagramPublishPayload,
+  InventoryAdjustment,
+  InventoryAdjustmentPayload,
   InventorySummary,
   MetaAuthStatus,
   PosInvoice,
@@ -17,30 +19,54 @@ import type {
   ProductDigitalFile,
   ProductPayload,
   ShopSettings,
+  Supplier,
+  SupplierGalleryPayload,
+  SupplierPayload,
+  SupplierPurchasePayload,
+  SupplierSummary,
+  Warehouse,
+  WarehousePayload,
 } from '../types';
 import {
   localAddCustomerGalleryImages,
   localAddPurchase,
+  localAddSupplierGalleryImages,
+  localAddSupplierPurchase,
+  localCreateAdjustment,
   localCreateCustomer,
   localCreatePosSale,
   localCreateProduct,
+  localCreateSupplier,
+  localCreateWarehouse,
+  localDeleteAdjustment,
   localDeleteCustomer,
   localDeleteCustomerGalleryImage,
   localDeletePosSale,
   localDeleteProduct,
   localDeletePurchase,
+  localDeleteSupplier,
+  localDeleteSupplierGalleryImage,
+  localDeleteSupplierPurchase,
+  localDeleteWarehouse,
   localGetProductDigitalFile,
   localGetProductDigitalFileByQr,
   localGetSettings,
   localImportProducts,
+  localListAdjustments,
   localListCustomers,
   localListPosSales,
   localListProducts,
+  localListSuppliers,
+  localListWarehouses,
+  localMarkInvoicePrinted,
   localNextCode,
   localSaveSettings,
   localUpdateCustomer,
   localUpdateProduct,
   localUpdatePurchase,
+  localUpdateSupplier,
+  localUpdateSupplierPurchase,
+  localUpdateWarehouse,
 } from './storage';
 import { getExchangeRates, setExchangeRates } from './currency';
 import { buildDigitalFileFromQrSnapshot } from './qr';
@@ -537,4 +563,218 @@ export async function deletePosSaleApi(invoiceId: string): Promise<void> {
   const res = await fetch(`/api/pos/sales/${invoiceId}`, { method: 'DELETE' });
   if (!res.ok) throw new Error('Delete invoice failed');
 }
+
+export async function markInvoicePrintedApi(invoiceId: string): Promise<PosInvoice> {
+  if (isNative()) {
+    return localMarkInvoicePrinted(invoiceId);
+  }
+  try {
+    const res = await fetch(`/api/pos/sales/${invoiceId}/print`, { method: 'POST' });
+    if (!res.ok) throw new Error('HTTP error');
+    const data = (await res.json()) as { invoice: PosInvoice };
+    return data.invoice;
+  } catch {
+    return localMarkInvoicePrinted(invoiceId);
+  }
+}
+
+// Warehouses API
+export async function fetchWarehousesApi(): Promise<{ warehouses: Warehouse[] }> {
+  if (isNative()) {
+    return localListWarehouses();
+  }
+  try {
+    const res = await fetch('/api/warehouses');
+    if (!res.ok) throw new Error('HTTP error');
+    return (await res.json()) as { warehouses: Warehouse[] };
+  } catch {
+    return localListWarehouses();
+  }
+}
+
+export async function saveWarehouseApi(
+  payload: WarehousePayload,
+  editingId?: string
+): Promise<Warehouse> {
+  if (isNative()) {
+    return editingId ? localUpdateWarehouse(editingId, payload) : localCreateWarehouse(payload);
+  }
+  const url = editingId ? `/api/warehouses/${editingId}` : '/api/warehouses';
+  const method = editingId ? 'PUT' : 'POST';
+  const res = await fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error('Warehouse save failed');
+  const data = (await res.json()) as { warehouse: Warehouse };
+  return data.warehouse;
+}
+
+export async function deleteWarehouseApi(warehouseId: string): Promise<void> {
+  if (isNative()) {
+    await localDeleteWarehouse(warehouseId);
+    return;
+  }
+  const res = await fetch(`/api/warehouses/${warehouseId}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Warehouse delete failed');
+}
+
+// Suppliers API
+export async function fetchSuppliersApi(
+  query: string,
+  category?: string
+): Promise<{ suppliers: Supplier[]; summary: SupplierSummary }> {
+  if (isNative()) {
+    return localListSuppliers(query, category);
+  }
+  try {
+    const params = new URLSearchParams();
+    if (query.trim()) params.set('q', query.trim());
+    if (category && category !== 'all') params.set('category', category);
+    const res = await fetch(`/api/suppliers?${params.toString()}`);
+    if (!res.ok) throw new Error('HTTP error');
+    return (await res.json()) as { suppliers: Supplier[]; summary: SupplierSummary };
+  } catch {
+    return localListSuppliers(query, category);
+  }
+}
+
+export async function saveSupplierApi(
+  payload: SupplierPayload,
+  editingId?: string
+): Promise<Supplier> {
+  if (isNative()) {
+    return editingId ? localUpdateSupplier(editingId, payload) : localCreateSupplier(payload);
+  }
+  const url = editingId ? `/api/suppliers/${editingId}` : '/api/suppliers';
+  const method = editingId ? 'PUT' : 'POST';
+  const res = await fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error('Supplier save failed');
+  const data = (await res.json()) as { supplier: Supplier };
+  return data.supplier;
+}
+
+export async function deleteSupplierApi(supplierId: string): Promise<void> {
+  if (isNative()) {
+    await localDeleteSupplier(supplierId);
+    return;
+  }
+  const res = await fetch(`/api/suppliers/${supplierId}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Supplier delete failed');
+}
+
+export async function saveSupplierPurchaseApi(
+  supplierId: string,
+  payload: SupplierPurchasePayload,
+  editingPurchaseId?: string
+): Promise<Supplier> {
+  if (isNative()) {
+    return editingPurchaseId
+      ? localUpdateSupplierPurchase(supplierId, editingPurchaseId, payload)
+      : localAddSupplierPurchase(supplierId, payload);
+  }
+  const url = editingPurchaseId
+    ? `/api/suppliers/${supplierId}/purchases/${editingPurchaseId}`
+    : `/api/suppliers/${supplierId}/purchases`;
+  const method = editingPurchaseId ? 'PUT' : 'POST';
+  const res = await fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error('Supplier purchase save failed');
+  const data = (await res.json()) as { supplier: Supplier };
+  return data.supplier;
+}
+
+export async function deleteSupplierPurchaseApi(
+  supplierId: string,
+  purchaseId: string
+): Promise<Supplier> {
+  if (isNative()) {
+    return localDeleteSupplierPurchase(supplierId, purchaseId);
+  }
+  const res = await fetch(`/api/suppliers/${supplierId}/purchases/${purchaseId}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error('Supplier purchase delete failed');
+  const data = (await res.json()) as { supplier: Supplier };
+  return data.supplier;
+}
+
+export async function saveSupplierGalleryImagesApi(
+  supplierId: string,
+  items: SupplierGalleryPayload[]
+): Promise<{ supplier: Supplier; addedCount: number }> {
+  if (isNative()) {
+    const supplier = await localAddSupplierGalleryImages(supplierId, items);
+    return { supplier, addedCount: items.length };
+  }
+  const res = await fetch(`/api/suppliers/${supplierId}/gallery`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items }),
+  });
+  if (!res.ok) throw new Error('Supplier gallery save failed');
+  return (await res.json()) as { supplier: Supplier; addedCount: number };
+}
+
+export async function deleteSupplierGalleryImageApi(
+  supplierId: string,
+  imageId: string
+): Promise<Supplier> {
+  if (isNative()) {
+    return localDeleteSupplierGalleryImage(supplierId, imageId);
+  }
+  const res = await fetch(`/api/suppliers/${supplierId}/gallery/${imageId}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error('Supplier gallery delete failed');
+  const data = (await res.json()) as { supplier: Supplier };
+  return data.supplier;
+}
+
+// Inventory Adjustments API
+export async function fetchAdjustmentsApi(): Promise<{ adjustments: InventoryAdjustment[] }> {
+  if (isNative()) {
+    return localListAdjustments();
+  }
+  try {
+    const res = await fetch('/api/adjustments');
+    if (!res.ok) throw new Error('HTTP error');
+    return (await res.json()) as { adjustments: InventoryAdjustment[] };
+  } catch {
+    return localListAdjustments();
+  }
+}
+
+export async function createAdjustmentApi(
+  payload: InventoryAdjustmentPayload
+): Promise<{ adjustment: InventoryAdjustment; summary: InventorySummary }> {
+  if (isNative()) {
+    return localCreateAdjustment(payload);
+  }
+  const res = await fetch('/api/adjustments', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error('Adjustment failed');
+  return (await res.json()) as { adjustment: InventoryAdjustment; summary: InventorySummary };
+}
+
+export async function deleteAdjustmentApi(adjustmentId: string): Promise<void> {
+  if (isNative()) {
+    await localDeleteAdjustment(adjustmentId);
+    return;
+  }
+  const res = await fetch(`/api/adjustments/${adjustmentId}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Adjustment delete failed');
+}
+
 

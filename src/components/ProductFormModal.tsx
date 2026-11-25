@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Camera, ImagePlus, Trash2, X, Check, Star, RefreshCw, Video } from 'lucide-react';
-import type { Language, Product, ProductPayload } from '../types';
+import type { Language, Product, ProductPayload, Supplier, Warehouse } from '../types';
 import { translations } from '../i18n';
 import {
   compressImageBlob,
@@ -17,6 +17,9 @@ interface ProductFormModalProps {
   lang: Language;
   currency: string;
   editingProduct: Product | null;
+  warehouses: Warehouse[];
+  suppliers: Supplier[];
+  existingCategories?: string[];
   onClose: () => void;
   onSubmit: (payload: ProductPayload, editingId?: string) => Promise<void>;
 }
@@ -31,6 +34,9 @@ export function ProductFormModal({
   lang,
   currency,
   editingProduct,
+  warehouses,
+  suppliers,
+  existingCategories = [],
   onClose,
   onSubmit,
 }: ProductFormModalProps) {
@@ -39,6 +45,10 @@ export function ProductFormModal({
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [category, setCategory] = useState('');
+  const [color, setColor] = useState('');
+  const [warehouseId, setWarehouseId] = useState('');
+  const [supplierId, setSupplierId] = useState('');
   const [supplier, setSupplier] = useState('');
   const [lengthCm, setLengthCm] = useState('');
   const [widthCm, setWidthCm] = useState('');
@@ -67,6 +77,7 @@ export function ProductFormModal({
   useEffect(() => {
     if (!isOpen) return;
     setErrorMsg('');
+    const defaultWh = warehouses.find((w) => w.isDefault) || warehouses[0];
     if (editingProduct) {
       const refStr = editingProduct.referencePrice
         ? String(convertFromMad(editingProduct.referencePrice, currency))
@@ -84,7 +95,16 @@ export function ProductFormModal({
       };
       setName(editingProduct.name);
       setDescription(editingProduct.description);
-      setSupplier(editingProduct.supplier || '');
+      setCategory(editingProduct.category || '');
+      setColor(editingProduct.color || '');
+      setWarehouseId(editingProduct.warehouseId || defaultWh?.id || '');
+      const matchedSup =
+        suppliers.find((s) => s.id === editingProduct.supplierId) ||
+        suppliers.find(
+          (s) => s.name.trim().toLowerCase() === (editingProduct.supplier || '').trim().toLowerCase()
+        );
+      setSupplierId(matchedSup?.id || editingProduct.supplierId || '');
+      setSupplier(editingProduct.supplier || matchedSup?.name || '');
       setLengthCm(String(editingProduct.lengthCm || ''));
       setWidthCm(String(editingProduct.widthCm || ''));
       setHeightCm(String(editingProduct.heightCm || ''));
@@ -111,6 +131,10 @@ export function ProductFormModal({
       };
       setName('');
       setDescription('');
+      setCategory('');
+      setColor('');
+      setWarehouseId(defaultWh?.id || '');
+      setSupplierId('');
       setSupplier('');
       setLengthCm('');
       setWidthCm('');
@@ -126,7 +150,7 @@ export function ProductFormModal({
       setPreviewCode('A0001');
       setRegenerateCode(false);
     }
-  }, [isOpen, editingProduct, currency]);
+  }, [isOpen, editingProduct, currency, warehouses, suppliers]);
 
   // Live preview automatic code based on first letter of product name
   useEffect(() => {
@@ -228,11 +252,19 @@ export function ProductFormModal({
           ? editingProduct.sellingPrice
           : convertToMad(Number(sellingPrice) || 0, currency);
 
+      const selectedWh = warehouses.find((w) => w.id === warehouseId);
+      const selectedSup = suppliers.find((s) => s.id === supplierId);
+
       await onSubmit(
         {
           name: trimmedName,
           description: description.trim(),
-          supplier: supplier.trim(),
+          category: category.trim(),
+          color: color.trim(),
+          warehouseId: selectedWh?.id || warehouseId || '',
+          warehouseName: selectedWh?.name || editingProduct?.warehouseName || '',
+          supplierId: selectedSup?.id || '',
+          supplier: (selectedSup ? selectedSup.name : supplier).trim(),
           lengthCm: Number(lengthCm) || 0,
           widthCm: Number(widthCm) || 0,
           heightCm: Number(heightCm) || 0,
@@ -361,6 +393,7 @@ export function ProductFormModal({
                     {previewCode}
                   </p>
                   <p className="text-xs text-[#335947] dark:text-[#9EC0AE]">{t.noPhotoHint}</p>
+                  <p className="mt-1 text-[11px] text-[#6B8A79] dark:text-[#8FB39E]">{t.productAddVideoHint}</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -381,7 +414,7 @@ export function ProductFormModal({
                               <button
                                 type="button"
                                 onClick={() => handleSetPrimary(index)}
-                                title="Principal"
+                                title={lang === 'ar' ? 'رئيسية' : 'Principale'}
                                 className="flex h-7 w-7 items-center justify-center rounded-lg text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]"
                               >
                                 <Star className="h-3.5 w-3.5" />
@@ -460,6 +493,75 @@ export function ProductFormModal({
               />
             </div>
 
+            {/* Category, Color & Warehouse */}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div>
+                <label
+                  htmlFor="product-category"
+                  className="mb-1.5 block text-sm font-semibold text-[#0B1F16] dark:text-[#F2F9F5]"
+                >
+                  {t.productCategoryLabel}
+                </label>
+                <input
+                  id="product-category"
+                  type="text"
+                  list="product-categories-list"
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  placeholder={t.productCategoryPlaceholder}
+                  className={inputClass}
+                />
+                {existingCategories.length > 0 && (
+                  <datalist id="product-categories-list">
+                    {existingCategories.map((cat) => (
+                      <option key={cat} value={cat} />
+                    ))}
+                  </datalist>
+                )}
+              </div>
+
+              <div>
+                <label
+                  htmlFor="product-color"
+                  className="mb-1.5 block text-sm font-semibold text-[#0B1F16] dark:text-[#F2F9F5]"
+                >
+                  {t.productColorLabel}
+                </label>
+                <input
+                  id="product-color"
+                  type="text"
+                  value={color}
+                  onChange={(e) => setColor(e.target.value)}
+                  placeholder={t.productColorPlaceholder}
+                  className={inputClass}
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="product-warehouse"
+                  className="mb-1.5 block text-sm font-semibold text-[#0B1F16] dark:text-[#F2F9F5]"
+                >
+                  {t.productWarehouseLabel}
+                </label>
+                <select
+                  id="product-warehouse"
+                  value={warehouseId}
+                  onChange={(e) => setWarehouseId(e.target.value)}
+                  className={inputClass}
+                >
+                  {warehouses.length === 0 && (
+                    <option value="">{t.defaultWarehouseName}</option>
+                  )}
+                  {warehouses.map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.name} {w.location ? `(${w.location})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
             {/* 3. Description */}
             <div>
               <label
@@ -478,22 +580,54 @@ export function ProductFormModal({
               />
             </div>
 
-            {/* Supplier */}
-            <div>
-              <label
-                htmlFor="product-supplier"
-                className="mb-1.5 block text-sm font-semibold text-[#0B1F16] dark:text-[#F2F9F5]"
-              >
-                {t.supplierLabel}
-              </label>
-              <input
-                id="product-supplier"
-                type="text"
-                value={supplier}
-                onChange={(e) => setSupplier(e.target.value)}
-                placeholder={t.supplierPlaceholder}
-                className={inputClass}
-              />
+            {/* Supplier: linked profile OR custom text */}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label
+                  htmlFor="product-supplier-select"
+                  className="mb-1.5 block text-sm font-semibold text-[#0B1F16] dark:text-[#F2F9F5]"
+                >
+                  {t.supplierSelectLabel}
+                </label>
+                <select
+                  id="product-supplier-select"
+                  value={supplierId}
+                  onChange={(e) => {
+                    const nextId = e.target.value;
+                    setSupplierId(nextId);
+                    const found = suppliers.find((s) => s.id === nextId);
+                    if (found) setSupplier(found.name);
+                  }}
+                  className={inputClass}
+                >
+                  <option value="">{t.supplierNoSupplierOption}</option>
+                  {suppliers.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.code} — {s.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="product-supplier"
+                  className="mb-1.5 block text-sm font-semibold text-[#0B1F16] dark:text-[#F2F9F5]"
+                >
+                  {t.supplierLabel}
+                </label>
+                <input
+                  id="product-supplier"
+                  type="text"
+                  value={supplier}
+                  onChange={(e) => {
+                    setSupplier(e.target.value);
+                    if (supplierId) setSupplierId('');
+                  }}
+                  placeholder={t.supplierPlaceholder}
+                  className={inputClass}
+                />
+              </div>
             </div>
 
             {/* 4. Dimensions */}

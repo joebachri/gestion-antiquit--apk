@@ -12,6 +12,7 @@ import {
   MessageCircle,
   Package,
   Play,
+  Printer,
   QrCode,
   Receipt,
   RotateCcw,
@@ -20,6 +21,7 @@ import {
   Store,
   Truck,
   User,
+  Video,
   X,
 } from 'lucide-react';
 import type {
@@ -29,6 +31,7 @@ import type {
   PosSalePayload,
   Product,
   ProductDigitalFile,
+  ProductHistoryEventType,
   PurchasePaymentMethod,
 } from '../types';
 import { formatCurrency, formatNumber, translations } from '../i18n';
@@ -56,6 +59,8 @@ interface ProductDigitalFileModalProps {
   onEditProduct: (product: Product) => void;
   onRecordSale: (payload: PosSalePayload) => Promise<PosInvoice | null>;
   onCancelInvoice: (invoiceId: string) => Promise<void>;
+  onPrintInvoice?: (invoice: PosInvoice, isCopy: boolean) => Promise<void>;
+  onPrintProductReport?: (product: Product) => void;
   onOpenClientQrScanner?: () => void;
   onNotify?: (msg: string) => void;
 }
@@ -74,6 +79,8 @@ export function ProductDigitalFileModal({
   onEditProduct,
   onRecordSale,
   onCancelInvoice,
+  onPrintInvoice,
+  onPrintProductReport,
   onOpenClientQrScanner,
   onNotify,
 }: ProductDigitalFileModalProps) {
@@ -138,6 +145,7 @@ export function ProductDigitalFileModal({
 
   const { product, invoices, history, salesStats } = digitalFile;
   const photos = product.photos || [];
+  const videoPhotos = photos.filter((ph) => isVideoMedia(ph.imageData));
   const activePhoto = photos[photoIdx] || photos[0];
   const isAvailable = (Number(product.quantity) || 0) > 0;
   const totalPurchaseCost =
@@ -197,6 +205,18 @@ export function ProductDigitalFileModal({
     if (method === 'card') return t.paymentCard;
     if (method === 'other') return t.paymentOther;
     return t.paymentCash;
+  };
+
+  const historyEventLabel = (eventType: ProductHistoryEventType) => {
+    if (eventType === 'created') return t.historyEventCreated;
+    if (eventType === 'updated') return t.historyEventUpdated;
+    if (eventType === 'qr_scanned') return t.historyEventQrScanned;
+    if (eventType === 'sold') return t.historyEventSold;
+    if (eventType === 'restocked') return t.historyEventRestocked;
+    if (eventType === 'invoice_created') return t.historyEventInvoiceCreated;
+    if (eventType === 'adjusted') return t.historyEventAdjusted;
+    if (eventType === 'transferred') return t.historyEventTransferred;
+    return eventType;
   };
 
   const inputClass =
@@ -429,12 +449,12 @@ export function ProductDigitalFileModal({
                 )}
               </div>
 
-              {/* Additional Information (Dimensions, Pieces, Available qty, Store) */}
+              {/* Additional Information (Dimensions, Color, Category, Pieces, Warehouse, Qty) */}
               <div className="rounded-2xl border border-[#DCE7E0] bg-[#F7FAF8] p-4 dark:border-[#1E3A2D] dark:bg-[#091611]">
                 <h4 className="mb-3 text-xs font-bold uppercase tracking-wider text-[#115E3B] dark:text-[#34D399]">
                   {t.digitalAdditionalInfo}
                 </h4>
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                   <div>
                     <span className="block text-[11px] text-[#335947] dark:text-[#9EC0AE]">
                       {t.dimensionsShort}
@@ -460,6 +480,26 @@ export function ProductDigitalFileModal({
                       {formatNumber(product.piecesCount, lang)} {t.piecesUnit}
                     </span>
                   </div>
+                  {product.category && (
+                    <div>
+                      <span className="block text-[11px] text-[#335947] dark:text-[#9EC0AE]">
+                        {t.productCategoryLabel}
+                      </span>
+                      <span className="text-sm font-semibold text-[#0B1F16] dark:text-[#F2F9F5]">
+                        {product.category}
+                      </span>
+                    </div>
+                  )}
+                  {product.color && (
+                    <div>
+                      <span className="block text-[11px] text-[#335947] dark:text-[#9EC0AE]">
+                        {t.productColorLabel}
+                      </span>
+                      <span className="text-sm font-semibold text-[#0B1F16] dark:text-[#F2F9F5]">
+                        {product.color}
+                      </span>
+                    </div>
+                  )}
                   <div>
                     <span className="block text-[11px] text-[#335947] dark:text-[#9EC0AE]">
                       {t.digitalMgmtInventory}
@@ -470,6 +510,37 @@ export function ProductDigitalFileModal({
                   </div>
                 </div>
               </div>
+
+              {/* Customer Video Showcase */}
+              {videoPhotos.length > 0 && (
+                <div className="space-y-2.5 rounded-2xl border border-[#DCE7E0] bg-[#F7FAF8] p-4 dark:border-[#1E3A2D] dark:bg-[#091611]">
+                  <div className="flex items-center justify-between text-xs font-bold text-[#115E3B] dark:text-[#34D399]">
+                    <span className="flex items-center gap-1.5">
+                      <Video className="h-4 w-4" />
+                      <span>{t.productVideosSectionTitle}</span>
+                    </span>
+                    <span className="tabular-nums">
+                      {videoPhotos.length} {t.productVideosCountLabel}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    {videoPhotos.map((vid) => (
+                      <div
+                        key={vid.id}
+                        className="overflow-hidden rounded-xl border border-[#DCE7E0] bg-black dark:border-[#1E3A2D]"
+                      >
+                        <video
+                          src={vid.imageData}
+                          controls
+                          playsInline
+                          preload="metadata"
+                          className="aspect-video w-full object-contain"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* WhatsApp Contact Button */}
               <div className="rounded-2xl border border-[#10B981]/30 bg-[#ECF7F1]/70 p-4 dark:border-[#10B981]/30 dark:bg-[#132B20]/60">
@@ -612,6 +683,11 @@ export function ProductDigitalFileModal({
                   <span className="mt-1 block truncate text-sm font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
                     {product.supplier?.trim() || t.digitalMgmtNotSpecified}
                   </span>
+                  {(product.category || product.color || product.warehouseName) && (
+                    <span className="mt-1 block truncate text-[11px] text-[#335947] dark:text-[#9EC0AE]">
+                      {[product.category, product.color, product.warehouseName].filter(Boolean).join(' · ')}
+                    </span>
+                  )}
                 </div>
 
                 <div className="rounded-xl border border-[#DCE7E0] p-3.5 dark:border-[#1E3A2D]">
@@ -858,10 +934,21 @@ export function ProductDigitalFileModal({
                           </p>
                         </div>
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5">
                           <span className="tabular-nums text-sm font-bold text-[#115E3B] dark:text-[#34D399]">
                             {formatCurrency(inv.totalPrice, currency, lang)}
                           </span>
+                          {onPrintInvoice && (
+                            <button
+                              type="button"
+                              onClick={() => void onPrintInvoice(inv, (inv.printCount || 0) > 0)}
+                              title={(inv.printCount || 0) > 0 ? t.posReprintCopy : t.posPrintInvoice}
+                              className="flex h-9 items-center gap-1 rounded-lg border border-[#DCE7E0] px-2 text-[11px] font-semibold text-[#115E3B] hover:bg-[#ECF7F1] dark:border-[#1E3A2D] dark:text-[#34D399]"
+                            >
+                              <Printer className="h-3.5 w-3.5" />
+                              {(inv.printCount || 0) > 0 && <span>{t.invoiceCopyBadge}</span>}
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={async () => {
@@ -869,7 +956,8 @@ export function ProductDigitalFileModal({
                                 inv,
                                 storeName,
                                 currency,
-                                lang
+                                lang,
+                                { isCopy: (inv.printCount || 0) > 0 }
                               );
                               await saveOrShareBlob(
                                 blob,
@@ -931,6 +1019,10 @@ export function ProductDigitalFileModal({
                       >
                         <div className="min-w-0">
                           <p className="font-semibold text-[#0B1F16] dark:text-[#F2F9F5]">
+                            <span className="text-[#115E3B] dark:text-[#34D399]">
+                              {historyEventLabel(ev.eventType)}
+                            </span>
+                            {' · '}
                             {ev.summary}
                           </p>
                           {ev.details && (
@@ -959,7 +1051,7 @@ export function ProductDigitalFileModal({
                             </span>
                           )}
                           <span className="block text-[11px] text-[#335947] dark:text-[#9EC0AE]">
-                            Stock: {ev.quantityAfter}
+                            {t.digitalMgmtInventory}: {ev.quantityAfter}
                           </span>
                         </div>
                       </div>
@@ -980,6 +1072,17 @@ export function ProductDigitalFileModal({
           >
             {t.close}
           </button>
+
+          {!lockedToClient && activeView === 'management' && onPrintProductReport && (
+            <button
+              type="button"
+              onClick={() => onPrintProductReport(product)}
+              className="flex min-h-[46px] items-center justify-center gap-2 rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-3.5 text-xs font-semibold text-[#115E3B] hover:bg-[#ECF7F1] dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#34D399]"
+            >
+              <Printer className="h-4 w-4" />
+              <span className="hidden sm:inline">{t.reportIndividualProductButton}</span>
+            </button>
+          )}
 
           {!lockedToClient && activeView === 'management' && (
             <button

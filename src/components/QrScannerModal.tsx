@@ -10,10 +10,12 @@ import {
   ImagePlus,
   Minus,
   Plus,
+  Printer,
   QrCode,
   RefreshCw,
   Search,
   ShoppingBag,
+  Trash2,
   UserCheck,
   X,
 } from 'lucide-react';
@@ -22,6 +24,7 @@ import type {
   Language,
   PosInvoice,
   PosSalePayload,
+  Product,
   ProductDigitalFile,
   PurchasePaymentMethod,
 } from '../types';
@@ -47,7 +50,14 @@ interface QrScannerModalProps {
     invoice: PosInvoice;
     digitalFile: ProductDigitalFile;
   }>;
+  onPrintInvoice?: (invoice: PosInvoice, isCopy: boolean) => Promise<void>;
   onOpenDigitalFile: (digitalFile: ProductDigitalFile, view: 'client' | 'management') => void;
+}
+
+interface QrCartItem {
+  product: Product;
+  quantity: number;
+  unitPriceDisplay: number;
 }
 
 interface BarcodeDetectorLike {
@@ -89,13 +99,11 @@ function decodeCanvasPass(canvas: HTMLCanvasElement): string {
   if (!ctx) return '';
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-  // Pass 1: standard jsQR
   const direct = jsQR(imageData.data, imageData.width, imageData.height, {
     inversionAttempts: 'attemptBoth',
   });
   if (direct?.data) return direct.data;
 
-  // Pass 2: high-contrast grayscale stretch (helps iPhone indoor shadows/glare)
   const buf = new Uint8ClampedArray(imageData.data.length);
   const src = imageData.data;
   let minL = 255;
@@ -141,7 +149,6 @@ async function decodeQrFromImageElement(img: HTMLImageElement): Promise<string> 
   const natH = img.naturalHeight || img.height;
   if (!natW || !natH) return '';
 
-  // Test full frame at multiple scales + center crops for high-MP iPhone camera shots
   const crops = [
     { ratio: 1, label: 'full' },
     { ratio: 0.65, label: 'center-65' },
@@ -186,6 +193,7 @@ export function QrScannerModal({
   onClose,
   onLookupQr,
   onExecuteQrSale,
+  onPrintInvoice,
   onOpenDigitalFile,
 }: QrScannerModalProps) {
   const t = translations[lang];
@@ -205,9 +213,11 @@ export function QrScannerModal({
   const [manualInput, setManualInput] = useState('');
   const [processing, setProcessing] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [noticeMsg, setNoticeMsg] = useState('');
 
-  // Pending sale details state
+  // Pending sale details state + multi-product QR invoice cart
   const [pendingSaleFile, setPendingSaleFile] = useState<ProductDigitalFile | null>(null);
+  const [qrCart, setQrCart] = useState<QrCartItem[]>([]);
   const [saleQuantity, setSaleQuantity] = useState('1');
   const [saleUnitPrice, setSaleUnitPrice] = useState('');
   const [salePaymentMethod, setSalePaymentMethod] = useState<PurchasePaymentMethod>('cash');
@@ -241,13 +251,9 @@ export function QrScannerModal({
       setPendingSaleFile(digitalFile);
       setSaleQuantity('1');
       setSaleUnitPrice(String(convertFromMad(digitalFile.product.sellingPrice, currency)));
-      setSalePaymentMethod('cash');
-      setSaleCustomerId(lockedCustomer?.id || '');
-      setSaleCustomerName(lockedCustomer?.name || '');
-      setSaleCustomerPhone(lockedCustomer?.phone || '');
-      setSaleNotes('');
+      setNoticeMsg('');
     },
-    [currency, lockedCustomer]
+    [currency]
   );
 
   const handleDecodedCode = useCallback(
@@ -257,6 +263,7 @@ export function QrScannerModal({
       busyScanRef.current = true;
       setProcessing(true);
       setErrorMsg('');
+      setNoticeMsg('');
       try {
         if (clientOnly || scanMode === 'view') {
           const digitalFile = await onLookupQr(clean, true);
@@ -318,7 +325,6 @@ export function QrScannerModal({
 
         const video = videoRef.current;
         if (video) {
-          // Essential iOS Safari inline playback attributes
           video.setAttribute('playsinline', '');
           video.setAttribute('webkit-playsinline', '');
           video.setAttribute('muted', '');
@@ -345,7 +351,6 @@ export function QrScannerModal({
               return;
             }
           } catch {
-            // iOS Safari may block async play() outside direct gesture
             if (!fromUserTap && mountedRef.current) {
               setCameraState('needs_tap');
               return;
@@ -435,9 +440,13 @@ export function QrScannerModal({
     }
     setScanMode(clientOnly ? 'view' : initialMode);
     setPendingSaleFile(null);
+    setQrCart([]);
     setSoldReceipt(null);
     setErrorMsg('');
+    setNoticeMsg('');
     setManualInput('');
+    setSalePaymentMethod('cash');
+    setSaleNotes('');
     setSaleCustomerId(lockedCustomer?.id || '');
     setSaleCustomerName(lockedCustomer?.name || '');
     setSaleCustomerPhone(lockedCustomer?.phone || '');
@@ -467,9 +476,7 @@ export function QrScannerModal({
 
   const handleSelectCustomer = (custId: string) => {
     setSaleCustomerId(custId);
-    if (!custId) {
-      return;
-    }
+    if (!custId) return;
     const found = customers.find((c) => c.id === custId);
     if (found) {
       setSaleCustomerName(found.name);
@@ -477,21 +484,47 @@ export function QrScannerModal({
     }
   };
 
-  const handleConfirmPendingSale = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!pendingSaleFile || saleSubmitting) return;
-    const maxStock = Math.max(1, Number(pendingSaleFile.product.quantity) || 1);
+  const handleAddPendingToQrCart = () => {
+    if (!pendingSaleFile) return;
+    const prod = pendingSaleFile.product;
+    const maxStock = Math.max(1, Number(prod.quantity) || 1);
     const qtyNum = Math.min(maxStock, Math.max(1, Math.floor(Number(saleQuantity) || 1)));
-    const displayUnitPrice = Math.max(0, Number(saleUnitPrice) || 0);
-    const madUnitPrice = convertToMad(displayUnitPrice, currency);
+    const priceDisplay = Math.max(0, Number(saleUnitPrice) || 0);
 
+    setQrCart((prev) => {
+      const idx = prev.findIndex((item) => item.product.id === prod.id);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = {
+          product: prod,
+          quantity: Math.min(maxStock, next[idx].quantity + qtyNum),
+          unitPriceDisplay: priceDisplay,
+        };
+        return next;
+      }
+      return [...prev, { product: prod, quantity: qtyNum, unitPriceDisplay: priceDisplay }];
+    });
+
+    setNoticeMsg(`${t.qrCartAddedToast} ${prod.code} — ${prod.name}`);
+    setPendingSaleFile(null);
+    setManualInput('');
+  };
+
+  const executeInvoiceItems = async (itemsToSell: QrCartItem[]) => {
+    if (itemsToSell.length === 0 || saleSubmitting) return;
     setSaleSubmitting(true);
     setErrorMsg('');
     try {
+      const payloadItems = itemsToSell.map((item) => ({
+        productId: item.product.id,
+        quantity: item.quantity,
+        unitPrice: convertToMad(item.unitPriceDisplay, currency),
+      }));
       const result = await onExecuteQrSale({
-        productId: pendingSaleFile.product.id,
-        quantity: qtyNum,
-        unitPrice: madUnitPrice,
+        items: payloadItems,
+        productId: payloadItems[0].productId,
+        quantity: payloadItems[0].quantity,
+        unitPrice: payloadItems[0].unitPrice,
         customerId: saleCustomerId.trim(),
         customerName: saleCustomerName.trim(),
         customerPhone: saleCustomerPhone.trim(),
@@ -500,6 +533,8 @@ export function QrScannerModal({
         source: 'qr_scan',
       });
       setPendingSaleFile(null);
+      setQrCart([]);
+      setNoticeMsg('');
       setSoldReceipt(result);
     } catch (err) {
       if (err instanceof Error && err.message === 'OUT_OF_STOCK') {
@@ -510,6 +545,30 @@ export function QrScannerModal({
     } finally {
       setSaleSubmitting(false);
     }
+  };
+
+  const handleConfirmPendingSale = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pendingSaleFile) return;
+    const prod = pendingSaleFile.product;
+    const maxStock = Math.max(1, Number(prod.quantity) || 1);
+    const qtyNum = Math.min(maxStock, Math.max(1, Math.floor(Number(saleQuantity) || 1)));
+    const priceDisplay = Math.max(0, Number(saleUnitPrice) || 0);
+
+    // Merge with existing qrCart items if any
+    const combined = [...qrCart];
+    const existingIdx = combined.findIndex((i) => i.product.id === prod.id);
+    if (existingIdx >= 0) {
+      combined[existingIdx] = {
+        product: prod,
+        quantity: Math.min(maxStock, combined[existingIdx].quantity + qtyNum),
+        unitPriceDisplay: priceDisplay,
+      };
+    } else {
+      combined.push({ product: prod, quantity: qtyNum, unitPriceDisplay: priceDisplay });
+    }
+
+    await executeInvoiceItems(combined);
   };
 
   const handleUploadQrPhoto = async (files: FileList | null) => {
@@ -556,8 +615,30 @@ export function QrScannerModal({
   const liveSaleTotalMad =
     clampedSaleQty * convertToMad(Math.max(0, Number(saleUnitPrice) || 0), currency);
 
+  const qrCartTotalDisplay = qrCart.reduce(
+    (sum, item) => sum + item.quantity * item.unitPriceDisplay,
+    0
+  );
+
   const inputClass =
     'min-h-[42px] w-full rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs text-[#0B1F16] placeholder:text-[#6B8A79] focus:border-[#115E3B] focus:outline-none dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#F2F9F5] dark:placeholder:text-[#8FB39E] dark:focus:border-[#10B981] dark:focus:bg-[#0D1E16]';
+
+  const receiptItems =
+    soldReceipt?.invoice.items && soldReceipt.invoice.items.length > 0
+      ? soldReceipt.invoice.items
+      : soldReceipt
+      ? [
+          {
+            productId: soldReceipt.invoice.productId,
+            productCode: soldReceipt.invoice.productCode,
+            productName: soldReceipt.invoice.productName,
+            quantity: soldReceipt.invoice.quantity,
+            unitPrice: soldReceipt.invoice.unitPrice,
+            totalPrice: soldReceipt.invoice.totalPrice,
+            purchasePrice: soldReceipt.invoice.purchasePrice,
+          },
+        ]
+      : [];
 
   return (
     <div
@@ -596,7 +677,7 @@ export function QrScannerModal({
         </div>
 
         <div className="flex-1 space-y-4 overflow-y-auto p-5">
-          {/* Locked Customer Banner when launched from a customer profile */}
+          {/* Locked Customer Banner */}
           {!clientOnly && lockedCustomer && (
             <div className="flex items-center justify-between gap-2 rounded-2xl border border-[#115E3B]/35 bg-[#ECF7F1]/80 px-3.5 py-2.5 text-xs dark:border-[#10B981]/30 dark:bg-[#132B20]/70">
               <div className="flex min-w-0 items-center gap-2">
@@ -614,7 +695,7 @@ export function QrScannerModal({
             </div>
           )}
 
-          {/* Two Scan Options Selector (hidden when clientOnly) */}
+          {/* Two Scan Options Selector */}
           {!clientOnly && (
             <div>
               <p className="mb-2 text-xs font-bold uppercase tracking-wider text-[#335947] dark:text-[#9EC0AE]">
@@ -664,9 +745,106 @@ export function QrScannerModal({
             </div>
           )}
 
+          {noticeMsg && (
+            <div className="rounded-xl border border-[#10B981]/40 bg-[#ECF7F1] px-4 py-2.5 text-xs font-semibold text-[#115E3B] dark:bg-[#132B20] dark:text-[#34D399]">
+              {noticeMsg}
+            </div>
+          )}
+
           {errorMsg && (
             <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-semibold text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
               {errorMsg}
+            </div>
+          )}
+
+          {/* Queued Multi-Product QR Invoice Cart (when scanning multiple QR items in Sell mode) */}
+          {!clientOnly && scanMode === 'sell' && qrCart.length > 0 && !pendingSaleFile && !soldReceipt && (
+            <div className="space-y-3 rounded-2xl border border-[#115E3B]/35 bg-[#ECF7F1]/70 p-4 dark:border-[#10B981]/30 dark:bg-[#132B20]/60">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+                  {t.qrInvoiceCartLabel} ({formatNumber(qrCart.length, lang)})
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setQrCart([])}
+                  className="text-[11px] font-semibold text-red-600 hover:underline dark:text-red-400"
+                >
+                  {t.qrCartClear}
+                </button>
+              </div>
+
+              <div className="space-y-1.5">
+                {qrCart.map((item) => (
+                  <div
+                    key={item.product.id}
+                    className="flex items-center justify-between gap-2 rounded-xl border border-[#DCE7E0] bg-white px-3 py-2 text-xs dark:border-[#1E3A2D] dark:bg-[#091611]"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <span className="font-mono-code font-bold text-[#115E3B] dark:text-[#34D399]">
+                        {item.product.code}
+                      </span>{' '}
+                      <span className="font-semibold text-[#0B1F16] dark:text-[#F2F9F5]">
+                        {item.product.name}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="tabular-nums text-[11px] text-[#335947] dark:text-[#9EC0AE]">
+                        {formatNumber(item.quantity, lang)} × {formatNumber(item.unitPriceDisplay, lang)} {currency}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setQrCart((prev) => prev.filter((x) => x.product.id !== item.product.id))
+                        }
+                        aria-label={t.posCartRemoveItem}
+                        className="text-red-600 dark:text-red-400"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <select
+                  value={salePaymentMethod}
+                  onChange={(e) => setSalePaymentMethod(e.target.value as PurchasePaymentMethod)}
+                  className={inputClass}
+                >
+                  {PAYMENT_METHODS.map((pm) => (
+                    <option key={pm} value={pm}>
+                      {paymentLabel(pm)}
+                    </option>
+                  ))}
+                </select>
+                {!lockedCustomer && customers.length > 0 && (
+                  <select
+                    value={saleCustomerId}
+                    onChange={(e) => handleSelectCustomer(e.target.value)}
+                    className={inputClass}
+                  >
+                    <option value="">{t.posWalkInCustomer}</option>
+                    {customers.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.code} — {c.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              <button
+                type="button"
+                disabled={saleSubmitting}
+                onClick={() => void executeInvoiceItems(qrCart)}
+                className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-[#115E3B] px-4 text-xs font-bold text-white hover:bg-[#0D4A2E] disabled:opacity-60 dark:bg-[#10B981] dark:text-[#052E1C]"
+              >
+                <Check className="h-4 w-4" />
+                <span>
+                  {t.qrCheckoutCartButton} ({formatNumber(qrCartTotalDisplay, lang)} {currency})
+                </span>
+              </button>
             </div>
           )}
 
@@ -690,18 +868,23 @@ export function QrScannerModal({
                     {soldReceipt.invoice.invoiceNumber}
                   </span>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-[#335947] dark:text-[#9EC0AE]">{t.digitalSerialCode}</span>
-                  <span className="font-mono-code font-semibold">
-                    {soldReceipt.invoice.productCode}
-                  </span>
+
+                <div className="space-y-1 border-y border-[#DCE7E0] py-2 dark:border-[#1E3A2D]">
+                  {receiptItems.map((li, idx) => (
+                    <div key={`${li.productId}-${idx}`} className="flex items-center justify-between gap-2">
+                      <span className="truncate font-semibold">
+                        <span className="font-mono-code text-[#115E3B] dark:text-[#34D399]">
+                          {li.productCode}
+                        </span>{' '}
+                        {li.productName}
+                      </span>
+                      <span className="tabular-nums shrink-0 text-[#335947] dark:text-[#9EC0AE]">
+                        {formatNumber(li.quantity, lang)} × {formatCurrency(li.unitPrice, currency, lang)}
+                      </span>
+                    </div>
+                  ))}
                 </div>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[#335947] dark:text-[#9EC0AE]">
-                    {t.purchaseProductNameLabel}
-                  </span>
-                  <span className="truncate font-semibold">{soldReceipt.invoice.productName}</span>
-                </div>
+
                 {soldReceipt.invoice.customerName && (
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[#335947] dark:text-[#9EC0AE]">{t.posCustomerLabel}</span>
@@ -710,15 +893,6 @@ export function QrScannerModal({
                     </span>
                   </div>
                 )}
-                <div className="flex items-center justify-between">
-                  <span className="text-[#335947] dark:text-[#9EC0AE]">
-                    {t.purchaseQuantityLabel}
-                  </span>
-                  <span className="tabular-nums font-semibold">
-                    {formatNumber(soldReceipt.invoice.quantity, lang)} ×{' '}
-                    {formatCurrency(soldReceipt.invoice.unitPrice, currency, lang)}
-                  </span>
-                </div>
                 <div className="flex items-center justify-between">
                   <span className="text-[#335947] dark:text-[#9EC0AE]">{t.purchasePaymentLabel}</span>
                   <span className="font-semibold">
@@ -739,7 +913,18 @@ export function QrScannerModal({
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                {onPrintInvoice && (
+                  <button
+                    type="button"
+                    onClick={() => void onPrintInvoice(soldReceipt.invoice, false)}
+                    className="flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl bg-[#115E3B] px-3 text-xs font-semibold text-white dark:bg-[#10B981] dark:text-[#052E1C]"
+                  >
+                    <Printer className="h-4 w-4" />
+                    <span>{t.posPrintInvoice}</span>
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={async () => {
@@ -755,10 +940,10 @@ export function QrScannerModal({
                       soldReceipt.invoice.invoiceNumber
                     );
                   }}
-                  className="flex min-h-[44px] items-center justify-center gap-2 rounded-xl bg-[#115E3B] px-3 text-xs font-semibold text-white dark:bg-[#10B981] dark:text-[#052E1C]"
+                  className="flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs font-semibold text-[#115E3B] dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#34D399]"
                 >
                   <Download className="h-4 w-4" />
-                  <span>{t.posDownloadReceipt}</span>
+                  <span>PNG</span>
                 </button>
 
                 <button
@@ -768,7 +953,7 @@ export function QrScannerModal({
                     onClose();
                     onOpenDigitalFile(file, 'management');
                   }}
-                  className="flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs font-semibold text-[#0B1F16] dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#F2F9F5]"
+                  className="flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs font-semibold text-[#0B1F16] dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#F2F9F5]"
                 >
                   <FileText className="h-4 w-4" />
                   <span>{t.digitalTabManagement}</span>
@@ -784,7 +969,7 @@ export function QrScannerModal({
               </button>
             </div>
           ) : pendingSaleFile ? (
-            /* Step 2 after QR scan in Sell Mode: Customer Details, Quantity & Payment Method */
+            /* Step 2 after QR scan in Sell Mode: Add to Multi-Item Cart OR Confirm Immediate Sale */
             <form
               onSubmit={(e) => void handleConfirmPendingSale(e)}
               className="space-y-3.5 rounded-2xl border border-amber-500/40 bg-amber-50/50 p-4 dark:border-amber-500/35 dark:bg-amber-950/20"
@@ -823,7 +1008,6 @@ export function QrScannerModal({
                 </button>
               </div>
 
-              {/* Quantity & Unit Price */}
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-xs font-semibold text-[#0B1F16] dark:text-[#F2F9F5]">
@@ -883,7 +1067,6 @@ export function QrScannerModal({
                 </div>
               </div>
 
-              {/* Payment Method */}
               <div>
                 <label className="mb-1 block text-xs font-semibold text-[#0B1F16] dark:text-[#F2F9F5]">
                   {t.purchasePaymentLabel}
@@ -901,7 +1084,6 @@ export function QrScannerModal({
                 </select>
               </div>
 
-              {/* Customer Details (editable unless locked to a specific customer profile) */}
               {!lockedCustomer && (
                 <div className="space-y-2.5 rounded-xl border border-[#DCE7E0] bg-white/85 p-3 dark:border-[#1E3A2D] dark:bg-[#091611]/85">
                   {customers.length > 0 && (
@@ -955,7 +1137,6 @@ export function QrScannerModal({
                 </div>
               )}
 
-              {/* Optional Notes & Live Total */}
               <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:items-end">
                 <div>
                   <label className="mb-1 block text-xs font-semibold text-[#0B1F16] dark:text-[#F2F9F5]">
@@ -980,18 +1161,29 @@ export function QrScannerModal({
                 </div>
               </div>
 
-              <button
-                type="submit"
-                disabled={saleSubmitting}
-                className="flex min-h-[46px] w-full items-center justify-center gap-2 rounded-xl bg-[#115E3B] px-4 text-xs font-bold text-white hover:bg-[#0D4A2E] disabled:opacity-60 dark:bg-[#10B981] dark:text-[#052E1C]"
-              >
-                <Check className="h-4 w-4" />
-                <span>{saleSubmitting ? t.saving : t.qrSaleConfirmButton}</span>
-              </button>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={handleAddPendingToQrCart}
+                  className="flex min-h-[46px] items-center justify-center gap-2 rounded-xl border border-[#115E3B] bg-white px-3 text-xs font-bold text-[#115E3B] hover:bg-[#ECF7F1] dark:border-[#10B981] dark:bg-[#091611] dark:text-[#34D399]"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>{t.qrAddToInvoiceCart}</span>
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={saleSubmitting}
+                  className="flex min-h-[46px] items-center justify-center gap-2 rounded-xl bg-[#115E3B] px-3 text-xs font-bold text-white hover:bg-[#0D4A2E] disabled:opacity-60 dark:bg-[#10B981] dark:text-[#052E1C]"
+                >
+                  <Check className="h-4 w-4" />
+                  <span>{saleSubmitting ? t.saving : t.qrSaleConfirmButton}</span>
+                </button>
+              </div>
             </form>
           ) : (
             <>
-              {/* Camera Preview (iOS Safari inline-compatible + Tap-to-Start fallback) */}
+              {/* Camera Preview */}
               <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl border border-[#DCE7E0] bg-[#0B1F16] dark:border-[#1E3A2D]">
                 <video
                   ref={videoRef}
@@ -1015,7 +1207,7 @@ export function QrScannerModal({
 
                 {cameraState === 'starting' && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-5 text-center text-white">
-                    <Camera className="h-8 w-8 animate-pulse opacity-75" />
+                    <Camera className="h-8 w-8 opacity-75" />
                     <p className="text-xs font-medium">{t.qrScannerCameraStarting}</p>
                   </div>
                 )}
@@ -1064,7 +1256,6 @@ export function QrScannerModal({
                   </button>
                 </div>
 
-                {/* Direct iPhone/Mobile Camera Capture Input */}
                 <input
                   ref={nativeCamInputRef}
                   type="file"
@@ -1077,7 +1268,6 @@ export function QrScannerModal({
                   }}
                 />
 
-                {/* Photo Gallery Input */}
                 <input
                   ref={fileInputRef}
                   type="file"

@@ -8,6 +8,9 @@ interface CompactQrSnapshot {
   c: string; // code
   n?: string; // name
   d?: string; // truncated description
+  cat?: string; // category
+  col?: string; // color
+  wh?: string; // warehouseName
   p?: number; // sellingPrice (MAD)
   q?: number; // quantity
   dt?: string; // addedDate
@@ -100,6 +103,9 @@ export function buildProductQrUrl(
         c: code,
         n: product.name.slice(0, 64),
         ...(product.description ? { d: product.description.slice(0, 90) } : {}),
+        ...(product.category ? { cat: product.category.slice(0, 32) } : {}),
+        ...(product.color ? { col: product.color.slice(0, 28) } : {}),
+        ...(product.warehouseName ? { wh: product.warehouseName.slice(0, 32) } : {}),
         ...(typeof product.sellingPrice === 'number' ? { p: product.sellingPrice } : {}),
         ...(typeof product.quantity === 'number' ? { q: product.quantity } : {}),
         ...(product.addedDate ? { dt: product.addedDate } : {}),
@@ -189,6 +195,9 @@ export function buildDigitalFileFromQrSnapshot(rawInput: string): ProductDigital
       qrToken: `GA-QR-${parsed.c}`,
       name: parsed.n || parsed.c,
       description: parsed.d || '',
+      category: parsed.cat || '',
+      color: parsed.col || '',
+      warehouseName: parsed.wh || '',
       supplier: parsed.sp || '',
       lengthCm: dims[0] || 0,
       widthCm: dims[1] || 0,
@@ -396,95 +405,191 @@ export async function buildInvoiceReceiptBlob(
   invoice: PosInvoice,
   storeName: string,
   currency: string,
-  lang: Language
+  lang: Language,
+  options?: { isCopy?: boolean }
 ): Promise<Blob> {
+  const isAr = lang === 'ar';
+  const isCopy = Boolean(options?.isCopy || (invoice.printCount || 0) > 0);
+  const items =
+    invoice.items && invoice.items.length > 0
+      ? invoice.items
+      : [
+          {
+            productId: invoice.productId,
+            productCode: invoice.productCode,
+            productName: invoice.productName,
+            category: invoice.category,
+            warehouseName: invoice.warehouseName,
+            quantity: invoice.quantity,
+            unitPrice: invoice.unitPrice,
+            totalPrice: invoice.totalPrice,
+            purchasePrice: invoice.purchasePrice,
+          },
+        ];
+
+  const metaCount =
+    3 + (invoice.customerName ? 1 : 0) + (invoice.warehouseName ? 1 : 0) + (invoice.notes ? 1 : 0);
+  const canvasHeight = Math.max(820, 380 + metaCount * 54 + items.length * 64 + 170);
+
   const canvas = document.createElement('canvas');
-  canvas.width = 720;
-  canvas.height = 880;
+  canvas.width = 760;
+  canvas.height = canvasHeight;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Canvas unavailable');
 
   ctx.fillStyle = '#FFFFFF';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+  // Header strip
   ctx.fillStyle = '#115E3B';
   ctx.fillRect(0, 0, canvas.width, 150);
 
   ctx.fillStyle = '#FFFFFF';
   ctx.textAlign = 'left';
-  ctx.font = 'bold 32px Georgia, serif';
-  ctx.fillText(storeName.trim() || 'Gestion Antiquités', 48, 64);
+  ctx.font = 'bold 30px Georgia, serif';
+  ctx.fillText(storeName.trim() || (isAr ? 'إدارة التحف' : 'Gestion Antiquités'), 44, 62);
 
   ctx.fillStyle = '#A7F3D0';
-  ctx.font = 'bold 22px monospace';
+  ctx.font = 'bold 21px monospace';
   ctx.fillText(
-    `${lang === 'ar' ? 'FACTURE / فاتورة' : 'FACTURE'}  ${invoice.invoiceNumber}`,
-    48,
-    112
+    `${isAr ? 'فاتورة' : 'FACTURE'}  ${invoice.invoiceNumber}`,
+    44,
+    110
   );
 
-  let y = 215;
-  const drawRow = (label: string, value: string, boldValue = false) => {
+  // Copy / Original stamp in header
+  if (isCopy) {
+    ctx.fillStyle = '#FEF3C7';
+    ctx.fillRect(canvas.width - 210, 40, 166, 48);
+    ctx.strokeStyle = '#D97706';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(canvas.width - 210, 40, 166, 48);
+    ctx.fillStyle = '#92400E';
+    ctx.font = 'bold 22px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(isAr ? 'نسخة / COPIE' : 'COPIE', canvas.width - 127, 72);
+
+    // Subtle diagonal watermark
+    ctx.save();
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.rotate(-Math.PI / 7);
+    ctx.fillStyle = 'rgba(217, 119, 6, 0.08)';
+    ctx.font = 'bold 110px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(isAr ? 'نسخة' : 'COPIE', 0, 0);
+    ctx.restore();
+  }
+
+  let y = 200;
+  const drawMetaRow = (label: string, value: string, boldValue = false) => {
     ctx.fillStyle = '#335947';
-    ctx.font = '20px sans-serif';
+    ctx.font = '18px system-ui, sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText(label, 48, y);
+    ctx.fillText(label, 44, y);
 
     ctx.fillStyle = '#0B1F16';
-    ctx.font = boldValue ? 'bold 22px sans-serif' : '20px sans-serif';
+    ctx.font = boldValue ? 'bold 19px system-ui, sans-serif' : '18px system-ui, sans-serif';
     ctx.textAlign = 'right';
-    ctx.fillText(value, canvas.width - 48, y);
+    ctx.fillText(value.length > 44 ? `${value.slice(0, 43)}…` : value, canvas.width - 44, y);
 
-    y += 22;
+    y += 16;
     ctx.strokeStyle = '#DCE7E0';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(48, y);
-    ctx.lineTo(canvas.width - 48, y);
+    ctx.moveTo(44, y);
+    ctx.lineTo(canvas.width - 44, y);
     ctx.stroke();
-    y += 40;
+    y += 34;
   };
 
-  drawRow(lang === 'ar' ? 'التاريخ / Date' : 'Date', invoice.saleDate);
-  drawRow(lang === 'ar' ? 'رمز المنتج / Code' : 'Code produit', invoice.productCode, true);
-  drawRow(
-    lang === 'ar' ? 'المنتج / Article' : 'Article',
-    invoice.productName.length > 34 ? `${invoice.productName.slice(0, 33)}…` : invoice.productName
-  );
-  drawRow(lang === 'ar' ? 'الكمية / Quantité' : 'Quantité', String(invoice.quantity));
-  drawRow(
-    lang === 'ar' ? 'سعر الوحدة / Prix unitaire' : 'Prix unitaire',
-    formatCurrency(invoice.unitPrice, currency, lang)
-  );
+  drawMetaRow(isAr ? 'التاريخ / Date' : 'Date', invoice.saleDate);
   if (invoice.customerName) {
-    drawRow(lang === 'ar' ? 'العميل / Client' : 'Client', invoice.customerName);
+    drawMetaRow(
+      isAr ? 'العميل / Client' : 'Client',
+      `${invoice.customerName}${invoice.customerPhone ? ` (${invoice.customerPhone})` : ''}`,
+      true
+    );
   }
-  drawRow(lang === 'ar' ? 'الدفع / Paiement' : 'Mode de paiement', invoice.paymentMethod.toUpperCase());
+  if (invoice.warehouseName) {
+    drawMetaRow(isAr ? 'المستودع / Entrepôt' : 'Entrepôt / Magasin', invoice.warehouseName);
+  }
+  drawMetaRow(isAr ? 'الدفع / Paiement' : 'Mode de paiement', invoice.paymentMethod.toUpperCase());
+  if (invoice.notes) {
+    drawMetaRow(isAr ? 'ملاحظات / Notes' : 'Notes', invoice.notes);
+  }
 
-  // Total box
-  y += 10;
+  // Line items table header
+  y += 6;
   ctx.fillStyle = '#ECF7F1';
-  ctx.fillRect(48, y, canvas.width - 96, 92);
-  ctx.strokeStyle = '#115E3B';
-  ctx.lineWidth = 2;
-  ctx.strokeRect(48, y, canvas.width - 96, 92);
+  ctx.fillRect(44, y, canvas.width - 88, 42);
+  ctx.strokeStyle = '#DCE7E0';
+  ctx.strokeRect(44, y, canvas.width - 88, 42);
 
   ctx.fillStyle = '#115E3B';
-  ctx.font = 'bold 24px sans-serif';
+  ctx.font = 'bold 17px system-ui, sans-serif';
   ctx.textAlign = 'left';
-  ctx.fillText(lang === 'ar' ? 'المجموع / TOTAL' : 'TOTAL', 72, y + 56);
-
-  ctx.font = 'bold 34px sans-serif';
+  ctx.fillText(isAr ? 'المنتج / Article' : 'Article', 56, y + 27);
   ctx.textAlign = 'right';
-  ctx.fillText(formatCurrency(invoice.totalPrice, currency, lang), canvas.width - 72, y + 58);
+  ctx.fillText(isAr ? 'الكمية × السعر = المجموع' : 'Qté × P.U. = Total', canvas.width - 56, y + 27);
+  y += 60;
+
+  for (const line of items) {
+    const lineName = `${line.productCode ? `${line.productCode} · ` : ''}${line.productName}`;
+    ctx.fillStyle = '#0B1F16';
+    ctx.font = 'bold 18px system-ui, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(lineName.length > 36 ? `${lineName.slice(0, 35)}…` : lineName, 52, y);
+
+    ctx.fillStyle = '#335947';
+    ctx.font = '17px system-ui, sans-serif';
+    ctx.textAlign = 'right';
+    const qtyLabel = `${line.quantity} × ${formatCurrency(line.unitPrice, currency, lang)}`;
+    ctx.fillText(
+      `${qtyLabel} = ${formatCurrency(line.totalPrice, currency, lang)}`,
+      canvas.width - 52,
+      y + 24
+    );
+
+    y += 42;
+    ctx.strokeStyle = '#E5EFE9';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(44, y);
+    ctx.lineTo(canvas.width - 44, y);
+    ctx.stroke();
+    y += 22;
+  }
+
+  // Total box
+  y += 8;
+  ctx.fillStyle = '#ECF7F1';
+  ctx.fillRect(44, y, canvas.width - 88, 90);
+  ctx.strokeStyle = '#115E3B';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(44, y, canvas.width - 88, 90);
+
+  ctx.fillStyle = '#115E3B';
+  ctx.font = 'bold 23px system-ui, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(
+    `${isAr ? 'المجموع' : 'TOTAL'} (${invoice.quantity} ${isAr ? 'ق' : 'art.'})`,
+    68,
+    y + 55
+  );
+
+  ctx.font = 'bold 32px system-ui, sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText(formatCurrency(invoice.totalPrice, currency, lang), canvas.width - 68, y + 57);
 
   ctx.fillStyle = '#6B8A79';
-  ctx.font = '18px sans-serif';
+  ctx.font = '17px system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.fillText(
-    lang === 'ar' ? 'شكراً لثقتكم — فاتورة رقمية' : 'Merci pour votre confiance — Facture numérique',
+    isAr
+      ? `شكراً لثقتكم${isCopy ? ' — نسخة مطابقة للأصل' : ' — فاتورة رقمية'}`
+      : `Merci pour votre confiance${isCopy ? ' — COPIE CONFORME' : ' — Facture numérique'}`,
     canvas.width / 2,
-    835
+    canvas.height - 32
   );
 
   return new Promise<Blob>((resolve, reject) => {

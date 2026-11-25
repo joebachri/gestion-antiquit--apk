@@ -970,7 +970,7 @@ export function ShareModal({
                               : 'border-[#DCE7E0] bg-white text-[#0B1F16] dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#F2F9F5]'
                           }`}
                         >
-                          Reel Clip
+                          {lang === 'ar' ? 'مقطع ريل' : 'Clip Reel'}
                         </button>
                       )}
                     </div>

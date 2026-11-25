@@ -6,9 +6,11 @@ import {
   FileText,
   Image as ImageIcon,
   Play,
+  Printer,
   QrCode,
   Share2,
   Trash2,
+  Video,
   X,
 } from 'lucide-react';
 import type { Language, Product } from '../types';
@@ -25,6 +27,7 @@ interface ProductDetailSheetProps {
   onShare: (product: Product) => void;
   onOpenQrLabel?: (product: Product) => void;
   onOpenDigitalFile?: (product: Product) => void;
+  onPrintProductReport?: (product: Product) => void;
 }
 
 export function ProductDetailSheet({
@@ -37,6 +40,7 @@ export function ProductDetailSheet({
   onShare,
   onOpenQrLabel,
   onOpenDigitalFile,
+  onPrintProductReport,
 }: ProductDetailSheetProps) {
   const t = translations[lang];
   const [photoIdx, setPhotoIdx] = useState(0);
@@ -52,6 +56,7 @@ export function ProductDetailSheet({
   if (!product) return null;
 
   const photos = product.photos || [];
+  const videoMedia = photos.filter((p) => isVideoMedia(p.imageData));
   const activePhoto = photos[photoIdx];
   const displayedCode = activePhoto?.photoCode || product.code;
   const unitMargin = product.sellingPrice - product.referencePrice - product.expenses;
@@ -264,14 +269,80 @@ export function ProductDetailSheet({
             </div>
           )}
 
-          {product.supplier && (
-            <div className="flex items-center justify-between rounded-xl border border-[#DCE7E0] px-4 py-2.5 text-xs dark:border-[#1E3A2D]">
-              <span className="font-semibold text-[#335947] dark:text-[#9EC0AE]">
-                {t.digitalMgmtSupplier}
-              </span>
-              <span className="font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
-                {product.supplier}
-              </span>
+          {/* Category, Color, Warehouse & Supplier Attributes */}
+          {(product.category || product.color || product.warehouseName || product.supplier) && (
+            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+              {product.category && (
+                <div className="rounded-xl border border-[#DCE7E0] px-3.5 py-2.5 text-xs dark:border-[#1E3A2D]">
+                  <span className="block text-[11px] font-medium text-[#335947] dark:text-[#9EC0AE]">
+                    {t.productCategoryLabel}
+                  </span>
+                  <span className="mt-0.5 block truncate font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+                    {product.category}
+                  </span>
+                </div>
+              )}
+              {product.color && (
+                <div className="rounded-xl border border-[#DCE7E0] px-3.5 py-2.5 text-xs dark:border-[#1E3A2D]">
+                  <span className="block text-[11px] font-medium text-[#335947] dark:text-[#9EC0AE]">
+                    {t.productColorLabel}
+                  </span>
+                  <span className="mt-0.5 block truncate font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+                    {product.color}
+                  </span>
+                </div>
+              )}
+              {product.warehouseName && (
+                <div className="rounded-xl border border-[#DCE7E0] px-3.5 py-2.5 text-xs dark:border-[#1E3A2D]">
+                  <span className="block text-[11px] font-medium text-[#335947] dark:text-[#9EC0AE]">
+                    {t.productWarehouseLabel}
+                  </span>
+                  <span className="mt-0.5 block truncate font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+                    {product.warehouseName}
+                  </span>
+                </div>
+              )}
+              {product.supplier && (
+                <div className="rounded-xl border border-[#DCE7E0] px-3.5 py-2.5 text-xs dark:border-[#1E3A2D]">
+                  <span className="block text-[11px] font-medium text-[#335947] dark:text-[#9EC0AE]">
+                    {t.digitalMgmtSupplier}
+                  </span>
+                  <span className="mt-0.5 block truncate font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+                    {product.supplier}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Dedicated Product Videos Showcase */}
+          {videoMedia.length > 0 && (
+            <div className="space-y-2.5 rounded-2xl border border-[#DCE7E0] bg-[#F7FAF8] p-4 dark:border-[#1E3A2D] dark:bg-[#091611]">
+              <div className="flex items-center justify-between text-xs font-bold text-[#115E3B] dark:text-[#34D399]">
+                <span className="flex items-center gap-1.5">
+                  <Video className="h-4 w-4" />
+                  <span>{t.productVideosSectionTitle}</span>
+                </span>
+                <span className="tabular-nums">
+                  {videoMedia.length} {t.productVideosCountLabel}
+                </span>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {videoMedia.map((vid) => (
+                  <div
+                    key={vid.id}
+                    className="overflow-hidden rounded-xl border border-[#DCE7E0] bg-black dark:border-[#1E3A2D]"
+                  >
+                    <video
+                      src={vid.imageData}
+                      controls
+                      playsInline
+                      preload="metadata"
+                      className="aspect-video w-full object-contain"
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -424,6 +495,18 @@ export function ProductDetailSheet({
               className="flex min-h-[48px] min-w-[48px] items-center justify-center rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-3 text-[#115E3B] hover:bg-[#ECF7F1] dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#34D399]"
             >
               <QrCode className="h-4 w-4" />
+            </button>
+          )}
+
+          {onPrintProductReport && (
+            <button
+              type="button"
+              onClick={() => onPrintProductReport(product)}
+              aria-label={t.reportIndividualProductButton}
+              title={t.reportIndividualProductButton}
+              className="flex min-h-[48px] min-w-[48px] items-center justify-center rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-3 text-[#115E3B] hover:bg-[#ECF7F1] dark:border-[#1E3A2D] dark:bg-[#102119] dark:text-[#34D399]"
+            >
+              <Printer className="h-4 w-4" />
             </button>
           )}
 

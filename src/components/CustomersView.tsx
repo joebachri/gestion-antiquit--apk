@@ -14,6 +14,8 @@ import {
   MessageCircle,
   Phone,
   Plus,
+  Printer,
+  RotateCcw,
   Search,
   ShoppingBag,
   Trash2,
@@ -55,6 +57,12 @@ interface CustomersViewProps {
     initialTab?: 'purchases' | 'gallery'
   ) => void;
   onDeleteCustomer: (customerId: string) => Promise<void>;
+  onPrintCustomersList?: () => void;
+  onPrintPurchasesReport?: (filters: {
+    customerId?: string;
+    startDate?: string;
+    endDate?: string;
+  }) => void;
 }
 
 const CATEGORY_FILTERS: Array<'all' | CustomerCategory> = [
@@ -82,11 +90,16 @@ export function CustomersView({
   onEditCustomer,
   onViewCustomer,
   onDeleteCustomer,
+  onPrintCustomersList,
+  onPrintPurchasesReport,
 }: CustomersViewProps) {
   const t = translations[lang];
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [showPurchasesReport, setShowPurchasesReport] = useState(false);
   const [exportingReport, setExportingReport] = useState(false);
+  const [reportCustomerId, setReportCustomerId] = useState('');
+  const [reportStartDate, setReportStartDate] = useState('');
+  const [reportEndDate, setReportEndDate] = useState('');
 
   const purchasesBreakdown = useMemo(() => {
     let activeBuyers = 0;
@@ -96,8 +109,17 @@ export function CustomersView({
     const byPayment = new Map<string, { count: number; units: number; amountMad: number }>();
     const byCategory = new Map<string, { count: number; units: number; amountMad: number }>();
 
-    for (const cust of customers) {
-      const list = cust.purchases || [];
+    const targetCustomers = reportCustomerId
+      ? customers.filter((c) => c.id === reportCustomerId)
+      : customers;
+
+    for (const cust of targetCustomers) {
+      const list = (cust.purchases || []).filter((p) => {
+        const d = (p.purchaseDate || '').slice(0, 10);
+        if (reportStartDate && (!d || d < reportStartDate)) return false;
+        if (reportEndDate && (!d || d > reportEndDate)) return false;
+        return true;
+      });
       if (list.length > 0) activeBuyers += 1;
       for (const p of list) {
         const qty = Number(p.quantity) || 0;
@@ -123,6 +145,7 @@ export function CustomersView({
     }
 
     return {
+      targetCustomersCount: targetCustomers.length,
       activeBuyers,
       totalPurchases,
       totalUnits,
@@ -131,7 +154,7 @@ export function CustomersView({
       paymentRows: Array.from(byPayment.entries()),
       categoryRows: Array.from(byCategory.entries()),
     };
-  }, [customers]);
+  }, [customers, reportCustomerId, reportStartDate, reportEndDate]);
 
   const paymentLabel = (method: string) => {
     if (method === 'transfer') return t.paymentTransfer;
@@ -145,7 +168,11 @@ export function CustomersView({
     if (exportingReport) return;
     setExportingReport(true);
     try {
-      const blob = buildPurchasesReportExcelBlob(customers, currency, lang);
+      const blob = buildPurchasesReportExcelBlob(customers, currency, lang, {
+        customerId: reportCustomerId || undefined,
+        startDate: reportStartDate || undefined,
+        endDate: reportEndDate || undefined,
+      });
       const dateStamp = new Date().toISOString().slice(0, 10);
       await saveOrShareBlob(
         blob,
@@ -222,6 +249,18 @@ export function CustomersView({
         </div>
 
         <div className="hidden items-center gap-2.5 sm:flex">
+          {onPrintCustomersList && (
+            <button
+              type="button"
+              onClick={onPrintCustomersList}
+              disabled={summary.totalCustomers === 0}
+              className="flex min-h-[48px] items-center justify-center gap-2 rounded-2xl border border-[#DCE7E0] bg-white px-4 text-sm font-semibold text-[#115E3B] transition-colors hover:bg-[#ECF7F1] disabled:opacity-60 whitespace-nowrap shrink-0 dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#34D399] dark:hover:bg-[#162E23]"
+            >
+              <Printer className="h-4 w-4" />
+              <span>{t.reportPrintNow}</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={onExportAllExcel}
@@ -306,15 +345,95 @@ export function CustomersView({
               <BarChart3 className="h-4 w-4 text-[#115E3B] dark:text-[#34D399]" />
               <span>{t.purchasesReportTitle}</span>
             </h2>
-            <button
-              type="button"
-              onClick={() => void handleExportPurchasesReportExcel()}
-              disabled={exportingReport}
-              className="flex min-h-[38px] items-center gap-1.5 rounded-xl bg-[#115E3B] px-3 text-xs font-semibold text-white hover:bg-[#0D4A2E] disabled:opacity-60 dark:bg-[#10B981] dark:text-[#052E1C]"
-            >
-              <FileSpreadsheet className="h-3.5 w-3.5" />
-              <span>{t.purchasesReportExportExcel}</span>
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              {onPrintPurchasesReport && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    onPrintPurchasesReport({
+                      customerId: reportCustomerId || undefined,
+                      startDate: reportStartDate || undefined,
+                      endDate: reportEndDate || undefined,
+                    })
+                  }
+                  className="flex min-h-[38px] items-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs font-semibold text-[#115E3B] hover:bg-[#ECF7F1] dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#34D399]"
+                >
+                  <Printer className="h-3.5 w-3.5" />
+                  <span>{t.reportPrintNow}</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => void handleExportPurchasesReportExcel()}
+                disabled={exportingReport}
+                className="flex min-h-[38px] items-center gap-1.5 rounded-xl bg-[#115E3B] px-3 text-xs font-semibold text-white hover:bg-[#0D4A2E] disabled:opacity-60 dark:bg-[#10B981] dark:text-[#052E1C]"
+              >
+                <FileSpreadsheet className="h-3.5 w-3.5" />
+                <span>{t.purchasesReportExportExcel}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Customer & Date Range Filters for Report & Export */}
+          <div className="grid grid-cols-1 gap-3 rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] p-3 sm:grid-cols-4 dark:border-[#1E3A2D] dark:bg-[#091611]">
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-[11px] font-semibold text-[#335947] dark:text-[#9EC0AE]">
+                {t.purchasesFilterCustomerLabel}
+              </label>
+              <select
+                value={reportCustomerId}
+                onChange={(e) => setReportCustomerId(e.target.value)}
+                className="min-h-[40px] w-full rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs text-[#0B1F16] focus:border-[#115E3B] focus:outline-none dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5]"
+              >
+                <option value="">{t.purchasesFilterAllCustomers}</option>
+                {customers.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.code} — {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-[11px] font-semibold text-[#335947] dark:text-[#9EC0AE]">
+                {t.purchasesFilterDateFrom}
+              </label>
+              <input
+                type="date"
+                value={reportStartDate}
+                onChange={(e) => setReportStartDate(e.target.value)}
+                className="min-h-[40px] w-full rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs text-[#0B1F16] focus:border-[#115E3B] focus:outline-none dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5]"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-[11px] font-semibold text-[#335947] dark:text-[#9EC0AE]">
+                {t.purchasesFilterDateTo}
+              </label>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="date"
+                  value={reportEndDate}
+                  onChange={(e) => setReportEndDate(e.target.value)}
+                  className="min-h-[40px] w-full rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs text-[#0B1F16] focus:border-[#115E3B] focus:outline-none dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5]"
+                />
+                {(reportCustomerId || reportStartDate || reportEndDate) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReportCustomerId('');
+                      setReportStartDate('');
+                      setReportEndDate('');
+                    }}
+                    title={t.purchasesFilterReset}
+                    aria-label={t.purchasesFilterReset}
+                    className="flex min-h-[40px] min-w-[40px] shrink-0 items-center justify-center rounded-xl border border-[#DCE7E0] bg-white text-[#335947] hover:bg-[#ECF7F1] dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#9EC0AE]"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -323,7 +442,7 @@ export function CustomersView({
                 {t.purchasesReportActiveCustomers}
               </span>
               <span className="tabular-nums mt-0.5 block text-base font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
-                {formatNumber(purchasesBreakdown.activeBuyers, lang)} / {formatNumber(customers.length, lang)}
+                {formatNumber(purchasesBreakdown.activeBuyers, lang)} / {formatNumber(purchasesBreakdown.targetCustomersCount, lang)}
               </span>
             </div>
             <div className="rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] p-3 dark:border-[#1E3A2D] dark:bg-[#091611]">
@@ -416,7 +535,7 @@ export function CustomersView({
           {[1, 2, 3].map((item) => (
             <div
               key={item}
-              className="h-56 animate-pulse rounded-2xl border border-[#DCE7E0] bg-white p-4 dark:border-[#1E3A2D] dark:bg-[#0F2119]"
+              className="h-56 rounded-2xl border border-[#DCE7E0] bg-white p-4 dark:border-[#1E3A2D] dark:bg-[#0F2119]"
             />
           ))}
         </div>

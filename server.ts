@@ -14,6 +14,11 @@ interface ProductRow {
   qr_token: string;
   name: string;
   description: string;
+  category: string;
+  color: string;
+  warehouse_id: string;
+  warehouse_name: string;
+  supplier_id: string;
   supplier: string;
   length_cm: number;
   width_cm: number;
@@ -47,6 +52,11 @@ interface ProductInput {
   code?: string;
   name: string;
   description?: string;
+  category?: string;
+  color?: string;
+  warehouseId?: string;
+  warehouseName?: string;
+  supplierId?: string;
   supplier?: string;
   lengthCm?: number;
   widthCm?: number;
@@ -90,12 +100,31 @@ function ensureUniqueProductCode(candidate: string, excludeProductId?: string): 
   }
 }
 
+interface SalesInvoiceItem {
+  productId: string;
+  productCode: string;
+  productName: string;
+  category?: string;
+  color?: string;
+  warehouseId?: string;
+  warehouseName?: string;
+  supplier?: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+  purchasePrice: number;
+}
+
 interface SalesInvoiceRow {
   id: string;
   invoice_number: string;
   product_id: string;
   product_code: string;
   product_name: string;
+  category: string;
+  warehouse_id: string;
+  warehouse_name: string;
+  items_json: string;
   customer_id: string;
   customer_name: string;
   customer_phone: string;
@@ -106,6 +135,91 @@ interface SalesInvoiceRow {
   payment_method: string;
   sale_date: string;
   notes: string;
+  print_count: number;
+  created_at: string;
+}
+
+interface WarehouseRow {
+  id: string;
+  code: string;
+  name: string;
+  location: string;
+  address: string;
+  phone: string;
+  manager_name: string;
+  notes: string;
+  is_default: number;
+  created_at: string;
+  updated_at: string;
+}
+
+interface SupplierRow {
+  id: string;
+  code: string;
+  name: string;
+  phone: string;
+  address: string;
+  city: string;
+  category: string;
+  notes: string;
+  facebook_url: string;
+  instagram_url: string;
+  website_url: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface SupplierPurchaseRow {
+  id: string;
+  supplier_id: string;
+  product_id: string;
+  product_code: string;
+  product_name: string;
+  category: string;
+  warehouse_id: string;
+  warehouse_name: string;
+  quantity: number;
+  unit_cost: number;
+  total_cost: number;
+  purchase_date: string;
+  payment_method: string;
+  notes: string;
+  created_at: string;
+}
+
+interface SupplierGalleryRow {
+  id: string;
+  supplier_id: string;
+  title: string;
+  source: string;
+  source_url: string;
+  image_data: string;
+  created_at: string;
+}
+
+interface InventoryAdjustmentRow {
+  id: string;
+  reference_number: string;
+  adjustment_type: string;
+  warehouse_id: string;
+  warehouse_name: string;
+  target_warehouse_id: string;
+  target_warehouse_name: string;
+  product_id: string;
+  product_code: string;
+  product_name: string;
+  category: string;
+  color: string;
+  supplier_id: string;
+  supplier_name: string;
+  quantity_before: number;
+  quantity_delta: number;
+  quantity_after: number;
+  unit_cost: number;
+  total_value: number;
+  reason: string;
+  notes: string;
+  adjustment_date: string;
   created_at: string;
 }
 
@@ -253,6 +367,92 @@ db.exec(`
     created_at TEXT NOT NULL,
     FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS warehouses (
+    id TEXT PRIMARY KEY,
+    code TEXT UNIQUE NOT NULL,
+    name TEXT NOT NULL,
+    location TEXT NOT NULL DEFAULT '',
+    address TEXT NOT NULL DEFAULT '',
+    phone TEXT NOT NULL DEFAULT '',
+    manager_name TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',
+    is_default INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS suppliers (
+    id TEXT PRIMARY KEY,
+    code TEXT UNIQUE NOT NULL,
+    name TEXT NOT NULL,
+    phone TEXT NOT NULL DEFAULT '',
+    address TEXT NOT NULL DEFAULT '',
+    city TEXT NOT NULL DEFAULT '',
+    category TEXT NOT NULL DEFAULT 'artisan',
+    notes TEXT NOT NULL DEFAULT '',
+    facebook_url TEXT NOT NULL DEFAULT '',
+    instagram_url TEXT NOT NULL DEFAULT '',
+    website_url TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS supplier_purchases (
+    id TEXT PRIMARY KEY,
+    supplier_id TEXT NOT NULL,
+    product_id TEXT NOT NULL DEFAULT '',
+    product_code TEXT NOT NULL DEFAULT '',
+    product_name TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT '',
+    warehouse_id TEXT NOT NULL DEFAULT '',
+    warehouse_name TEXT NOT NULL DEFAULT '',
+    quantity INTEGER NOT NULL DEFAULT 1,
+    unit_cost REAL NOT NULL DEFAULT 0,
+    total_cost REAL NOT NULL DEFAULT 0,
+    purchase_date TEXT NOT NULL,
+    payment_method TEXT NOT NULL DEFAULT 'cash',
+    notes TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS supplier_gallery (
+    id TEXT PRIMARY KEY,
+    supplier_id TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT 'upload',
+    source_url TEXT NOT NULL DEFAULT '',
+    image_data TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS inventory_adjustments (
+    id TEXT PRIMARY KEY,
+    reference_number TEXT UNIQUE NOT NULL,
+    adjustment_type TEXT NOT NULL DEFAULT 'deduction',
+    warehouse_id TEXT NOT NULL DEFAULT '',
+    warehouse_name TEXT NOT NULL DEFAULT '',
+    target_warehouse_id TEXT NOT NULL DEFAULT '',
+    target_warehouse_name TEXT NOT NULL DEFAULT '',
+    product_id TEXT NOT NULL,
+    product_code TEXT NOT NULL DEFAULT '',
+    product_name TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT '',
+    color TEXT NOT NULL DEFAULT '',
+    supplier_id TEXT NOT NULL DEFAULT '',
+    supplier_name TEXT NOT NULL DEFAULT '',
+    quantity_before INTEGER NOT NULL DEFAULT 0,
+    quantity_delta INTEGER NOT NULL DEFAULT 0,
+    quantity_after INTEGER NOT NULL DEFAULT 0,
+    unit_cost REAL NOT NULL DEFAULT 0,
+    total_value REAL NOT NULL DEFAULT 0,
+    reason TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',
+    adjustment_date TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
 `);
 
 const productTableColumns = (
@@ -264,7 +464,41 @@ if (!productTableColumns.includes('supplier')) {
 if (!productTableColumns.includes('qr_token')) {
   db.exec("ALTER TABLE products ADD COLUMN qr_token TEXT NOT NULL DEFAULT ''");
 }
+if (!productTableColumns.includes('category')) {
+  db.exec("ALTER TABLE products ADD COLUMN category TEXT NOT NULL DEFAULT ''");
+}
+if (!productTableColumns.includes('color')) {
+  db.exec("ALTER TABLE products ADD COLUMN color TEXT NOT NULL DEFAULT ''");
+}
+if (!productTableColumns.includes('warehouse_id')) {
+  db.exec("ALTER TABLE products ADD COLUMN warehouse_id TEXT NOT NULL DEFAULT ''");
+}
+if (!productTableColumns.includes('warehouse_name')) {
+  db.exec("ALTER TABLE products ADD COLUMN warehouse_name TEXT NOT NULL DEFAULT ''");
+}
+if (!productTableColumns.includes('supplier_id')) {
+  db.exec("ALTER TABLE products ADD COLUMN supplier_id TEXT NOT NULL DEFAULT ''");
+}
 db.exec("UPDATE products SET qr_token = 'GA-QR-' || code WHERE qr_token = ''");
+
+const salesInvoiceTableColumns = (
+  db.prepare('PRAGMA table_info(sales_invoices)').all() as Array<{ name: string }>
+).map((col) => col.name);
+if (!salesInvoiceTableColumns.includes('items_json')) {
+  db.exec("ALTER TABLE sales_invoices ADD COLUMN items_json TEXT NOT NULL DEFAULT '[]'");
+}
+if (!salesInvoiceTableColumns.includes('category')) {
+  db.exec("ALTER TABLE sales_invoices ADD COLUMN category TEXT NOT NULL DEFAULT ''");
+}
+if (!salesInvoiceTableColumns.includes('warehouse_id')) {
+  db.exec("ALTER TABLE sales_invoices ADD COLUMN warehouse_id TEXT NOT NULL DEFAULT ''");
+}
+if (!salesInvoiceTableColumns.includes('warehouse_name')) {
+  db.exec("ALTER TABLE sales_invoices ADD COLUMN warehouse_name TEXT NOT NULL DEFAULT ''");
+}
+if (!salesInvoiceTableColumns.includes('print_count')) {
+  db.exec('ALTER TABLE sales_invoices ADD COLUMN print_count INTEGER NOT NULL DEFAULT 0');
+}
 
 const customerTableColumns = (
   db.prepare('PRAGMA table_info(customers)').all() as Array<{ name: string }>
@@ -631,6 +865,37 @@ function logProductHistory(
   ).run(crypto.randomUUID(), productId, eventType, summary, details, quantityDelta, quantityAfter, createdAt);
 }
 
+function ensureDefaultWarehouse(): WarehouseRow {
+  const existingDefault = db
+    .prepare('SELECT * FROM warehouses WHERE is_default = 1 LIMIT 1')
+    .get() as WarehouseRow | undefined;
+  if (existingDefault) return existingDefault;
+
+  const first = db.prepare('SELECT * FROM warehouses ORDER BY created_at ASC LIMIT 1').get() as
+    | WarehouseRow
+    | undefined;
+  if (first) {
+    db.prepare('UPDATE warehouses SET is_default = 1 WHERE id = ?').run(first.id);
+    return { ...first, is_default: 1 };
+  }
+
+  const now = new Date().toISOString();
+  const id = crypto.randomUUID();
+  db.prepare(
+    `INSERT INTO warehouses (
+      id, code, name, location, address, phone, manager_name, notes, is_default, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
+  ).run(id, 'WH0001', 'Magasin Principal', 'Fès', '', '', '', '', now, now);
+
+  return db.prepare('SELECT * FROM warehouses WHERE id = ?').get(id) as WarehouseRow;
+}
+
+const defaultWh = ensureDefaultWarehouse();
+db.prepare("UPDATE products SET warehouse_id = ?, warehouse_name = ? WHERE warehouse_id = ''").run(
+  defaultWh.id,
+  defaultWh.name
+);
+
 function generateNextInvoiceNumber(): string {
   const rows = db.prepare("SELECT invoice_number FROM sales_invoices WHERE invoice_number LIKE 'FAC-%'").all() as Array<{
     invoice_number: string;
@@ -646,13 +911,198 @@ function generateNextInvoiceNumber(): string {
   return `FAC-${String(maxNum + 1).padStart(4, '0')}`;
 }
 
+function generateNextWarehouseCode(): string {
+  const rows = db.prepare("SELECT code FROM warehouses WHERE code LIKE 'WH%'").all() as Array<{ code: string }>;
+  let maxNum = 0;
+  for (const row of rows) {
+    const suffix = row.code.slice(2);
+    if (/^\d+$/.test(suffix)) {
+      const parsed = Number.parseInt(suffix, 10);
+      if (parsed > maxNum) maxNum = parsed;
+    }
+  }
+  return `WH${String(maxNum + 1).padStart(4, '0')}`;
+}
+
+function generateNextSupplierCode(): string {
+  const rows = db.prepare("SELECT code FROM suppliers WHERE code LIKE 'FR%'").all() as Array<{ code: string }>;
+  let maxNum = 0;
+  for (const row of rows) {
+    const suffix = row.code.slice(2);
+    if (/^\d+$/.test(suffix)) {
+      const parsed = Number.parseInt(suffix, 10);
+      if (parsed > maxNum) maxNum = parsed;
+    }
+  }
+  return `FR${String(maxNum + 1).padStart(4, '0')}`;
+}
+
+function generateNextAdjustmentRef(): string {
+  const rows = db
+    .prepare("SELECT reference_number FROM inventory_adjustments WHERE reference_number LIKE 'ADJ-%'")
+    .all() as Array<{ reference_number: string }>;
+  let maxNum = 0;
+  for (const row of rows) {
+    const suffix = row.reference_number.slice(4);
+    if (/^\d+$/.test(suffix)) {
+      const parsed = Number.parseInt(suffix, 10);
+      if (parsed > maxNum) maxNum = parsed;
+    }
+  }
+  return `ADJ-${String(maxNum + 1).padStart(4, '0')}`;
+}
+
+function mapWarehouseRow(row: WarehouseRow) {
+  return {
+    id: row.id,
+    code: row.code,
+    name: row.name,
+    location: row.location || '',
+    address: row.address || '',
+    phone: row.phone || '',
+    managerName: row.manager_name || '',
+    notes: row.notes || '',
+    isDefault: Boolean(row.is_default),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapSuppliersWithPurchases(rows: SupplierRow[]) {
+  const purchaseStmt = db.prepare(
+    'SELECT * FROM supplier_purchases WHERE supplier_id = ? ORDER BY purchase_date DESC, created_at DESC'
+  );
+  const galleryStmt = db.prepare(
+    'SELECT * FROM supplier_gallery WHERE supplier_id = ? ORDER BY created_at DESC'
+  );
+  return rows.map((row) => {
+    const purchases = (purchaseStmt.all(row.id) as SupplierPurchaseRow[]).map((p) => ({
+      id: p.id,
+      supplierId: p.supplier_id,
+      productId: p.product_id || '',
+      productCode: p.product_code,
+      productName: p.product_name,
+      category: p.category || '',
+      warehouseId: p.warehouse_id || '',
+      warehouseName: p.warehouse_name || '',
+      quantity: p.quantity,
+      unitCost: p.unit_cost,
+      totalCost: p.total_cost,
+      purchaseDate: p.purchase_date,
+      paymentMethod: p.payment_method || 'cash',
+      notes: p.notes || '',
+      createdAt: p.created_at,
+    }));
+    const gallery = (galleryStmt.all(row.id) as SupplierGalleryRow[]).map((g) => ({
+      id: g.id,
+      supplierId: g.supplier_id,
+      title: g.title || '',
+      source: g.source || 'upload',
+      sourceUrl: g.source_url || '',
+      imageData: g.image_data,
+      createdAt: g.created_at,
+    }));
+    return {
+      id: row.id,
+      code: row.code,
+      name: row.name,
+      phone: row.phone || '',
+      address: row.address || '',
+      city: row.city || '',
+      category: row.category || 'artisan',
+      notes: row.notes || '',
+      facebookUrl: row.facebook_url || '',
+      instagramUrl: row.instagram_url || '',
+      websiteUrl: row.website_url || '',
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      purchases,
+      gallery,
+    };
+  });
+}
+
+function getSupplierSummary() {
+  const suppliersCount = (db.prepare('SELECT COUNT(*) as cnt FROM suppliers').get() as { cnt: number }).cnt;
+  const stats = db
+    .prepare(
+      'SELECT COUNT(*) as totalPurchases, COALESCE(SUM(total_cost), 0) as totalSpent FROM supplier_purchases'
+    )
+    .get() as { totalPurchases: number; totalSpent: number };
+  return {
+    totalSuppliers: suppliersCount,
+    totalPurchases: Number(stats.totalPurchases) || 0,
+    totalSpentMad: Number(stats.totalSpent) || 0,
+  };
+}
+
+function mapAdjustmentRow(row: InventoryAdjustmentRow) {
+  return {
+    id: row.id,
+    referenceNumber: row.reference_number,
+    adjustmentType: row.adjustment_type || 'deduction',
+    warehouseId: row.warehouse_id || '',
+    warehouseName: row.warehouse_name || '',
+    targetWarehouseId: row.target_warehouse_id || '',
+    targetWarehouseName: row.target_warehouse_name || '',
+    productId: row.product_id,
+    productCode: row.product_code || '',
+    productName: row.product_name,
+    category: row.category || '',
+    color: row.color || '',
+    supplierId: row.supplier_id || '',
+    supplierName: row.supplier_name || '',
+    quantityBefore: Number(row.quantity_before) || 0,
+    quantityDelta: Number(row.quantity_delta) || 0,
+    quantityAfter: Number(row.quantity_after) || 0,
+    unitCost: Number(row.unit_cost) || 0,
+    totalValue: Number(row.total_value) || 0,
+    reason: row.reason || '',
+    notes: row.notes || '',
+    adjustmentDate: row.adjustment_date,
+    createdAt: row.created_at,
+  };
+}
+
+function parseInvoiceItemsJson(row: SalesInvoiceRow): SalesInvoiceItem[] {
+  if (row.items_json && row.items_json.trim().startsWith('[')) {
+    try {
+      const parsed = JSON.parse(row.items_json) as SalesInvoiceItem[];
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    } catch {
+      // fallback below
+    }
+  }
+  return [
+    {
+      productId: row.product_id,
+      productCode: row.product_code,
+      productName: row.product_name,
+      category: row.category || '',
+      warehouseId: row.warehouse_id || '',
+      warehouseName: row.warehouse_name || '',
+      quantity: Number(row.quantity) || 1,
+      unitPrice: Number(row.unit_price) || 0,
+      totalPrice: Number(row.total_price) || 0,
+      purchasePrice: Number(row.purchase_price) || 0,
+    },
+  ];
+}
+
 function mapSalesInvoiceRow(row: SalesInvoiceRow) {
+  const items = parseInvoiceItemsJson(row);
   return {
     id: row.id,
     invoiceNumber: row.invoice_number,
     productId: row.product_id,
     productCode: row.product_code,
     productName: row.product_name,
+    category: row.category || '',
+    warehouseId: row.warehouse_id || '',
+    warehouseName: row.warehouse_name || '',
+    items,
     customerId: row.customer_id || '',
     customerName: row.customer_name || '',
     customerPhone: row.customer_phone || '',
@@ -663,6 +1113,7 @@ function mapSalesInvoiceRow(row: SalesInvoiceRow) {
     paymentMethod: row.payment_method || 'cash',
     saleDate: row.sale_date,
     notes: row.notes || '',
+    printCount: Number(row.print_count) || 0,
     createdAt: row.created_at,
   };
 }
@@ -699,6 +1150,11 @@ function mapProductsWithPhotos(rows: ProductRow[]) {
       qrToken: row.qr_token || `GA-QR-${row.code}`,
       name: row.name,
       description: row.description,
+      category: row.category || '',
+      color: row.color || '',
+      warehouseId: row.warehouse_id || '',
+      warehouseName: row.warehouse_name || '',
+      supplierId: row.supplier_id || '',
       supplier: row.supplier || '',
       lengthCm: row.length_cm,
       widthCm: row.width_cm,
@@ -777,19 +1233,36 @@ function resolveProductByQrInput(rawInput: string): ProductRow | undefined {
 
 function buildProductDigitalFile(row: ProductRow) {
   const product = mapProductsWithPhotos([row])[0];
-  const invoices = (
-    db
-      .prepare('SELECT * FROM sales_invoices WHERE product_id = ? ORDER BY created_at DESC')
-      .all(row.id) as SalesInvoiceRow[]
-  ).map(mapSalesInvoiceRow);
+  const allInvoiceRows = db
+    .prepare('SELECT * FROM sales_invoices ORDER BY created_at DESC')
+    .all() as SalesInvoiceRow[];
+  const invoices = allInvoiceRows
+    .map(mapSalesInvoiceRow)
+    .filter(
+      (inv) =>
+        inv.productId === row.id ||
+        (Array.isArray(inv.items) && inv.items.some((item) => item.productId === row.id))
+    );
   const history = (
     db
       .prepare('SELECT * FROM product_history WHERE product_id = ? ORDER BY created_at DESC')
       .all(row.id) as ProductHistoryRow[]
   ).map(mapProductHistoryRow);
 
-  const totalUnitsSold = invoices.reduce((sum, inv) => sum + (Number(inv.quantity) || 0), 0);
-  const totalRevenueMad = invoices.reduce((sum, inv) => sum + (Number(inv.totalPrice) || 0), 0);
+  let totalUnitsSold = 0;
+  let totalRevenueMad = 0;
+  for (const inv of invoices) {
+    const matchedItems = (inv.items || []).filter((item) => item.productId === row.id);
+    if (matchedItems.length > 0) {
+      for (const item of matchedItems) {
+        totalUnitsSold += Number(item.quantity) || 0;
+        totalRevenueMad += Number(item.totalPrice) || 0;
+      }
+    } else if (inv.productId === row.id) {
+      totalUnitsSold += Number(inv.quantity) || 0;
+      totalRevenueMad += Number(inv.totalPrice) || 0;
+    }
+  }
   const lastSaleDate = invoices[0]?.saleDate || '';
 
   return {
@@ -1381,11 +1854,14 @@ async function startServer() {
            WHERE p.name LIKE ? COLLATE NOCASE
               OR p.code LIKE ? COLLATE NOCASE
               OR p.supplier LIKE ? COLLATE NOCASE
+              OR p.category LIKE ? COLLATE NOCASE
+              OR p.color LIKE ? COLLATE NOCASE
+              OR p.warehouse_name LIKE ? COLLATE NOCASE
               OR p.qr_token LIKE ? COLLATE NOCASE
               OR ph.photo_code LIKE ? COLLATE NOCASE
            ORDER BY p.created_at DESC`
         )
-        .all(pattern, pattern, pattern, pattern, pattern) as ProductRow[];
+        .all(pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern) as ProductRow[];
     } else {
       rows = db.prepare('SELECT * FROM products ORDER BY created_at DESC').all() as ProductRow[];
     }
@@ -1414,18 +1890,50 @@ async function startServer() {
     const qrToken = `GA-QR-${code}`;
     const addedDate =
       typeof body.addedDate === 'string' && body.addedDate.trim() ? body.addedDate.trim() : now.slice(0, 10);
-    const supplier = typeof body.supplier === 'string' ? body.supplier.trim() : '';
-    const initialQty = toInt(body.quantity, 1);
+    const category = typeof body.category === 'string' ? body.category.trim() : '';
+    const color = typeof body.color === 'string' ? body.color.trim() : '';
+    let supplierId = typeof body.supplierId === 'string' ? body.supplierId.trim() : '';
+    let supplier = typeof body.supplier === 'string' ? body.supplier.trim() : '';
+    if (supplierId) {
+      const supRow = db.prepare('SELECT id, name FROM suppliers WHERE id = ?').get(supplierId) as
+        | { id: string; name: string }
+        | undefined;
+      if (supRow) {
+        if (!supplier) supplier = supRow.name;
+      } else {
+        supplierId = '';
+      }
+    }
 
+    let warehouseId = typeof body.warehouseId === 'string' ? body.warehouseId.trim() : '';
+    let warehouseName = typeof body.warehouseName === 'string' ? body.warehouseName.trim() : '';
+    if (warehouseId) {
+      const whRow = db.prepare('SELECT id, name FROM warehouses WHERE id = ?').get(warehouseId) as
+        | { id: string; name: string }
+        | undefined;
+      if (whRow) {
+        warehouseName = whRow.name;
+      } else {
+        warehouseId = '';
+      }
+    }
+    if (!warehouseId) {
+      const def = ensureDefaultWarehouse();
+      warehouseId = def.id;
+      if (!warehouseName) warehouseName = def.name;
+    }
+
+    const initialQty = toInt(body.quantity, 1);
     const photos = Array.isArray(body.photos) ? body.photos.filter((p) => p && typeof p.imageData === 'string' && p.imageData) : [];
 
     const insertProduct = db.prepare(`
       INSERT INTO products (
-        id, code, qr_token, name, description, supplier,
+        id, code, qr_token, name, description, category, color,
+        warehouse_id, warehouse_name, supplier_id, supplier,
         length_cm, width_cm, height_cm, thickness_cm, pieces_count,
         quantity, reference_price, expenses, selling_price,
         added_date, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertPhoto = db.prepare(`
@@ -1440,6 +1948,11 @@ async function startServer() {
         qrToken,
         name,
         typeof body.description === 'string' ? body.description.trim() : '',
+        category,
+        color,
+        warehouseId,
+        warehouseName,
+        supplierId,
         supplier,
         toNumber(body.lengthCm, 0),
         toNumber(body.widthCm, 0),
@@ -1466,11 +1979,17 @@ async function startServer() {
         );
       });
 
+      const detailsParts = [
+        warehouseName ? `${warehouseName}` : '',
+        supplier ? `${supplier}` : '',
+        color ? `${color}` : '',
+      ].filter(Boolean);
+
       logProductHistory(
         id,
         'created',
         `Article créé (${code})`,
-        supplier ? `Fournisseur: ${supplier}` : '',
+        detailsParts.join(' · '),
         initialQty,
         initialQty,
         now
@@ -1518,8 +2037,45 @@ async function startServer() {
           : existing.code;
     const qrToken =
       code !== existing.code ? `GA-QR-${code}` : existing.qr_token || `GA-QR-${code}`;
-    const supplier =
+    const category =
+      typeof body.category === 'string' ? body.category.trim() : existing.category || '';
+    const color =
+      typeof body.color === 'string' ? body.color.trim() : existing.color || '';
+    let supplierId =
+      typeof body.supplierId === 'string' ? body.supplierId.trim() : existing.supplier_id || '';
+    let supplier =
       typeof body.supplier === 'string' ? body.supplier.trim() : existing.supplier || '';
+    if (supplierId) {
+      const supRow = db.prepare('SELECT id, name FROM suppliers WHERE id = ?').get(supplierId) as
+        | { id: string; name: string }
+        | undefined;
+      if (supRow) {
+        if (!supplier) supplier = supRow.name;
+      } else {
+        supplierId = '';
+      }
+    }
+
+    let warehouseId =
+      typeof body.warehouseId === 'string' ? body.warehouseId.trim() : existing.warehouse_id || '';
+    let warehouseName =
+      typeof body.warehouseName === 'string' ? body.warehouseName.trim() : existing.warehouse_name || '';
+    if (warehouseId) {
+      const whRow = db.prepare('SELECT id, name FROM warehouses WHERE id = ?').get(warehouseId) as
+        | { id: string; name: string }
+        | undefined;
+      if (whRow) {
+        warehouseName = whRow.name;
+      } else {
+        warehouseId = '';
+      }
+    }
+    if (!warehouseId) {
+      const def = ensureDefaultWarehouse();
+      warehouseId = def.id;
+      if (!warehouseName) warehouseName = def.name;
+    }
+
     const nextQty = toInt(body.quantity, 1);
     const qtyDelta = nextQty - existing.quantity;
 
@@ -1534,6 +2090,11 @@ async function startServer() {
         qr_token = ?,
         name = ?,
         description = ?,
+        category = ?,
+        color = ?,
+        warehouse_id = ?,
+        warehouse_name = ?,
+        supplier_id = ?,
         supplier = ?,
         length_cm = ?,
         width_cm = ?,
@@ -1561,6 +2122,11 @@ async function startServer() {
         qrToken,
         name,
         typeof body.description === 'string' ? body.description.trim() : '',
+        category,
+        color,
+        warehouseId,
+        warehouseName,
+        supplierId,
         supplier,
         toNumber(body.lengthCm, 0),
         toNumber(body.widthCm, 0),
@@ -1590,12 +2156,13 @@ async function startServer() {
 
       const eventType = qtyDelta > 0 ? 'restocked' : 'updated';
       const detailParts: string[] = [];
-      if (supplier && supplier !== existing.supplier) detailParts.push(`Fournisseur: ${supplier}`);
-      if (qtyDelta !== 0) detailParts.push(`Stock: ${existing.quantity} → ${nextQty}`);
+      if (warehouseName && warehouseName !== existing.warehouse_name) detailParts.push(warehouseName);
+      if (supplier && supplier !== existing.supplier) detailParts.push(supplier);
+      if (qtyDelta !== 0) detailParts.push(`${existing.quantity} → ${nextQty}`);
       logProductHistory(
         productId,
         eventType,
-        qtyDelta > 0 ? `Réapprovisionnement (+${qtyDelta})` : `Fiche mise à jour (${code})`,
+        qtyDelta > 0 ? `+${qtyDelta}` : code,
         detailParts.join(' · '),
         qtyDelta,
         nextQty,
@@ -1625,20 +2192,27 @@ async function startServer() {
     let addedCount = 0;
     let updatedCount = 0;
     let skippedCount = 0;
+    const defWh = ensureDefaultWarehouse();
 
     const selectByCode = db.prepare('SELECT * FROM products WHERE UPPER(code) = UPPER(?)');
+    const selectWhByName = db.prepare('SELECT * FROM warehouses WHERE UPPER(name) = UPPER(?) LIMIT 1');
     const insertProduct = db.prepare(`
       INSERT INTO products (
-        id, code, qr_token, name, description, supplier,
+        id, code, qr_token, name, description, category, color,
+        warehouse_id, warehouse_name, supplier_id, supplier,
         length_cm, width_cm, height_cm, thickness_cm, pieces_count,
         quantity, reference_price, expenses, selling_price,
         added_date, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const updateProduct = db.prepare(`
       UPDATE products SET
         name = ?,
         description = ?,
+        category = ?,
+        color = ?,
+        warehouse_id = ?,
+        warehouse_name = ?,
         supplier = ?,
         length_cm = ?,
         width_cm = ?,
@@ -1668,6 +2242,11 @@ async function startServer() {
           ? (selectByCode.get(cleanCode) as ProductRow | undefined)
           : undefined;
 
+        const rawWhName = typeof rawItem.warehouseName === 'string' ? rawItem.warehouseName.trim() : '';
+        const matchedWh = rawWhName ? (selectWhByName.get(rawWhName) as WarehouseRow | undefined) : undefined;
+        const resolvedWhId = matchedWh?.id || (typeof rawItem.warehouseId === 'string' && rawItem.warehouseId.trim() ? rawItem.warehouseId.trim() : defWh.id);
+        const resolvedWhName = matchedWh?.name || rawWhName || defWh.name;
+
         if (existingRow) {
           if (mode === 'skip') {
             skippedCount += 1;
@@ -1685,6 +2264,10 @@ async function startServer() {
             typeof rawItem.description === 'string'
               ? rawItem.description.trim()
               : existingRow.description,
+            typeof rawItem.category === 'string' ? rawItem.category.trim() : existingRow.category,
+            typeof rawItem.color === 'string' ? rawItem.color.trim() : existingRow.color,
+            resolvedWhId || existingRow.warehouse_id,
+            resolvedWhName || existingRow.warehouse_name,
             typeof rawItem.supplier === 'string' ? rawItem.supplier.trim() : existingRow.supplier,
             typeof rawItem.lengthCm === 'number' ? toNumber(rawItem.lengthCm, 0) : existingRow.length_cm,
             typeof rawItem.widthCm === 'number' ? toNumber(rawItem.widthCm, 0) : existingRow.width_cm,
@@ -1713,8 +2296,8 @@ async function startServer() {
           logProductHistory(
             existingRow.id,
             qtyDelta > 0 ? 'restocked' : 'updated',
-            `Import Excel (${existingRow.code})`,
-            qtyDelta !== 0 ? `Stock: ${existingRow.quantity} → ${nextQty}` : '',
+            `Excel (${existingRow.code})`,
+            qtyDelta !== 0 ? `${existingRow.quantity} → ${nextQty}` : '',
             qtyDelta,
             nextQty,
             now
@@ -1728,6 +2311,8 @@ async function startServer() {
         const qrToken = `GA-QR-${finalCode}`;
         const initialQty = Math.max(0, toInt(rawItem.quantity, 1));
         const supplier = typeof rawItem.supplier === 'string' ? rawItem.supplier.trim() : '';
+        const category = typeof rawItem.category === 'string' ? rawItem.category.trim() : '';
+        const color = typeof rawItem.color === 'string' ? rawItem.color.trim() : '';
         const addedDate =
           typeof rawItem.addedDate === 'string' && rawItem.addedDate.trim()
             ? rawItem.addedDate.trim()
@@ -1739,6 +2324,11 @@ async function startServer() {
           qrToken,
           cleanName,
           typeof rawItem.description === 'string' ? rawItem.description.trim() : '',
+          category,
+          color,
+          resolvedWhId,
+          resolvedWhName,
+          '',
           supplier,
           toNumber(rawItem.lengthCm, 0),
           toNumber(rawItem.widthCm, 0),
@@ -1757,8 +2347,8 @@ async function startServer() {
         logProductHistory(
           id,
           'created',
-          `Import Excel (${finalCode})`,
-          supplier ? `Fournisseur: ${supplier}` : '',
+          `Excel (${finalCode})`,
+          supplier || resolvedWhName || '',
           initialQty,
           initialQty,
           now
@@ -1791,7 +2381,7 @@ async function startServer() {
       logProductHistory(
         row.id,
         'qr_scanned',
-        `QR scanné (consultation ${row.code})`,
+        `QR (${row.code})`,
         '',
         0,
         row.quantity
@@ -1810,7 +2400,7 @@ async function startServer() {
       logProductHistory(
         row.id,
         'qr_scanned',
-        `Fiche numérique ouverte (${row.code})`,
+        `QR (${row.code})`,
         '',
         0,
         row.quantity
@@ -1823,10 +2413,18 @@ async function startServer() {
     const rows = db.prepare('SELECT * FROM sales_invoices ORDER BY created_at DESC').all() as SalesInvoiceRow[];
     const invoices = rows.map(mapSalesInvoiceRow);
     const totalRevenueMad = invoices.reduce((sum, inv) => sum + (Number(inv.totalPrice) || 0), 0);
-    const totalCostMad = invoices.reduce(
-      (sum, inv) => sum + (Number(inv.purchasePrice) || 0) * (Number(inv.quantity) || 1),
-      0
-    );
+    const totalCostMad = invoices.reduce((sum, inv) => {
+      if (Array.isArray(inv.items) && inv.items.length > 0) {
+        return (
+          sum +
+          inv.items.reduce(
+            (s, item) => s + (Number(item.purchasePrice) || 0) * (Number(item.quantity) || 1),
+            0
+          )
+        );
+      }
+      return sum + (Number(inv.purchasePrice) || 0) * (Number(inv.quantity) || 1);
+    }, 0);
     const totalUnitsSold = invoices.reduce((sum, inv) => sum + (Number(inv.quantity) || 0), 0);
     res.json({
       invoices,
@@ -1845,6 +2443,7 @@ async function startServer() {
       qrCode?: string;
       quantity?: number;
       unitPrice?: number;
+      items?: Array<{ productId?: string; quantity?: number; unitPrice?: number }>;
       customerId?: string;
       customerName?: string;
       customerPhone?: string;
@@ -1854,33 +2453,69 @@ async function startServer() {
       source?: string;
     };
 
-    const targetRow =
-      typeof body?.productId === 'string' && body.productId.trim()
-        ? (db.prepare('SELECT * FROM products WHERE id = ?').get(body.productId.trim()) as ProductRow | undefined)
-        : typeof body?.qrCode === 'string' && body.qrCode.trim()
-          ? resolveProductByQrInput(body.qrCode.trim())
-          : undefined;
+    const rawLineItems =
+      Array.isArray(body?.items) && body.items.length > 0
+        ? body.items
+        : body?.productId || body?.qrCode
+          ? [{ productId: body.productId, qrCode: body.qrCode, quantity: body.quantity, unitPrice: body.unitPrice }]
+          : [];
 
-    if (!targetRow) {
-      res.status(404).json({ error: 'Product not found' });
+    if (rawLineItems.length === 0) {
+      res.status(400).json({ error: 'At least one product item is required' });
       return;
     }
 
-    const saleQty = Math.max(1, toInt(body.quantity, 1));
-    if (targetRow.quantity < saleQty) {
-      res.status(409).json({
-        error: 'OUT_OF_STOCK',
-        availableQuantity: targetRow.quantity,
+    const resolvedItems: Array<{
+      productRow: ProductRow;
+      quantity: number;
+      unitPrice: number;
+      totalPrice: number;
+      purchasePrice: number;
+    }> = [];
+
+    const accumulatedQtyByProduct = new Map<string, number>();
+
+    for (const rawItem of rawLineItems) {
+      const targetRow =
+        typeof rawItem?.productId === 'string' && rawItem.productId.trim()
+          ? (db.prepare('SELECT * FROM products WHERE id = ?').get(rawItem.productId.trim()) as ProductRow | undefined)
+          : typeof (rawItem as { qrCode?: string })?.qrCode === 'string'
+            ? resolveProductByQrInput((rawItem as { qrCode?: string }).qrCode!.trim())
+            : undefined;
+
+      if (!targetRow) {
+        res.status(404).json({ error: 'Product not found' });
+        return;
+      }
+
+      const saleQty = Math.max(1, toInt(rawItem.quantity, 1));
+      const runningNeeded = (accumulatedQtyByProduct.get(targetRow.id) || 0) + saleQty;
+      if (targetRow.quantity < runningNeeded) {
+        res.status(409).json({
+          error: 'OUT_OF_STOCK',
+          productCode: targetRow.code,
+          availableQuantity: targetRow.quantity,
+        });
+        return;
+      }
+      accumulatedQtyByProduct.set(targetRow.id, runningNeeded);
+
+      const unitPrice =
+        typeof rawItem.unitPrice === 'number' && Number.isFinite(rawItem.unitPrice) && rawItem.unitPrice >= 0
+          ? rawItem.unitPrice
+          : targetRow.selling_price;
+      const totalPrice = Math.round(saleQty * unitPrice * 100) / 100;
+      const purchasePrice = (Number(targetRow.reference_price) || 0) + (Number(targetRow.expenses) || 0);
+
+      resolvedItems.push({
+        productRow: targetRow,
+        quantity: saleQty,
+        unitPrice,
+        totalPrice,
+        purchasePrice,
       });
-      return;
     }
 
-    const unitPrice =
-      typeof body.unitPrice === 'number' && Number.isFinite(body.unitPrice) && body.unitPrice >= 0
-        ? body.unitPrice
-        : targetRow.selling_price;
-    const totalPrice = Math.round(saleQty * unitPrice * 100) / 100;
-    const purchasePrice = (Number(targetRow.reference_price) || 0) + (Number(targetRow.expenses) || 0);
     const now = new Date().toISOString();
     const saleDate =
       typeof body.saleDate === 'string' && body.saleDate.trim() ? body.saleDate.trim() : now.slice(0, 10);
@@ -1906,90 +2541,132 @@ async function startServer() {
 
     const invoiceId = crypto.randomUUID();
     const invoiceNumber = generateNextInvoiceNumber();
-    const nextQty = Math.max(0, targetRow.quantity - saleQty);
     const notes = typeof body.notes === 'string' ? body.notes.trim() : '';
-    const sourceLabel = body.source === 'qr_scan' ? 'Vente instantanée QR' : 'Vente POS';
+
+    const invoiceItems: SalesInvoiceItem[] = resolvedItems.map((entry) => ({
+      productId: entry.productRow.id,
+      productCode: entry.productRow.code,
+      productName: entry.productRow.name,
+      category: entry.productRow.category || '',
+      color: entry.productRow.color || '',
+      warehouseId: entry.productRow.warehouse_id || '',
+      warehouseName: entry.productRow.warehouse_name || '',
+      supplier: entry.productRow.supplier || '',
+      quantity: entry.quantity,
+      unitPrice: entry.unitPrice,
+      totalPrice: entry.totalPrice,
+      purchasePrice: entry.purchasePrice,
+    }));
+
+    const totalQuantity = invoiceItems.reduce((sum, i) => sum + i.quantity, 0);
+    const grandTotalPrice = Math.round(invoiceItems.reduce((sum, i) => sum + i.totalPrice, 0) * 100) / 100;
+    const avgUnitPrice = totalQuantity > 0 ? Math.round((grandTotalPrice / totalQuantity) * 100) / 100 : 0;
+    const totalPurchaseCost = invoiceItems.reduce((sum, i) => sum + i.purchasePrice * i.quantity, 0);
+    const avgPurchaseCost = totalQuantity > 0 ? Math.round((totalPurchaseCost / totalQuantity) * 100) / 100 : 0;
+    const primaryItem = resolvedItems[0].productRow;
+    const summaryCode =
+      invoiceItems.length === 1
+        ? primaryItem.code
+        : invoiceItems.map((i) => i.productCode).join(', ');
+    const summaryName =
+      invoiceItems.length === 1
+        ? primaryItem.name
+        : `${primaryItem.name} (+${invoiceItems.length - 1})`;
 
     const tx = db.transaction(() => {
-      db.prepare('UPDATE products SET quantity = ?, updated_at = ? WHERE id = ?').run(
-        nextQty,
-        now,
-        targetRow.id
-      );
+      for (const entry of resolvedItems) {
+        const fresh = db
+          .prepare('SELECT quantity FROM products WHERE id = ?')
+          .get(entry.productRow.id) as { quantity: number };
+        const nextQty = Math.max(0, fresh.quantity - entry.quantity);
+        db.prepare('UPDATE products SET quantity = ?, updated_at = ? WHERE id = ?').run(
+          nextQty,
+          now,
+          entry.productRow.id
+        );
+
+        if (customerId) {
+          db.prepare(
+            `INSERT INTO customer_purchases (
+              id, customer_id, product_id, product_code, product_name,
+              quantity, unit_price, total_price, purchase_date, payment_method, notes, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ).run(
+            crypto.randomUUID(),
+            customerId,
+            entry.productRow.id,
+            entry.productRow.code,
+            entry.productRow.name,
+            entry.quantity,
+            entry.unitPrice,
+            entry.totalPrice,
+            saleDate,
+            paymentMethod,
+            notes ? `${invoiceNumber} · ${notes}` : invoiceNumber,
+            now
+          );
+        }
+
+        logProductHistory(
+          entry.productRow.id,
+          'sold',
+          `${invoiceNumber} (-${entry.quantity})`,
+          customerName ? `${customerName} · ${entry.totalPrice} MAD` : `${entry.totalPrice} MAD`,
+          -entry.quantity,
+          nextQty,
+          now
+        );
+
+        logProductHistory(
+          entry.productRow.id,
+          'invoice_created',
+          `${invoiceNumber}`,
+          `${entry.totalPrice} MAD · ${paymentMethod}`,
+          0,
+          nextQty,
+          now
+        );
+      }
+
+      if (customerId) {
+        db.prepare('UPDATE customers SET updated_at = ? WHERE id = ?').run(now, customerId);
+      }
 
       db.prepare(
         `INSERT INTO sales_invoices (
           id, invoice_number, product_id, product_code, product_name,
+          category, warehouse_id, warehouse_name, items_json,
           customer_id, customer_name, customer_phone,
           quantity, unit_price, total_price, purchase_price,
-          payment_method, sale_date, notes, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          payment_method, sale_date, notes, print_count, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`
       ).run(
         invoiceId,
         invoiceNumber,
-        targetRow.id,
-        targetRow.code,
-        targetRow.name,
+        primaryItem.id,
+        summaryCode,
+        summaryName,
+        primaryItem.category || '',
+        primaryItem.warehouse_id || '',
+        primaryItem.warehouse_name || '',
+        JSON.stringify(invoiceItems),
         customerId,
         customerName,
         customerPhone,
-        saleQty,
-        unitPrice,
-        totalPrice,
-        purchasePrice,
+        totalQuantity,
+        avgUnitPrice,
+        grandTotalPrice,
+        avgPurchaseCost,
         paymentMethod,
         saleDate,
         notes,
-        now
-      );
-
-      if (customerId) {
-        db.prepare(
-          `INSERT INTO customer_purchases (
-            id, customer_id, product_id, product_code, product_name,
-            quantity, unit_price, total_price, purchase_date, payment_method, notes, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(
-          crypto.randomUUID(),
-          customerId,
-          targetRow.id,
-          targetRow.code,
-          targetRow.name,
-          saleQty,
-          unitPrice,
-          totalPrice,
-          saleDate,
-          paymentMethod,
-          notes ? `${invoiceNumber} · ${notes}` : invoiceNumber,
-          now
-        );
-        db.prepare('UPDATE customers SET updated_at = ? WHERE id = ?').run(now, customerId);
-      }
-
-      logProductHistory(
-        targetRow.id,
-        'sold',
-        `${sourceLabel} — ${saleQty} u. (${invoiceNumber})`,
-        customerName ? `Client: ${customerName} · ${totalPrice} MAD` : `${totalPrice} MAD`,
-        -saleQty,
-        nextQty,
-        now
-      );
-
-      logProductHistory(
-        targetRow.id,
-        'invoice_created',
-        `Facture ${invoiceNumber} générée`,
-        `Montant: ${totalPrice} MAD · Paiement: ${paymentMethod}`,
-        0,
-        nextQty,
         now
       );
     });
 
     tx();
 
-    const updatedRow = db.prepare('SELECT * FROM products WHERE id = ?').get(targetRow.id) as ProductRow;
+    const updatedRow = db.prepare('SELECT * FROM products WHERE id = ?').get(primaryItem.id) as ProductRow;
     const invoiceRow = db
       .prepare('SELECT * FROM sales_invoices WHERE id = ?')
       .get(invoiceId) as SalesInvoiceRow;
@@ -2001,6 +2678,20 @@ async function startServer() {
     });
   });
 
+  app.post('/api/pos/sales/:invoiceId/print', (req: Request, res: Response) => {
+    const invoice = db
+      .prepare('SELECT * FROM sales_invoices WHERE id = ?')
+      .get(req.params.invoiceId) as SalesInvoiceRow | undefined;
+    if (!invoice) {
+      res.status(404).json({ error: 'Invoice not found' });
+      return;
+    }
+    const nextCount = (Number(invoice.print_count) || 0) + 1;
+    db.prepare('UPDATE sales_invoices SET print_count = ? WHERE id = ?').run(nextCount, invoice.id);
+    const updated = db.prepare('SELECT * FROM sales_invoices WHERE id = ?').get(invoice.id) as SalesInvoiceRow;
+    res.json({ invoice: mapSalesInvoiceRow(updated) });
+  });
+
   app.delete('/api/pos/sales/:invoiceId', (req: Request, res: Response) => {
     const invoice = db
       .prepare('SELECT * FROM sales_invoices WHERE id = ?')
@@ -2010,28 +2701,32 @@ async function startServer() {
       return;
     }
 
+    const lineItems = parseInvoiceItemsJson(invoice);
     const now = new Date().toISOString();
     const tx = db.transaction(() => {
       db.prepare('DELETE FROM sales_invoices WHERE id = ?').run(invoice.id);
-      const product = db
-        .prepare('SELECT * FROM products WHERE id = ?')
-        .get(invoice.product_id) as ProductRow | undefined;
-      if (product) {
-        const restoredQty = product.quantity + (Number(invoice.quantity) || 1);
-        db.prepare('UPDATE products SET quantity = ?, updated_at = ? WHERE id = ?').run(
-          restoredQty,
-          now,
-          product.id
-        );
-        logProductHistory(
-          product.id,
-          'restocked',
-          `Annulation facture ${invoice.invoice_number}`,
-          `Stock restauré (+${invoice.quantity})`,
-          Number(invoice.quantity) || 1,
-          restoredQty,
-          now
-        );
+      for (const item of lineItems) {
+        const product = db
+          .prepare('SELECT * FROM products WHERE id = ?')
+          .get(item.productId) as ProductRow | undefined;
+        if (product) {
+          const qtyToRestore = Number(item.quantity) || 1;
+          const restoredQty = product.quantity + qtyToRestore;
+          db.prepare('UPDATE products SET quantity = ?, updated_at = ? WHERE id = ?').run(
+            restoredQty,
+            now,
+            product.id
+          );
+          logProductHistory(
+            product.id,
+            'restocked',
+            `${invoice.invoice_number} (+${qtyToRestore})`,
+            `+${qtyToRestore}`,
+            qtyToRestore,
+            restoredQty,
+            now
+          );
+        }
       }
     });
 
@@ -2768,6 +3463,9 @@ async function startServer() {
             'الرمز',
             'رمز QR',
             'اسم المنتج',
+            'الفئة',
+            'اللون',
+            'المستودع / المتجر',
             'المورد',
             'الوصف',
             'الطول (سم)',
@@ -2787,6 +3485,9 @@ async function startServer() {
             'Code',
             'Code QR',
             'Nom',
+            'Catégorie',
+            'Couleur',
+            'Entrepôt',
             'Fournisseur',
             'Description',
             'Longueur (cm)',
@@ -2812,6 +3513,9 @@ async function startServer() {
         item.code,
         item.qrToken || `GA-QR-${item.code}`,
         item.name,
+        item.category || '',
+        item.color || '',
+        item.warehouseName || '',
         item.supplier || '',
         item.description || '',
         item.lengthCm,
@@ -2840,6 +3544,9 @@ async function startServer() {
       '',
       '',
       '',
+      '',
+      '',
+      '',
       summary.totalUnits,
       convertServerAmountFromMad(summary.totalReferenceCost, currency, rates),
       '',
@@ -2858,9 +3565,12 @@ async function startServer() {
     worksheet['!cols'] = [
       { wch: 12 },
       { wch: 16 },
-      { wch: 32 },
-      { wch: 24 },
-      { wch: 44 },
+      { wch: 30 },
+      { wch: 18 },
+      { wch: 16 },
+      { wch: 22 },
+      { wch: 22 },
+      { wch: 40 },
       { wch: 14 },
       { wch: 14 },
       { wch: 14 },
@@ -3427,6 +4137,8 @@ async function startServer() {
   app.get('/api/export/customers/excel', async (req: Request, res: Response) => {
     const lang = req.query.lang === 'ar' ? 'ar' : 'fr';
     const customerId = typeof req.query.customerId === 'string' ? req.query.customerId.trim() : '';
+    const startDate = typeof req.query.startDate === 'string' ? req.query.startDate.trim() : '';
+    const endDate = typeof req.query.endDate === 'string' ? req.query.endDate.trim() : '';
 
     const settingsRow = db.prepare("SELECT value FROM shop_settings WHERE key = 'currency'").get() as
       | { value: string }
@@ -3438,7 +4150,14 @@ async function startServer() {
       ? (db.prepare('SELECT * FROM customers WHERE id = ?').all(customerId) as CustomerRow[])
       : (db.prepare('SELECT * FROM customers ORDER BY code ASC').all() as CustomerRow[]);
 
-    const customers = mapCustomersWithPurchases(rows);
+    const customers = mapCustomersWithPurchases(rows).map((cust) => ({
+      ...cust,
+      purchases: cust.purchases.filter((p) => {
+        if (startDate && p.purchaseDate < startDate) return false;
+        if (endDate && p.purchaseDate > endDate) return false;
+        return true;
+      }),
+    }));
 
     const catLabel = (cat: string) => {
       if (lang === 'ar') {
@@ -3694,6 +4413,770 @@ async function startServer() {
     res.setHeader('Content-Length', String(buffer.length));
     res.setHeader('Cache-Control', 'no-store');
     res.end(buffer);
+  });
+
+  // Warehouse Routes
+  app.get('/api/warehouses', (_req: Request, res: Response) => {
+    ensureDefaultWarehouse();
+    const rows = db
+      .prepare('SELECT * FROM warehouses ORDER BY is_default DESC, created_at ASC')
+      .all() as WarehouseRow[];
+    res.json({ warehouses: rows.map(mapWarehouseRow) });
+  });
+
+  app.post('/api/warehouses', (req: Request, res: Response) => {
+    const body = req.body as {
+      name?: string;
+      location?: string;
+      address?: string;
+      phone?: string;
+      managerName?: string;
+      notes?: string;
+      isDefault?: boolean;
+    };
+    const name = typeof body?.name === 'string' ? body.name.trim() : '';
+    if (!name) {
+      res.status(400).json({ error: 'Warehouse name is required' });
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const id = crypto.randomUUID();
+    const code = generateNextWarehouseCode();
+    const isDefault = Boolean(body.isDefault) ? 1 : 0;
+
+    const tx = db.transaction(() => {
+      if (isDefault) {
+        db.prepare('UPDATE warehouses SET is_default = 0').run();
+      }
+      db.prepare(
+        `INSERT INTO warehouses (
+          id, code, name, location, address, phone, manager_name, notes, is_default, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        id,
+        code,
+        name,
+        typeof body.location === 'string' ? body.location.trim() : '',
+        typeof body.address === 'string' ? body.address.trim() : '',
+        typeof body.phone === 'string' ? body.phone.trim() : '',
+        typeof body.managerName === 'string' ? body.managerName.trim() : '',
+        typeof body.notes === 'string' ? body.notes.trim() : '',
+        isDefault,
+        now,
+        now
+      );
+    });
+    tx();
+
+    const row = db.prepare('SELECT * FROM warehouses WHERE id = ?').get(id) as WarehouseRow;
+    res.status(201).json({ warehouse: mapWarehouseRow(row) });
+  });
+
+  app.put('/api/warehouses/:id', (req: Request, res: Response) => {
+    const existing = db
+      .prepare('SELECT * FROM warehouses WHERE id = ?')
+      .get(req.params.id) as WarehouseRow | undefined;
+    if (!existing) {
+      res.status(404).json({ error: 'Warehouse not found' });
+      return;
+    }
+
+    const body = req.body as {
+      name?: string;
+      location?: string;
+      address?: string;
+      phone?: string;
+      managerName?: string;
+      notes?: string;
+      isDefault?: boolean;
+    };
+    const name = typeof body?.name === 'string' ? body.name.trim() : '';
+    if (!name) {
+      res.status(400).json({ error: 'Warehouse name is required' });
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const isDefault = body.isDefault !== undefined ? (body.isDefault ? 1 : 0) : existing.is_default;
+
+    const tx = db.transaction(() => {
+      if (isDefault) {
+        db.prepare('UPDATE warehouses SET is_default = 0').run();
+      }
+      db.prepare(
+        `UPDATE warehouses SET
+          name = ?, location = ?, address = ?, phone = ?, manager_name = ?, notes = ?, is_default = ?, updated_at = ?
+         WHERE id = ?`
+      ).run(
+        name,
+        typeof body.location === 'string' ? body.location.trim() : '',
+        typeof body.address === 'string' ? body.address.trim() : '',
+        typeof body.phone === 'string' ? body.phone.trim() : '',
+        typeof body.managerName === 'string' ? body.managerName.trim() : '',
+        typeof body.notes === 'string' ? body.notes.trim() : '',
+        isDefault,
+        now,
+        req.params.id
+      );
+      db.prepare('UPDATE products SET warehouse_name = ? WHERE warehouse_id = ?').run(name, req.params.id);
+    });
+    tx();
+
+    const updated = db.prepare('SELECT * FROM warehouses WHERE id = ?').get(req.params.id) as WarehouseRow;
+    res.json({ warehouse: mapWarehouseRow(updated) });
+  });
+
+  app.delete('/api/warehouses/:id', (req: Request, res: Response) => {
+    const existing = db
+      .prepare('SELECT * FROM warehouses WHERE id = ?')
+      .get(req.params.id) as WarehouseRow | undefined;
+    if (!existing) {
+      res.status(404).json({ error: 'Warehouse not found' });
+      return;
+    }
+    const tx = db.transaction(() => {
+      db.prepare('DELETE FROM warehouses WHERE id = ?').run(req.params.id);
+      const def = ensureDefaultWarehouse();
+      db.prepare('UPDATE products SET warehouse_id = ?, warehouse_name = ? WHERE warehouse_id = ?').run(
+        def.id,
+        def.name,
+        req.params.id
+      );
+    });
+    tx();
+    res.json({ ok: true });
+  });
+
+  // Supplier Management Routes
+  app.get('/api/suppliers', (req: Request, res: Response) => {
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    const category = typeof req.query.category === 'string' ? req.query.category.trim() : '';
+
+    let rows: SupplierRow[];
+    if (q && category && category !== 'all') {
+      const pattern = `%${q}%`;
+      rows = db
+        .prepare(
+          `SELECT DISTINCT s.* FROM suppliers s
+           LEFT JOIN supplier_purchases sp ON sp.supplier_id = s.id
+           WHERE s.category = ?
+             AND (
+               s.name LIKE ? COLLATE NOCASE
+               OR s.code LIKE ? COLLATE NOCASE
+               OR s.phone LIKE ? COLLATE NOCASE
+               OR s.city LIKE ? COLLATE NOCASE
+               OR s.address LIKE ? COLLATE NOCASE
+               OR sp.product_name LIKE ? COLLATE NOCASE
+               OR sp.product_code LIKE ? COLLATE NOCASE
+             )
+           ORDER BY s.created_at DESC`
+        )
+        .all(category, pattern, pattern, pattern, pattern, pattern, pattern, pattern) as SupplierRow[];
+    } else if (q) {
+      const pattern = `%${q}%`;
+      rows = db
+        .prepare(
+          `SELECT DISTINCT s.* FROM suppliers s
+           LEFT JOIN supplier_purchases sp ON sp.supplier_id = s.id
+           WHERE s.name LIKE ? COLLATE NOCASE
+              OR s.code LIKE ? COLLATE NOCASE
+              OR s.phone LIKE ? COLLATE NOCASE
+              OR s.city LIKE ? COLLATE NOCASE
+              OR s.address LIKE ? COLLATE NOCASE
+              OR sp.product_name LIKE ? COLLATE NOCASE
+              OR sp.product_code LIKE ? COLLATE NOCASE
+           ORDER BY s.created_at DESC`
+        )
+        .all(pattern, pattern, pattern, pattern, pattern, pattern, pattern) as SupplierRow[];
+    } else if (category && category !== 'all') {
+      rows = db
+        .prepare('SELECT * FROM suppliers WHERE category = ? ORDER BY created_at DESC')
+        .all(category) as SupplierRow[];
+    } else {
+      rows = db.prepare('SELECT * FROM suppliers ORDER BY created_at DESC').all() as SupplierRow[];
+    }
+
+    res.json({
+      suppliers: mapSuppliersWithPurchases(rows),
+      summary: getSupplierSummary(),
+    });
+  });
+
+  app.post('/api/suppliers', (req: Request, res: Response) => {
+    const body = req.body as {
+      name?: string;
+      phone?: string;
+      address?: string;
+      city?: string;
+      category?: string;
+      notes?: string;
+      facebookUrl?: string;
+      instagramUrl?: string;
+      websiteUrl?: string;
+    };
+    const name = typeof body?.name === 'string' ? body.name.trim() : '';
+    if (!name) {
+      res.status(400).json({ error: 'Supplier name is required' });
+      return;
+    }
+
+    const validCategories = new Set(['artisan', 'wholesaler', 'collector', 'other']);
+    const category =
+      typeof body.category === 'string' && validCategories.has(body.category) ? body.category : 'artisan';
+    const now = new Date().toISOString();
+    const id = crypto.randomUUID();
+    const code = generateNextSupplierCode();
+
+    db.prepare(
+      `INSERT INTO suppliers (
+        id, code, name, phone, address, city, category, notes, facebook_url, instagram_url, website_url, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      id,
+      code,
+      name,
+      typeof body.phone === 'string' ? body.phone.trim() : '',
+      typeof body.address === 'string' ? body.address.trim() : '',
+      typeof body.city === 'string' ? body.city.trim() : '',
+      category,
+      typeof body.notes === 'string' ? body.notes.trim() : '',
+      typeof body.facebookUrl === 'string' ? body.facebookUrl.trim().slice(0, 240) : '',
+      typeof body.instagramUrl === 'string' ? body.instagramUrl.trim().slice(0, 240) : '',
+      typeof body.websiteUrl === 'string' ? body.websiteUrl.trim().slice(0, 240) : '',
+      now,
+      now
+    );
+
+    const row = db.prepare('SELECT * FROM suppliers WHERE id = ?').get(id) as SupplierRow;
+    res.status(201).json({
+      supplier: mapSuppliersWithPurchases([row])[0],
+      summary: getSupplierSummary(),
+    });
+  });
+
+  app.put('/api/suppliers/:id', (req: Request, res: Response) => {
+    const existing = db
+      .prepare('SELECT * FROM suppliers WHERE id = ?')
+      .get(req.params.id) as SupplierRow | undefined;
+    if (!existing) {
+      res.status(404).json({ error: 'Supplier not found' });
+      return;
+    }
+
+    const body = req.body as {
+      name?: string;
+      phone?: string;
+      address?: string;
+      city?: string;
+      category?: string;
+      notes?: string;
+      facebookUrl?: string;
+      instagramUrl?: string;
+      websiteUrl?: string;
+    };
+    const name = typeof body?.name === 'string' ? body.name.trim() : '';
+    if (!name) {
+      res.status(400).json({ error: 'Supplier name is required' });
+      return;
+    }
+
+    const validCategories = new Set(['artisan', 'wholesaler', 'collector', 'other']);
+    const category =
+      typeof body.category === 'string' && validCategories.has(body.category)
+        ? body.category
+        : existing.category;
+    const now = new Date().toISOString();
+
+    const tx = db.transaction(() => {
+      db.prepare(
+        `UPDATE suppliers SET
+          name = ?, phone = ?, address = ?, city = ?, category = ?, notes = ?, facebook_url = ?, instagram_url = ?, website_url = ?, updated_at = ?
+         WHERE id = ?`
+      ).run(
+        name,
+        typeof body.phone === 'string' ? body.phone.trim() : '',
+        typeof body.address === 'string' ? body.address.trim() : '',
+        typeof body.city === 'string' ? body.city.trim() : '',
+        category,
+        typeof body.notes === 'string' ? body.notes.trim() : '',
+        typeof body.facebookUrl === 'string' ? body.facebookUrl.trim().slice(0, 240) : '',
+        typeof body.instagramUrl === 'string' ? body.instagramUrl.trim().slice(0, 240) : '',
+        typeof body.websiteUrl === 'string' ? body.websiteUrl.trim().slice(0, 240) : '',
+        now,
+        req.params.id
+      );
+      db.prepare('UPDATE products SET supplier = ? WHERE supplier_id = ?').run(name, req.params.id);
+    });
+    tx();
+
+    const updated = db.prepare('SELECT * FROM suppliers WHERE id = ?').get(req.params.id) as SupplierRow;
+    res.json({
+      supplier: mapSuppliersWithPurchases([updated])[0],
+      summary: getSupplierSummary(),
+    });
+  });
+
+  app.delete('/api/suppliers/:id', (req: Request, res: Response) => {
+    const result = db.prepare('DELETE FROM suppliers WHERE id = ?').run(req.params.id);
+    if (result.changes === 0) {
+      res.status(404).json({ error: 'Supplier not found' });
+      return;
+    }
+    res.json({ ok: true, summary: getSupplierSummary() });
+  });
+
+  app.post('/api/suppliers/:id/purchases', (req: Request, res: Response) => {
+    const supplier = db
+      .prepare('SELECT * FROM suppliers WHERE id = ?')
+      .get(req.params.id) as SupplierRow | undefined;
+    if (!supplier) {
+      res.status(404).json({ error: 'Supplier not found' });
+      return;
+    }
+
+    const body = req.body as {
+      productId?: string;
+      productCode?: string;
+      productName?: string;
+      category?: string;
+      warehouseId?: string;
+      warehouseName?: string;
+      quantity?: number;
+      unitCost?: number;
+      purchaseDate?: string;
+      paymentMethod?: string;
+      notes?: string;
+    };
+    const productName = typeof body?.productName === 'string' ? body.productName.trim() : '';
+    if (!productName) {
+      res.status(400).json({ error: 'Product name is required' });
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const id = crypto.randomUUID();
+    const qty = Math.max(1, toInt(body.quantity, 1));
+    const unitCost = toNumber(body.unitCost, 0);
+    const totalCost = Math.round(qty * unitCost * 100) / 100;
+    const purchaseDate =
+      typeof body.purchaseDate === 'string' && body.purchaseDate.trim()
+        ? body.purchaseDate.trim()
+        : now.slice(0, 10);
+    const validPayments = new Set(['cash', 'transfer', 'check', 'card', 'other']);
+    const paymentMethod =
+      typeof body.paymentMethod === 'string' && validPayments.has(body.paymentMethod)
+        ? body.paymentMethod
+        : 'cash';
+
+    db.prepare(
+      `INSERT INTO supplier_purchases (
+        id, supplier_id, product_id, product_code, product_name,
+        category, warehouse_id, warehouse_name,
+        quantity, unit_cost, total_cost, purchase_date, payment_method, notes, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      id,
+      supplier.id,
+      typeof body.productId === 'string' ? body.productId.trim() : '',
+      typeof body.productCode === 'string' ? body.productCode.trim() : '',
+      productName,
+      typeof body.category === 'string' ? body.category.trim() : '',
+      typeof body.warehouseId === 'string' ? body.warehouseId.trim() : '',
+      typeof body.warehouseName === 'string' ? body.warehouseName.trim() : '',
+      qty,
+      unitCost,
+      totalCost,
+      purchaseDate,
+      paymentMethod,
+      typeof body.notes === 'string' ? body.notes.trim() : '',
+      now
+    );
+
+    db.prepare('UPDATE suppliers SET updated_at = ? WHERE id = ?').run(now, supplier.id);
+    const updated = db.prepare('SELECT * FROM suppliers WHERE id = ?').get(supplier.id) as SupplierRow;
+    res.status(201).json({
+      supplier: mapSuppliersWithPurchases([updated])[0],
+      summary: getSupplierSummary(),
+    });
+  });
+
+  app.put('/api/suppliers/:id/purchases/:purchaseId', (req: Request, res: Response) => {
+    const existing = db
+      .prepare('SELECT * FROM supplier_purchases WHERE id = ? AND supplier_id = ?')
+      .get(req.params.purchaseId, req.params.id) as SupplierPurchaseRow | undefined;
+    if (!existing) {
+      res.status(404).json({ error: 'Purchase record not found' });
+      return;
+    }
+
+    const body = req.body as {
+      productId?: string;
+      productCode?: string;
+      productName?: string;
+      category?: string;
+      warehouseId?: string;
+      warehouseName?: string;
+      quantity?: number;
+      unitCost?: number;
+      purchaseDate?: string;
+      paymentMethod?: string;
+      notes?: string;
+    };
+    const productName = typeof body?.productName === 'string' ? body.productName.trim() : '';
+    if (!productName) {
+      res.status(400).json({ error: 'Product name is required' });
+      return;
+    }
+
+    const qty = Math.max(1, toInt(body.quantity, 1));
+    const unitCost = toNumber(body.unitCost, 0);
+    const totalCost = Math.round(qty * unitCost * 100) / 100;
+    const purchaseDate =
+      typeof body.purchaseDate === 'string' && body.purchaseDate.trim()
+        ? body.purchaseDate.trim()
+        : existing.purchase_date;
+    const validPayments = new Set(['cash', 'transfer', 'check', 'card', 'other']);
+    const paymentMethod =
+      typeof body.paymentMethod === 'string' && validPayments.has(body.paymentMethod)
+        ? body.paymentMethod
+        : existing.payment_method;
+    const now = new Date().toISOString();
+
+    db.prepare(
+      `UPDATE supplier_purchases SET
+        product_id = ?, product_code = ?, product_name = ?,
+        category = ?, warehouse_id = ?, warehouse_name = ?,
+        quantity = ?, unit_cost = ?, total_cost = ?,
+        purchase_date = ?, payment_method = ?, notes = ?
+       WHERE id = ? AND supplier_id = ?`
+    ).run(
+      typeof body.productId === 'string' ? body.productId.trim() : '',
+      typeof body.productCode === 'string' ? body.productCode.trim() : '',
+      productName,
+      typeof body.category === 'string' ? body.category.trim() : existing.category,
+      typeof body.warehouseId === 'string' ? body.warehouseId.trim() : existing.warehouse_id,
+      typeof body.warehouseName === 'string' ? body.warehouseName.trim() : existing.warehouse_name,
+      qty,
+      unitCost,
+      totalCost,
+      purchaseDate,
+      paymentMethod,
+      typeof body.notes === 'string' ? body.notes.trim() : '',
+      req.params.purchaseId,
+      req.params.id
+    );
+
+    db.prepare('UPDATE suppliers SET updated_at = ? WHERE id = ?').run(now, req.params.id);
+    const updated = db.prepare('SELECT * FROM suppliers WHERE id = ?').get(req.params.id) as SupplierRow;
+    res.json({
+      supplier: mapSuppliersWithPurchases([updated])[0],
+      summary: getSupplierSummary(),
+    });
+  });
+
+  app.delete('/api/suppliers/:id/purchases/:purchaseId', (req: Request, res: Response) => {
+    const result = db
+      .prepare('DELETE FROM supplier_purchases WHERE id = ? AND supplier_id = ?')
+      .run(req.params.purchaseId, req.params.id);
+    if (result.changes === 0) {
+      res.status(404).json({ error: 'Purchase record not found' });
+      return;
+    }
+    const updated = db.prepare('SELECT * FROM suppliers WHERE id = ?').get(req.params.id) as SupplierRow;
+    res.json({
+      supplier: mapSuppliersWithPurchases([updated])[0],
+      summary: getSupplierSummary(),
+    });
+  });
+
+  app.post('/api/suppliers/:id/gallery', async (req: Request, res: Response) => {
+    const body = req.body as {
+      items?: Array<{
+        title?: string;
+        source?: string;
+        sourceUrl?: string;
+        imageData?: string;
+        imageUrl?: string;
+      }>;
+      title?: string;
+      source?: string;
+      sourceUrl?: string;
+      imageData?: string;
+      imageUrl?: string;
+    };
+
+    const supplier = db
+      .prepare('SELECT * FROM suppliers WHERE id = ?')
+      .get(req.params.id) as SupplierRow | undefined;
+    if (!supplier) {
+      res.status(404).json({ error: 'Supplier not found' });
+      return;
+    }
+
+    const rawItems = Array.isArray(body?.items)
+      ? body.items
+      : body?.imageData || body?.imageUrl
+        ? [body]
+        : [];
+    if (rawItems.length === 0) {
+      res.status(400).json({ error: 'No media provided' });
+      return;
+    }
+
+    const validSources = new Set(['facebook', 'instagram', 'website', 'upload']);
+    const insertStmt = db.prepare(
+      `INSERT INTO supplier_gallery (id, supplier_id, title, source, source_url, image_data, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    );
+
+    let addedCount = 0;
+    const now = new Date().toISOString();
+
+    for (const item of rawItems.slice(0, 20)) {
+      const source =
+        typeof item.source === 'string' && validSources.has(item.source) ? item.source : 'upload';
+      const title = typeof item.title === 'string' ? item.title.trim().slice(0, 140) : '';
+      const sourceUrl = typeof item.sourceUrl === 'string' ? item.sourceUrl.trim().slice(0, 500) : '';
+
+      let finalImageData = '';
+      if (
+        typeof item.imageData === 'string' &&
+        (item.imageData.startsWith('data:image/') || item.imageData.startsWith('data:video/')) &&
+        item.imageData.length <=
+          (item.imageData.startsWith('data:video/') ? 85 * 1024 * 1024 : 8 * 1024 * 1024)
+      ) {
+        finalImageData = item.imageData;
+      } else if (typeof item.imageUrl === 'string' && item.imageUrl.trim()) {
+        const downloaded = await fetchRemoteImageAsDataUrl(item.imageUrl.trim(), sourceUrl || undefined, 64);
+        if (downloaded) finalImageData = downloaded.dataUrl;
+      }
+      if (!finalImageData) continue;
+
+      insertStmt.run(
+        crypto.randomUUID(),
+        supplier.id,
+        title || supplier.name,
+        source,
+        sourceUrl || (typeof item.imageUrl === 'string' ? item.imageUrl.trim().slice(0, 500) : ''),
+        finalImageData,
+        now
+      );
+      addedCount += 1;
+    }
+
+    if (addedCount === 0) {
+      res.status(400).json({ error: 'No valid media could be saved' });
+      return;
+    }
+
+    db.prepare('UPDATE suppliers SET updated_at = ? WHERE id = ?').run(now, supplier.id);
+    const updated = db.prepare('SELECT * FROM suppliers WHERE id = ?').get(supplier.id) as SupplierRow;
+    res.status(201).json({
+      supplier: mapSuppliersWithPurchases([updated])[0],
+      addedCount,
+      summary: getSupplierSummary(),
+    });
+  });
+
+  app.delete('/api/suppliers/:id/gallery/:imageId', (req: Request, res: Response) => {
+    const result = db
+      .prepare('DELETE FROM supplier_gallery WHERE id = ? AND supplier_id = ?')
+      .run(req.params.imageId, req.params.id);
+    if (result.changes === 0) {
+      res.status(404).json({ error: 'Gallery item not found' });
+      return;
+    }
+    const updated = db.prepare('SELECT * FROM suppliers WHERE id = ?').get(req.params.id) as SupplierRow;
+    res.json({
+      supplier: mapSuppliersWithPurchases([updated])[0],
+      summary: getSupplierSummary(),
+    });
+  });
+
+  // Inventory Deductions & Adjustments Routes
+  app.get('/api/adjustments', (_req: Request, res: Response) => {
+    const rows = db
+      .prepare('SELECT * FROM inventory_adjustments ORDER BY adjustment_date DESC, created_at DESC')
+      .all() as InventoryAdjustmentRow[];
+    res.json({ adjustments: rows.map(mapAdjustmentRow) });
+  });
+
+  app.post('/api/adjustments', (req: Request, res: Response) => {
+    const body = req.body as {
+      adjustmentType?: string;
+      warehouseId?: string;
+      targetWarehouseId?: string;
+      productId?: string;
+      quantityDelta?: number;
+      supplierId?: string;
+      reason?: string;
+      notes?: string;
+      adjustmentDate?: string;
+    };
+
+    const productId = typeof body?.productId === 'string' ? body.productId.trim() : '';
+    const product = db.prepare('SELECT * FROM products WHERE id = ?').get(productId) as ProductRow | undefined;
+    if (!product) {
+      res.status(404).json({ error: 'Product not found' });
+      return;
+    }
+
+    const validTypes = new Set(['deduction', 'restock', 'damage', 'loss', 'transfer', 'correction']);
+    const adjustmentType =
+      typeof body.adjustmentType === 'string' && validTypes.has(body.adjustmentType)
+        ? body.adjustmentType
+        : 'deduction';
+
+    const rawDelta = Math.trunc(Number(body.quantityDelta) || 0);
+    if (rawDelta === 0) {
+      res.status(400).json({ error: 'Non-zero quantity delta is required' });
+      return;
+    }
+
+    let signedDelta = rawDelta;
+    if (adjustmentType === 'deduction' || adjustmentType === 'damage' || adjustmentType === 'loss') {
+      signedDelta = -Math.abs(rawDelta);
+    } else if (adjustmentType === 'restock') {
+      signedDelta = Math.abs(rawDelta);
+    }
+
+    const qtyBefore = Number(product.quantity) || 0;
+    const qtyAfter =
+      adjustmentType === 'transfer' ? qtyBefore : Math.max(0, qtyBefore + signedDelta);
+    const effectiveDelta = adjustmentType === 'transfer' ? 0 : qtyAfter - qtyBefore;
+
+    let warehouseId = typeof body.warehouseId === 'string' && body.warehouseId.trim() ? body.warehouseId.trim() : product.warehouse_id;
+    let warehouseName = product.warehouse_name || '';
+    if (warehouseId) {
+      const wh = db.prepare('SELECT id, name FROM warehouses WHERE id = ?').get(warehouseId) as
+        | { id: string; name: string }
+        | undefined;
+      if (wh) warehouseName = wh.name;
+    }
+
+    let targetWarehouseId = typeof body.targetWarehouseId === 'string' ? body.targetWarehouseId.trim() : '';
+    let targetWarehouseName = '';
+    if (adjustmentType === 'transfer' && targetWarehouseId) {
+      const twh = db.prepare('SELECT id, name FROM warehouses WHERE id = ?').get(targetWarehouseId) as
+        | { id: string; name: string }
+        | undefined;
+      if (twh) {
+        targetWarehouseName = twh.name;
+      } else {
+        targetWarehouseId = '';
+      }
+    }
+
+    let supplierId = typeof body.supplierId === 'string' && body.supplierId.trim() ? body.supplierId.trim() : product.supplier_id || '';
+    let supplierName = product.supplier || '';
+    if (supplierId) {
+      const sup = db.prepare('SELECT id, name FROM suppliers WHERE id = ?').get(supplierId) as
+        | { id: string; name: string }
+        | undefined;
+      if (sup) supplierName = sup.name;
+    }
+
+    const unitCost = (Number(product.reference_price) || 0) + (Number(product.expenses) || 0);
+    const totalValue = Math.round(Math.abs(rawDelta) * unitCost * 100) / 100;
+    const now = new Date().toISOString();
+    const adjustmentDate =
+      typeof body.adjustmentDate === 'string' && body.adjustmentDate.trim()
+        ? body.adjustmentDate.trim()
+        : now.slice(0, 10);
+    const id = crypto.randomUUID();
+    const refNumber = generateNextAdjustmentRef();
+    const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+    const notes = typeof body.notes === 'string' ? body.notes.trim() : '';
+
+    const tx = db.transaction(() => {
+      db.prepare(
+        `INSERT INTO inventory_adjustments (
+          id, reference_number, adjustment_type,
+          warehouse_id, warehouse_name, target_warehouse_id, target_warehouse_name,
+          product_id, product_code, product_name, category, color,
+          supplier_id, supplier_name,
+          quantity_before, quantity_delta, quantity_after, unit_cost, total_value,
+          reason, notes, adjustment_date, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        id,
+        refNumber,
+        adjustmentType,
+        warehouseId,
+        warehouseName,
+        targetWarehouseId,
+        targetWarehouseName,
+        product.id,
+        product.code,
+        product.name,
+        product.category || '',
+        product.color || '',
+        supplierId,
+        supplierName,
+        qtyBefore,
+        adjustmentType === 'transfer' ? Math.abs(rawDelta) : effectiveDelta,
+        qtyAfter,
+        unitCost,
+        totalValue,
+        reason,
+        notes,
+        adjustmentDate,
+        now
+      );
+
+      if (adjustmentType === 'transfer' && targetWarehouseId && targetWarehouseName) {
+        db.prepare(
+          'UPDATE products SET warehouse_id = ?, warehouse_name = ?, updated_at = ? WHERE id = ?'
+        ).run(targetWarehouseId, targetWarehouseName, now, product.id);
+        logProductHistory(
+          product.id,
+          'transferred',
+          `${refNumber} (${targetWarehouseName})`,
+          `${warehouseName} → ${targetWarehouseName}${reason ? ` · ${reason}` : ''}`,
+          0,
+          qtyAfter,
+          now
+        );
+      } else {
+        db.prepare('UPDATE products SET quantity = ?, updated_at = ? WHERE id = ?').run(
+          qtyAfter,
+          now,
+          product.id
+        );
+        logProductHistory(
+          product.id,
+          'adjusted',
+          `${refNumber} (${effectiveDelta >= 0 ? `+${effectiveDelta}` : effectiveDelta})`,
+          `${reason || adjustmentType}${warehouseName ? ` · ${warehouseName}` : ''}`,
+          effectiveDelta,
+          qtyAfter,
+          now
+        );
+      }
+    });
+
+    tx();
+
+    const created = db
+      .prepare('SELECT * FROM inventory_adjustments WHERE id = ?')
+      .get(id) as InventoryAdjustmentRow;
+    res.status(201).json({
+      adjustment: mapAdjustmentRow(created),
+      summary: getInventorySummary(),
+    });
+  });
+
+  app.delete('/api/adjustments/:id', (req: Request, res: Response) => {
+    const existing = db
+      .prepare('SELECT * FROM inventory_adjustments WHERE id = ?')
+      .get(req.params.id) as InventoryAdjustmentRow | undefined;
+    if (!existing) {
+      res.status(404).json({ error: 'Adjustment not found' });
+      return;
+    }
+    db.prepare('DELETE FROM inventory_adjustments WHERE id = ?').run(req.params.id);
+    res.json({ ok: true });
   });
 
   if (process.env.NODE_ENV !== 'production') {

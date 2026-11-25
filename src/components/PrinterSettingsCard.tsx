@@ -42,8 +42,12 @@ export function PrinterSettingsCard({
   const [btNotice, setBtNotice] = useState('');
 
   const defaultNameForMode = (mode: PrinterMode, paper: PrinterPaperFormat): string => {
-    if (mode === 'thermal_bt') return 'Imprimante Thermique Bluetooth';
-    if (mode === 'browser') return 'Imprimante Navigateur';
+    if (mode === 'thermal_bt') {
+      return lang === 'ar' ? 'طابعة حرارية بلوتوث' : 'Imprimante Thermique Bluetooth';
+    }
+    if (mode === 'browser') {
+      return lang === 'ar' ? 'طابعة المتصفح' : 'Imprimante Navigateur';
+    }
     const paperLabel =
       paper === 'a4'
         ? 'A4'
@@ -54,7 +58,7 @@ export function PrinterSettingsCard({
         : paper === 'roll_58'
         ? '58 mm'
         : '80 mm';
-    return `PDF / Système (${paperLabel})`;
+    return lang === 'ar' ? `PDF / النظام (${paperLabel})` : `PDF / Système (${paperLabel})`;
   };
 
   const handleLinkSystemOrSave = async () => {
@@ -154,7 +158,7 @@ export function PrinterSettingsCard({
             <CheckCircle2 className="h-4 w-4 shrink-0" />
             <span className="truncate font-semibold">
               {t.printerLinkedBadge} {printerName || defaultNameForMode(printerMode, printerPaper)}
-              {btConnectedNow ? ' (BT OK)' : ''}
+              {btConnectedNow ? (lang === 'ar' ? ' (بلوتوث متصل)' : ' (BT OK)') : ''}
             </span>
           </div>
           <button

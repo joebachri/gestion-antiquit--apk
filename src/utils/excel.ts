@@ -1,11 +1,13 @@
 import * as XLSX from 'xlsx';
 import type {
   Customer,
+  InventoryAdjustment,
   InventorySummary,
   Language,
   PosInvoice,
   Product,
   ProductPayload,
+  Supplier,
 } from '../types';
 import { convertFromMad, convertToMad } from './currency';
 
@@ -21,6 +23,9 @@ export function buildExcelBlob(
           'الرمز',
           'رمز QR',
           'اسم المنتج',
+          'الفئة',
+          'اللون',
+          'المستودع / المتجر',
           'المورد',
           'الوصف',
           'الطول (سم)',
@@ -40,6 +45,9 @@ export function buildExcelBlob(
           'Code',
           'Code QR',
           'Nom',
+          'Catégorie',
+          'Couleur',
+          'Entrepôt / Magasin',
           'Fournisseur',
           'Description',
           'Longueur (cm)',
@@ -65,6 +73,9 @@ export function buildExcelBlob(
       item.code,
       item.qrToken || `GA-QR-${item.code}`,
       item.name,
+      item.category || '',
+      item.color || '',
+      item.warehouseName || '',
       item.supplier || '',
       item.description || '',
       item.lengthCm,
@@ -93,6 +104,9 @@ export function buildExcelBlob(
     '',
     '',
     '',
+    '',
+    '',
+    '',
     summary.totalUnits,
     convertFromMad(summary.totalReferenceCost, currency),
     '',
@@ -111,9 +125,12 @@ export function buildExcelBlob(
   worksheet['!cols'] = [
     { wch: 12 },
     { wch: 16 },
-    { wch: 32 },
-    { wch: 24 },
-    { wch: 44 },
+    { wch: 30 },
+    { wch: 18 },
+    { wch: 15 },
+    { wch: 22 },
+    { wch: 22 },
+    { wch: 40 },
     { wch: 14 },
     { wch: 14 },
     { wch: 14 },
@@ -412,7 +429,24 @@ export function buildSalesReportExcelBlob(
   for (const inv of invoices) {
     const qty = Number(inv.quantity) || 0;
     const rev = Number(inv.totalPrice) || 0;
-    const cost = (Number(inv.purchasePrice) || 0) * qty;
+    const lines =
+      inv.items && inv.items.length > 0
+        ? inv.items
+        : [
+            {
+              productId: inv.productId,
+              productCode: inv.productCode,
+              productName: inv.productName,
+              quantity: qty,
+              unitPrice: inv.unitPrice,
+              totalPrice: rev,
+              purchasePrice: inv.purchasePrice,
+            },
+          ];
+    const cost = lines.reduce(
+      (sum, li) => sum + (Number(li.purchasePrice) || 0) * (Number(li.quantity) || 0),
+      0
+    );
     totalCostMad += cost;
 
     const pKey = inv.paymentMethod || 'cash';
@@ -422,20 +456,25 @@ export function buildSalesReportExcelBlob(
     payEntry.revenueMad += rev;
     byPayment.set(pKey, payEntry);
 
-    const prodKey = inv.productCode || inv.productId;
-    const prodEntry = byProduct.get(prodKey) || {
-      code: inv.productCode,
-      name: inv.productName,
-      count: 0,
-      units: 0,
-      revenueMad: 0,
-      costMad: 0,
-    };
-    prodEntry.count += 1;
-    prodEntry.units += qty;
-    prodEntry.revenueMad += rev;
-    prodEntry.costMad += cost;
-    byProduct.set(prodKey, prodEntry);
+    for (const li of lines) {
+      const liQty = Number(li.quantity) || 0;
+      const liRev = Number(li.totalPrice) || 0;
+      const liCost = (Number(li.purchasePrice) || 0) * liQty;
+      const prodKey = li.productCode || li.productId || li.productName;
+      const prodEntry = byProduct.get(prodKey) || {
+        code: li.productCode || '',
+        name: li.productName || '',
+        count: 0,
+        units: 0,
+        revenueMad: 0,
+        costMad: 0,
+      };
+      prodEntry.count += 1;
+      prodEntry.units += liQty;
+      prodEntry.revenueMad += liRev;
+      prodEntry.costMad += liCost;
+      byProduct.set(prodKey, prodEntry);
+    }
   }
 
   const netProfitMad = summary.totalRevenueMad - totalCostMad;
@@ -638,9 +677,25 @@ export function buildSalesReportExcelBlob(
 export function buildPurchasesReportExcelBlob(
   customers: Customer[],
   currency: string,
-  lang: Language
+  lang: Language,
+  options?: { customerId?: string; startDate?: string; endDate?: string }
 ): Blob {
   const isAr = lang === 'ar';
+  const start = (options?.startDate || '').trim();
+  const end = (options?.endDate || '').trim();
+  const selectedCustomerId = (options?.customerId || '').trim();
+
+  const targetCustomers = selectedCustomerId
+    ? customers.filter((c) => c.id === selectedCustomerId)
+    : customers;
+
+  const matchesDate = (dateStr: string) => {
+    if (!dateStr) return !start && !end;
+    if (start && dateStr < start) return false;
+    if (end && dateStr > end) return false;
+    return true;
+  };
+
   let activeCustomersCount = 0;
   let totalPurchases = 0;
   let totalUnits = 0;
@@ -652,8 +707,10 @@ export function buildPurchasesReportExcelBlob(
     { customers: number; count: number; units: number; amountMad: number }
   >();
 
-  for (const cust of customers) {
-    const purchases = cust.purchases || [];
+  const filteredCustomerPurchases: Array<{ customer: Customer; purchase: Customer['purchases'][number] }> = [];
+
+  for (const cust of targetCustomers) {
+    const purchases = (cust.purchases || []).filter((p) => matchesDate(p.purchaseDate));
     if (purchases.length > 0) activeCustomersCount += 1;
 
     const catEntry = byCategory.get(cust.category) || {
@@ -665,6 +722,7 @@ export function buildPurchasesReportExcelBlob(
     catEntry.customers += 1;
 
     for (const p of purchases) {
+      filteredCustomerPurchases.push({ customer: cust, purchase: p });
       const qty = Number(p.quantity) || 0;
       const amt = Number(p.totalPrice) || 0;
       totalPurchases += 1;
@@ -687,17 +745,23 @@ export function buildPurchasesReportExcelBlob(
   }
 
   const avgPurchaseMad = totalPurchases > 0 ? totalRevenueMad / totalPurchases : 0;
+  const periodLabel =
+    start || end
+      ? `${start || '...'} → ${end || '...'}`
+      : isAr
+      ? 'جميع التواريخ'
+      : 'Toutes dates';
 
   const summaryRows: Array<Array<string | number>> = [
     [
       isAr ? 'التقرير التفصيلي لمشتريات العملاء' : 'BILAN DÉTAILLÉ DES ACHATS CLIENTS',
-      '',
+      periodLabel,
       isAr ? `العملة: ${currency}` : `Devise: ${currency}`,
       new Date().toISOString().slice(0, 10),
     ],
     [],
     [isAr ? 'المؤشر' : 'Indicateur', isAr ? 'القيمة' : 'Valeur'],
-    [isAr ? 'إجمالي العملاء' : 'Total clients', customers.length],
+    [isAr ? 'إجمالي العملاء' : 'Total clients', targetCustomers.length],
     [isAr ? 'العملاء المشترون' : 'Clients acheteurs', activeCustomersCount],
     [isAr ? 'عدد عمليات الشراء' : 'Nombre d’achats', totalPurchases],
     [isAr ? 'إجمالي القطع المشتراة' : 'Unités achetées', totalUnits],
@@ -777,23 +841,21 @@ export function buildPurchasesReportExcelBlob(
       ];
 
   const purchaseRows: Array<Array<string | number>> = [purchaseHeaders];
-  for (const cust of customers) {
-    for (const p of cust.purchases || []) {
-      purchaseRows.push([
-        cust.code,
-        cust.name,
-        getCustomerCategoryExportLabel(cust.category, lang),
-        cust.phone || '',
-        p.purchaseDate,
-        p.productCode || '',
-        p.productName,
-        p.quantity,
-        convertFromMad(p.unitPrice, currency),
-        convertFromMad(p.totalPrice, currency),
-        getPaymentMethodExportLabel(p.paymentMethod, lang),
-        p.notes || '',
-      ]);
-    }
+  for (const { customer: cust, purchase: p } of filteredCustomerPurchases) {
+    purchaseRows.push([
+      cust.code,
+      cust.name,
+      getCustomerCategoryExportLabel(cust.category, lang),
+      cust.phone || '',
+      p.purchaseDate,
+      p.productCode || '',
+      p.productName,
+      p.quantity,
+      convertFromMad(p.unitPrice, currency),
+      convertFromMad(p.totalPrice, currency),
+      getPaymentMethodExportLabel(p.paymentMethod, lang),
+      p.notes || '',
+    ]);
   }
 
   purchaseRows.push([
@@ -1122,6 +1184,9 @@ function parseExcelDate(val: unknown, defaultDate: string): string {
 function detectFieldFromHeader(header: string):
   | 'code'
   | 'name'
+  | 'category'
+  | 'color'
+  | 'warehouseName'
   | 'description'
   | 'supplier'
   | 'lengthCm'
@@ -1136,7 +1201,6 @@ function detectFieldFromHeader(header: string):
   | 'addedDate'
   | null {
   if (!header) return null;
-  // Exclude QR token column from overwriting the primary code column
   if (
     header === 'code qr' ||
     header === 'qr' ||
@@ -1182,6 +1246,27 @@ function detectFieldFromHeader(header: string):
     ].includes(header)
   ) {
     return 'name';
+  }
+  if (['categorie', 'category', 'type', 'الفئة', 'الصنف'].includes(header)) {
+    return 'category';
+  }
+  if (['couleur', 'color', 'اللون'].includes(header)) {
+    return 'color';
+  }
+  if (
+    [
+      'entrepot',
+      'entrepot magasin',
+      'magasin',
+      'depot',
+      'warehouse',
+      'store',
+      'المستودع',
+      'المتجر',
+      'المستودع المتجر',
+    ].includes(header)
+  ) {
+    return 'warehouseName';
   }
   if (['description', 'details', 'detail', 'notes', 'الوصف', 'التفاصيل'].includes(header)) {
     return 'description';
@@ -1302,6 +1387,9 @@ export async function parseProductsFromExcelFile(
       const draft: ProductPayload = {
         code: '',
         name: '',
+        category: '',
+        color: '',
+        warehouseName: '',
         description: '',
         supplier: '',
         lengthCm: 0,
@@ -1330,6 +1418,12 @@ export async function parseProductsFromExcelFile(
         } else if (field === 'name' && strVal) {
           draft.name = strVal;
           hasCodeOrName = true;
+        } else if (field === 'category') {
+          draft.category = strVal;
+        } else if (field === 'color') {
+          draft.color = strVal;
+        } else if (field === 'warehouseName') {
+          draft.warehouseName = strVal;
         } else if (field === 'description') {
           draft.description = strVal;
         } else if (field === 'supplier') {
@@ -1412,6 +1506,9 @@ export function buildProductsTemplateExcelBlob(currency: string, lang: Language)
     ? [
         'الرمز',
         'اسم المنتج',
+        'الفئة',
+        'اللون',
+        'المستودع',
         'الوصف',
         'المورد',
         'الكمية',
@@ -1428,6 +1525,9 @@ export function buildProductsTemplateExcelBlob(currency: string, lang: Language)
     : [
         'Code',
         'Nom',
+        'Catégorie',
+        'Couleur',
+        'Entrepôt',
         'Description',
         'Fournisseur',
         'Quantité',
@@ -1446,13 +1546,13 @@ export function buildProductsTemplateExcelBlob(currency: string, lang: Language)
   const sampleRows: Array<Array<string | number>> = isAr
     ? [
         headers,
-        ['ANT-101', 'فانوس نحاسي منقوش', 'قطعة عتيقة أصلية', 'سوق النحاسين فاس', 1, 900, 100, 1800, 28, 28, 52, 0.3, 1, today],
-        ['VAS-204', 'مزهرية فخار أزرق', 'خزف تقليدي', 'ورشة آسفي', 2, 450, 50, 950, 22, 22, 36, 0.8, 1, today],
+        ['ANT-101', 'فانوس نحاسي منقوش', 'مصابيح', 'نحاسي ذهبي', 'المتجر الرئيسي', 'قطعة عتيقة أصلية', 'سوق النحاسين فاس', 1, 900, 100, 1800, 28, 28, 52, 0.3, 1, today],
+        ['VAS-204', 'مزهرية فخار أزرق', 'خزف', 'أزرق فاسي', 'المتجر الرئيسي', 'خزف تقليدي', 'ورشة آسفي', 2, 450, 50, 950, 22, 22, 36, 0.8, 1, today],
       ]
     : [
         headers,
-        ['ANT-101', 'Lanterne en laiton ciselé', 'Pièce ancienne authentique', 'Souk Seffarine Fès', 1, 900, 100, 1800, 28, 28, 52, 0.3, 1, today],
-        ['VAS-204', 'Vase céramique bleu de Fès', 'Artisanat ancien', 'Atelier Safi', 2, 450, 50, 950, 22, 22, 36, 0.8, 1, today],
+        ['ANT-101', 'Lanterne en laiton ciselé', 'Luminaires', 'Cuivre doré', 'Magasin Principal', 'Pièce ancienne authentique', 'Souk Seffarine Fès', 1, 900, 100, 1800, 28, 28, 52, 0.3, 1, today],
+        ['VAS-204', 'Vase céramique bleu de Fès', 'Céramique', 'Bleu de Fès', 'Magasin Principal', 'Artisanat ancien', 'Atelier Safi', 2, 450, 50, 950, 22, 22, 36, 0.8, 1, today],
       ];
 
   const workbook = XLSX.utils.book_new();
@@ -1463,7 +1563,10 @@ export function buildProductsTemplateExcelBlob(currency: string, lang: Language)
   sheet['!cols'] = [
     { wch: 14 },
     { wch: 28 },
-    { wch: 32 },
+    { wch: 16 },
+    { wch: 16 },
+    { wch: 20 },
+    { wch: 30 },
     { wch: 22 },
     { wch: 10 },
     { wch: 18 },
@@ -1477,6 +1580,313 @@ export function buildProductsTemplateExcelBlob(currency: string, lang: Language)
     { wch: 14 },
   ];
   XLSX.utils.book_append_sheet(workbook, sheet, isAr ? 'نموذج المنتجات' : 'Modèle Produits');
+
+  const out = XLSX.write(workbook, {
+    bookType: 'xlsx',
+    type: 'array',
+    compression: true,
+  }) as ArrayBuffer;
+
+  return new Blob([out], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+}
+
+function getSupplierCategoryExportLabel(category: string, lang: Language): string {
+  if (lang === 'ar') {
+    if (category === 'artisan') return 'حرفي';
+    if (category === 'wholesaler') return 'تاجر جملة';
+    if (category === 'collector') return 'جامع تحف';
+    return 'أخرى';
+  }
+  if (category === 'artisan') return 'Artisan';
+  if (category === 'wholesaler') return 'Grossiste';
+  if (category === 'collector') return 'Collectionneur';
+  return 'Autre';
+}
+
+export function buildSuppliersExcelBlob(
+  suppliers: Supplier[],
+  currency: string,
+  lang: Language
+): Blob {
+  const isAr = lang === 'ar';
+  const profileHeaders = isAr
+    ? [
+        'رمز المورد',
+        'الاسم الكامل',
+        'الفئة',
+        'رقم الهاتف',
+        'المدينة',
+        'العنوان',
+        'عمليات التوريد',
+        `إجمالي المشتريات (${currency})`,
+        'آخر توريد',
+        'ملاحظات',
+      ]
+    : [
+        'Code Fournisseur',
+        'Nom complet',
+        'Catégorie',
+        'Téléphone',
+        'Ville',
+        'Adresse',
+        'Nb acquisitions',
+        `Total dépensé (${currency})`,
+        'Dernière acquisition',
+        'Notes',
+      ];
+
+  const profileRows: Array<Array<string | number>> = [profileHeaders];
+  let grandPurchases = 0;
+  let grandSpentMad = 0;
+
+  for (const sup of suppliers) {
+    const purchases = sup.purchases || [];
+    const totalMad = purchases.reduce((sum, p) => sum + (Number(p.totalCost) || 0), 0);
+    const lastDate = purchases.map((p) => p.purchaseDate).filter(Boolean).sort().pop() || '';
+    grandPurchases += purchases.length;
+    grandSpentMad += totalMad;
+
+    profileRows.push([
+      sup.code,
+      sup.name,
+      getSupplierCategoryExportLabel(sup.category, lang),
+      sup.phone || '',
+      sup.city || '',
+      sup.address || '',
+      purchases.length,
+      convertFromMad(totalMad, currency),
+      lastDate,
+      sup.notes || '',
+    ]);
+  }
+
+  profileRows.push([
+    isAr ? 'المجموع' : 'TOTAL',
+    isAr ? `${suppliers.length} موردين` : `${suppliers.length} fournisseur(s)`,
+    '',
+    '',
+    '',
+    '',
+    grandPurchases,
+    convertFromMad(grandSpentMad, currency),
+    '',
+    '',
+  ]);
+
+  const detailHeaders = isAr
+    ? [
+        'رمز المورد',
+        'اسم المورد',
+        'التاريخ',
+        'رمز المنتج',
+        'المنتج',
+        'الفئة',
+        'المستودع',
+        'الكمية',
+        `تكلفة الوحدة (${currency})`,
+        `التكلفة الإجمالية (${currency})`,
+        'الدفع',
+        'ملاحظات',
+      ]
+    : [
+        'Code Fournisseur',
+        'Fournisseur',
+        'Date',
+        'Code Produit',
+        'Produit',
+        'Catégorie',
+        'Entrepôt',
+        'Quantité',
+        `Coût unitaire (${currency})`,
+        `Coût total (${currency})`,
+        'Paiement',
+        'Notes',
+      ];
+
+  const detailRows: Array<Array<string | number>> = [detailHeaders];
+  for (const sup of suppliers) {
+    for (const p of sup.purchases || []) {
+      detailRows.push([
+        sup.code,
+        sup.name,
+        p.purchaseDate,
+        p.productCode || '',
+        p.productName,
+        p.category || '',
+        p.warehouseName || '',
+        p.quantity,
+        convertFromMad(p.unitCost, currency),
+        convertFromMad(p.totalCost, currency),
+        getPaymentMethodExportLabel(p.paymentMethod, lang),
+        p.notes || '',
+      ]);
+    }
+  }
+
+  const workbook = XLSX.utils.book_new();
+  if (isAr) {
+    workbook.Workbook = { Views: [{ RTL: true }] };
+  }
+  const profileSheet = XLSX.utils.aoa_to_sheet(profileRows);
+  profileSheet['!cols'] = [
+    { wch: 14 },
+    { wch: 24 },
+    { wch: 18 },
+    { wch: 18 },
+    { wch: 16 },
+    { wch: 28 },
+    { wch: 14 },
+    { wch: 20 },
+    { wch: 14 },
+    { wch: 28 },
+  ];
+  const detailSheet = XLSX.utils.aoa_to_sheet(detailRows);
+  detailSheet['!cols'] = [
+    { wch: 14 },
+    { wch: 22 },
+    { wch: 13 },
+    { wch: 13 },
+    { wch: 26 },
+    { wch: 16 },
+    { wch: 18 },
+    { wch: 10 },
+    { wch: 18 },
+    { wch: 18 },
+    { wch: 15 },
+    { wch: 26 },
+  ];
+
+  XLSX.utils.book_append_sheet(
+    workbook,
+    profileSheet,
+    isAr ? 'ملفات الموردين' : 'Fournisseurs'
+  );
+  XLSX.utils.book_append_sheet(
+    workbook,
+    detailSheet,
+    isAr ? 'مشتريات التوريد' : 'Approvisionnements'
+  );
+
+  const out = XLSX.write(workbook, {
+    bookType: 'xlsx',
+    type: 'array',
+    compression: true,
+  }) as ArrayBuffer;
+
+  return new Blob([out], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+}
+
+export function buildInventoryAdjustmentsExcelBlob(
+  adjustments: InventoryAdjustment[],
+  currency: string,
+  lang: Language
+): Blob {
+  const isAr = lang === 'ar';
+  const typeLabel = (type: string) => {
+    if (isAr) {
+      if (type === 'deduction') return 'خصم مخزون';
+      if (type === 'restock') return 'إعادة تزويد';
+      if (type === 'damage') return 'تلف / كسر';
+      if (type === 'loss') return 'فقدان';
+      if (type === 'transfer') return 'نقل مستودع';
+      return 'تصحيح';
+    }
+    if (type === 'deduction') return 'Déduction';
+    if (type === 'restock') return 'Réapprovisionnement';
+    if (type === 'damage') return 'Casse';
+    if (type === 'loss') return 'Perte';
+    if (type === 'transfer') return 'Transfert';
+    return 'Correction';
+  };
+
+  const headers = isAr
+    ? [
+        'المرجع',
+        'التاريخ',
+        'النوع',
+        'المستودع المصدر',
+        'المستودع المستهدف',
+        'رمز المنتج',
+        'المنتج',
+        'الفئة',
+        'المورد',
+        'قبل',
+        'التعديل',
+        'بعد',
+        `القيمة (${currency})`,
+        'السبب',
+        'ملاحظات',
+      ]
+    : [
+        'Référence',
+        'Date',
+        'Type',
+        'Entrepôt source',
+        'Entrepôt cible',
+        'Code produit',
+        'Produit',
+        'Catégorie',
+        'Fournisseur',
+        'Avant',
+        'Ajustement',
+        'Après',
+        `Valeur (${currency})`,
+        'Motif',
+        'Notes',
+      ];
+
+  const rows: Array<Array<string | number>> = [headers];
+  for (const adj of adjustments) {
+    rows.push([
+      adj.referenceNumber,
+      adj.adjustmentDate,
+      typeLabel(adj.adjustmentType),
+      adj.warehouseName || '',
+      adj.targetWarehouseName || '',
+      adj.productCode,
+      adj.productName,
+      adj.category || '',
+      adj.supplierName || '',
+      adj.quantityBefore,
+      adj.quantityDelta,
+      adj.quantityAfter,
+      convertFromMad(adj.totalValue, currency),
+      adj.reason || '',
+      adj.notes || '',
+    ]);
+  }
+
+  const workbook = XLSX.utils.book_new();
+  if (isAr) {
+    workbook.Workbook = { Views: [{ RTL: true }] };
+  }
+  const sheet = XLSX.utils.aoa_to_sheet(rows);
+  sheet['!cols'] = [
+    { wch: 16 },
+    { wch: 13 },
+    { wch: 18 },
+    { wch: 20 },
+    { wch: 20 },
+    { wch: 13 },
+    { wch: 26 },
+    { wch: 16 },
+    { wch: 20 },
+    { wch: 10 },
+    { wch: 12 },
+    { wch: 10 },
+    { wch: 16 },
+    { wch: 26 },
+    { wch: 24 },
+  ];
+  XLSX.utils.book_append_sheet(
+    workbook,
+    sheet,
+    isAr ? 'تسويات المخزون' : 'Ajustements Stock'
+  );
 
   const out = XLSX.write(workbook, {
     bookType: 'xlsx',

@@ -12,6 +12,8 @@ import {
   MapPin,
   MessageCircle,
   Phone,
+  Plus,
+  Printer,
   QrCode,
   ShoppingBag,
   Trash2,
@@ -23,6 +25,8 @@ import type {
   CustomerPurchase,
   CustomerPurchasePayload,
   Language,
+  PosInvoice,
+  PosSalePayload,
   Product,
   PurchasePaymentMethod,
 } from '../types';
@@ -37,6 +41,14 @@ import {
 } from '../utils/socialLinks';
 import { getCustomerCategoryLabel } from './CustomerFormModal';
 import { CustomerGallerySection } from './CustomerGallerySection';
+
+interface DraftPurchaseItem {
+  productId: string;
+  productCode: string;
+  productName: string;
+  quantity: number;
+  unitPriceDisplay: number;
+}
 
 interface CustomerDetailModalProps {
   customer: Customer | null;
@@ -53,6 +65,8 @@ interface CustomerDetailModalProps {
     payload: CustomerPurchasePayload,
     editingPurchaseId?: string
   ) => Promise<void>;
+  onCreateMultiSale?: (payload: PosSalePayload) => Promise<PosInvoice | null>;
+  onPrintInvoice?: (invoice: PosInvoice, isCopy: boolean) => Promise<void>;
   onDeletePurchase: (customerId: string, purchaseId: string) => Promise<void>;
   onSaveGalleryImages: (customerId: string, items: CustomerGalleryPayload[]) => Promise<void>;
   onDeleteGalleryImage: (customerId: string, imageId: string) => Promise<void>;
@@ -81,6 +95,8 @@ export function CustomerDetailModal({
   onEditProfile,
   onExportCustomerExcel,
   onSavePurchase,
+  onCreateMultiSale,
+  onPrintInvoice,
   onDeletePurchase,
   onSaveGalleryImages,
   onDeleteGalleryImage,
@@ -99,6 +115,8 @@ export function CustomerDetailModal({
   const [purchaseDate, setPurchaseDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [paymentMethod, setPaymentMethod] = useState<PurchasePaymentMethod>('cash');
   const [notes, setNotes] = useState('');
+  const [draftItems, setDraftItems] = useState<DraftPurchaseItem[]>([]);
+  const [lastMultiInvoice, setLastMultiInvoice] = useState<PosInvoice | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [pendingDeletePurchaseId, setPendingDeletePurchaseId] = useState<string | null>(null);
@@ -114,6 +132,7 @@ export function CustomerDetailModal({
     setPurchaseDate(new Date().toISOString().slice(0, 10));
     setPaymentMethod('cash');
     setNotes('');
+    setDraftItems([]);
     setError('');
   };
 
@@ -121,9 +140,11 @@ export function CustomerDetailModal({
     if (!customer) {
       setFormOpen(false);
       setPendingDeletePurchaseId(null);
+      setLastMultiInvoice(null);
       return;
     }
     setPendingDeletePurchaseId(null);
+    setLastMultiInvoice(null);
     resetPurchaseForm();
     const shouldOpenPurchase = Boolean(initialAddPurchase);
     setFormOpen(shouldOpenPurchase);
@@ -161,37 +182,141 @@ export function CustomerDetailModal({
     setFormOpen(true);
   };
 
-  const handleSubmitPurchase = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleAddDraftItem = () => {
     if (!productName.trim()) {
       setError(t.purchaseValidationNameRequired);
       return;
     }
     const qtyNum = Math.max(1, Math.floor(Number(quantity) || 1));
     const displayUnitPrice = Math.max(0, Number(unitPrice) || 0);
-    const madUnitPrice = convertToMad(displayUnitPrice, currency);
+    setDraftItems((prev) => [
+      ...prev,
+      {
+        productId: selectedProductId,
+        productCode: productCode.trim(),
+        productName: productName.trim(),
+        quantity: qtyNum,
+        unitPriceDisplay: displayUnitPrice,
+      },
+    ]);
+    setSelectedProductId('');
+    setProductCode('');
+    setProductName('');
+    setQuantity('1');
+    setUnitPrice('');
+    setError('');
+  };
+
+  const handleRemoveDraftItem = (idx: number) => {
+    setDraftItems((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const handleSubmitPurchase = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const effectiveDate = purchaseDate || new Date().toISOString().slice(0, 10);
+
+    if (editingPurchase) {
+      if (!productName.trim()) {
+        setError(t.purchaseValidationNameRequired);
+        return;
+      }
+      const qtyNum = Math.max(1, Math.floor(Number(quantity) || 1));
+      const madUnitPrice = convertToMad(Math.max(0, Number(unitPrice) || 0), currency);
+      setSaving(true);
+      setError('');
+      try {
+        await onSavePurchase(
+          customer.id,
+          {
+            productId: selectedProductId,
+            productCode: productCode.trim(),
+            productName: productName.trim(),
+            quantity: qtyNum,
+            unitPrice: madUnitPrice,
+            purchaseDate: effectiveDate,
+            paymentMethod,
+            notes: notes.trim(),
+          },
+          editingPurchase.id
+        );
+        resetPurchaseForm();
+        setFormOpen(false);
+      } catch {
+        setError(t.errorSave);
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
+    // Build combined items batch (queued items + optionally current input if filled)
+    const itemsToProcess: DraftPurchaseItem[] = [...draftItems];
+    if (productName.trim()) {
+      itemsToProcess.push({
+        productId: selectedProductId,
+        productCode: productCode.trim(),
+        productName: productName.trim(),
+        quantity: Math.max(1, Math.floor(Number(quantity) || 1)),
+        unitPriceDisplay: Math.max(0, Number(unitPrice) || 0),
+      });
+    }
+
+    if (itemsToProcess.length === 0) {
+      setError(t.purchaseValidationNameRequired);
+      return;
+    }
 
     setSaving(true);
     setError('');
     try {
-      await onSavePurchase(
-        customer.id,
-        {
-          productId: selectedProductId,
-          productCode: productCode.trim(),
-          productName: productName.trim(),
-          quantity: qtyNum,
-          unitPrice: madUnitPrice,
-          purchaseDate: purchaseDate || new Date().toISOString().slice(0, 10),
+      const inventoryItems = itemsToProcess.filter((item) => {
+        if (!item.productId) return false;
+        const prod = products.find((p) => p.id === item.productId);
+        return Boolean(prod && prod.quantity >= item.quantity && onCreateMultiSale);
+      });
+      const manualItems = itemsToProcess.filter((item) => !inventoryItems.includes(item));
+
+      if (inventoryItems.length > 0 && onCreateMultiSale) {
+        const createdInvoice = await onCreateMultiSale({
+          items: inventoryItems.map((it) => ({
+            productId: it.productId,
+            quantity: it.quantity,
+            unitPrice: convertToMad(it.unitPriceDisplay, currency),
+          })),
+          customerId: customer.id,
+          customerName: customer.name,
+          customerPhone: customer.phone,
+          paymentMethod,
+          saleDate: effectiveDate,
+          notes: notes.trim(),
+          source: 'pos_manual',
+        });
+        if (createdInvoice) {
+          setLastMultiInvoice(createdInvoice);
+        }
+      }
+
+      for (const customItem of manualItems) {
+        await onSavePurchase(customer.id, {
+          productId: customItem.productId,
+          productCode: customItem.productCode,
+          productName: customItem.productName,
+          quantity: customItem.quantity,
+          unitPrice: convertToMad(customItem.unitPriceDisplay, currency),
+          purchaseDate: effectiveDate,
           paymentMethod,
           notes: notes.trim(),
-        },
-        editingPurchase?.id
-      );
+        });
+      }
+
       resetPurchaseForm();
       setFormOpen(false);
-    } catch {
-      setError(t.errorSave);
+    } catch (err) {
+      if (err instanceof Error && err.message === 'OUT_OF_STOCK') {
+        setError(t.qrScannerOutOfStock);
+      } else {
+        setError(t.errorSave);
+      }
     } finally {
       setSaving(false);
     }
@@ -199,6 +324,9 @@ export function CustomerDetailModal({
 
   const liveLineTotalDisplay =
     Math.max(1, Math.floor(Number(quantity) || 1)) * Math.max(0, Number(unitPrice) || 0);
+  const draftCartTotalDisplay =
+    draftItems.reduce((sum, it) => sum + it.quantity * it.unitPriceDisplay, 0) +
+    (productName.trim() ? liveLineTotalDisplay : 0);
 
   return (
     <div
@@ -566,7 +694,7 @@ export function CustomerDetailModal({
                     <option value="">{t.purchaseCustomItemOption}</option>
                     {products.map((prod) => (
                       <option key={prod.id} value={prod.id}>
-                        {prod.code} — {prod.name} ({formatCurrency(prod.sellingPrice, currency, lang)})
+                        {prod.code} — {prod.name} ({formatNumber(prod.quantity, lang)} · {formatCurrency(prod.sellingPrice, currency, lang)})
                       </option>
                     ))}
                   </select>
@@ -588,11 +716,11 @@ export function CustomerDetailModal({
                 </div>
                 <div className="sm:col-span-2">
                   <label className="mb-1 block text-xs font-semibold text-[#0B1F16] dark:text-[#F2F9F5]">
-                    {t.purchaseProductNameLabel} *
+                    {t.purchaseProductNameLabel} {draftItems.length === 0 ? '*' : ''}
                   </label>
                   <input
                     type="text"
-                    required
+                    required={draftItems.length === 0}
                     value={productName}
                     onChange={(e) => setProductName(e.target.value)}
                     placeholder={t.purchaseProductNamePlaceholder}
@@ -657,6 +785,62 @@ export function CustomerDetailModal({
                 </div>
               </div>
 
+              {!editingPurchase && (
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={handleAddDraftItem}
+                    className="inline-flex min-h-[38px] items-center gap-1.5 rounded-xl border border-[#115E3B] bg-white px-3.5 text-xs font-semibold text-[#115E3B] hover:bg-[#ECF7F1] dark:border-[#10B981] dark:bg-[#091611] dark:text-[#34D399]"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    <span>{t.posCartAddItem}</span>
+                  </button>
+                  {draftItems.length > 0 && (
+                    <span className="tabular-nums text-xs font-semibold text-[#115E3B] dark:text-[#34D399]">
+                      {t.posCartItemsCount}: {formatNumber(draftItems.length, lang)}
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {!editingPurchase && draftItems.length > 0 && (
+                <div className="space-y-1.5 rounded-xl border border-[#DCE7E0] bg-white p-2.5 dark:border-[#1E3A2D] dark:bg-[#091611]">
+                  {draftItems.map((it, idx) => (
+                    <div
+                      key={`${it.productCode || 'custom'}-${idx}`}
+                      className="flex items-center justify-between gap-2 rounded-lg bg-[#F7FAF8] px-2.5 py-1.5 text-xs dark:bg-[#0F2119]"
+                    >
+                      <div className="min-w-0 flex-1">
+                        {it.productCode && (
+                          <span className="font-mono-code me-1.5 font-bold text-[#115E3B] dark:text-[#34D399]">
+                            {it.productCode}
+                          </span>
+                        )}
+                        <span className="font-semibold text-[#0B1F16] dark:text-[#F2F9F5]">
+                          {it.productName}
+                        </span>
+                        <span className="tabular-nums ms-2 text-[#335947] dark:text-[#9EC0AE]">
+                          ({formatNumber(it.quantity, lang)} × {formatNumber(it.unitPriceDisplay, lang)} {currency})
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="tabular-nums font-bold text-[#115E3B] dark:text-[#34D399]">
+                          {formatNumber(it.quantity * it.unitPriceDisplay, lang)} {currency}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveDraftItem(idx)}
+                          aria-label={t.posCartRemoveItem}
+                          className="text-red-600 hover:text-red-700 dark:text-red-400"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:items-end">
                 <div className="sm:col-span-2">
                   <label className="mb-1 block text-xs font-semibold text-[#0B1F16] dark:text-[#F2F9F5]">
@@ -674,7 +858,7 @@ export function CustomerDetailModal({
                 <div className="flex items-center justify-between rounded-xl border border-[#DCE7E0] bg-white px-3 py-2 text-xs dark:border-[#1E3A2D] dark:bg-[#091611]">
                   <span className="text-[#335947] dark:text-[#9EC0AE]">{t.purchaseTotalLabel}</span>
                   <span className="tabular-nums font-bold text-[#115E3B] dark:text-[#34D399]">
-                    {formatNumber(liveLineTotalDisplay, lang)} {currency}
+                    {formatNumber(editingPurchase ? liveLineTotalDisplay : draftCartTotalDisplay, lang)} {currency}
                   </span>
                 </div>
               </div>
@@ -688,6 +872,24 @@ export function CustomerDetailModal({
                         <span>{saving ? t.saving : t.save}</span>
                       </button>
                     </form>
+                  )}
+                </div>
+              )}
+
+              {lastMultiInvoice && (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[#10B981]/40 bg-[#ECF7F1] px-4 py-3 text-xs dark:border-[#10B981]/30 dark:bg-[#132B20]">
+                  <div className="font-semibold text-[#115E3B] dark:text-[#34D399]">
+                    {lastMultiInvoice.invoiceNumber} · {formatCurrency(lastMultiInvoice.totalPrice, currency, lang)}
+                  </div>
+                  {onPrintInvoice && (
+                    <button
+                      type="button"
+                      onClick={() => void onPrintInvoice(lastMultiInvoice, (lastMultiInvoice.printCount || 0) > 0)}
+                      className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg bg-[#115E3B] px-3 text-xs font-semibold text-white hover:bg-[#0D4A2E] dark:bg-[#10B981] dark:text-[#052E1C]"
+                    >
+                      <Printer className="h-3.5 w-3.5" />
+                      <span>{t.posPrintInvoice}</span>
+                    </button>
                   )}
                 </div>
               )}
