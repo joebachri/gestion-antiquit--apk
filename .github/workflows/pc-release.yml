@@ -1,0 +1,62 @@
+name: Build & Publish Windows PC (.exe)
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'pc-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows-pc:
+    name: Build Windows EXE (gestion antiquite PC)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install root dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Build web assets
+        run: npm run build
+
+      - name: Install PC desktop dependencies
+        working-directory: gestion-antiquite-pc
+        run: npm install --legacy-peer-deps
+
+      - name: Package Windows EXE (Setup & Portable)
+        working-directory: gestion-antiquite-pc
+        run: npm run pack:win:ci
+
+      - name: Upload Windows EXE workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gestion-antiquite-pc-windows
+          path: |
+            gestion-antiquite-pc/release/*.exe
+
+      - name: Publish Windows EXE to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: pc-latest
+          name: gestion antiquite PC — Windows (.exe)
+          body: |
+            Installation sur PC Windows (64-bit) :
+            - `gestion-antiquite-PC-Setup-1.0.0.exe` : Installateur Windows complet avec raccourci Bureau / Menu Démarrer.
+            - `gestion-antiquite-PC-Portable-1.0.0.exe` : Version portable directe sans installation.
+          files: |
+            gestion-antiquite-pc/release/*.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

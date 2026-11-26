@@ -1,0 +1,70 @@
+{
+  "name": "gestion-antiquite-pc",
+  "productName": "gestion antiquite PC",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Version bureau Windows (Electron) de Gestion Antiquités",
+  "main": "main.cjs",
+  "scripts": {
+    "prepare:assets": "node prepare-assets.cjs",
+    "prepare:assets:ci": "node prepare-assets.cjs --skip-web-build",
+    "start": "npm run prepare:assets && electron .",
+    "pack:win": "npm run prepare:assets && electron-builder --win --x64",
+    "pack:win:ci": "npm run prepare:assets:ci && electron-builder --win --x64"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.2.0",
+    "dotenv": "^17.2.3",
+    "express": "^4.21.2",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "electron": "^35.0.0",
+    "electron-builder": "^26.0.12",
+    "esbuild": "^0.25.0"
+  },
+  "build": {
+    "appId": "com.gestionantiquites.pc",
+    "productName": "gestion antiquite PC",
+    "directories": {
+      "output": "release",
+      "buildResources": "resources"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "app/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**/*",
+      "app/dist/**/*",
+      "app/src/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "resources/icon.png"
+    },
+    "nsis": {
+      "artifactName": "gestion-antiquite-PC-Setup-${version}.${ext}",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "gestion antiquite PC"
+    },
+    "portable": {
+      "artifactName": "gestion-antiquite-PC-Portable-${version}.${ext}"
+    }
+  }
+}

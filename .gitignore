@@ -8,3 +8,4 @@ data/*.db*
 *.log
 .env*
 !.env.example
+gestion-antiquite-pc/app/

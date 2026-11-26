@@ -251,7 +251,9 @@ interface ProductHistoryRow {
   created_at: string;
 }
 
-const DATA_DIR = path.join(process.cwd(), 'data');
+const DATA_DIR = process.env.DATA_DIR?.trim()
+  ? path.resolve(process.env.DATA_DIR.trim())
+  : path.join(process.cwd(), 'data');
 fs.mkdirSync(DATA_DIR, { recursive: true });
 const DB_PATH = path.join(DATA_DIR, 'babsaida.db');
 
@@ -5474,9 +5476,12 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
+    const appRoot = process.env.APP_ROOT?.trim()
+      ? path.resolve(process.env.APP_ROOT.trim())
+      : process.cwd();
     // Serve generated/seeded local images in production builds
-    app.use('/src/assets/images', express.static(path.join(process.cwd(), 'src', 'assets', 'images')));
-    const distPath = path.join(process.cwd(), 'dist');
+    app.use('/src/assets/images', express.static(path.join(appRoot, 'src', 'assets', 'images')));
+    const distPath = path.join(appRoot, 'dist');
     app.use(express.static(distPath));
     app.get('*', (_req: Request, res: Response) => {
       res.sendFile(path.join(distPath, 'index.html'));
@@ -5484,8 +5489,9 @@ async function startServer() {
   }
 
   const port = Number(process.env.PORT) || 3000;
-  app.listen(port, '0.0.0.0', () => {
-    console.log(`Gestion Antiquités server listening on port ${port}`);
+  const host = process.env.HOST?.trim() || '0.0.0.0';
+  app.listen(port, host, () => {
+    console.log(`Gestion Antiquités server listening on ${host}:${port}`);
   });
 }
 
