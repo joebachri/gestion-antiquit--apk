@@ -2281,7 +2281,7 @@ export function PosSalesModal({
               {/* Preview + Print / Download once Validated */}
               {dailyValidated && (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+                  <div className="grid grid-cols-2 gap-2.5">
                     {dailyReportSpec.kpis.map((kpi, idx) => (
                       <div
                         key={idx}

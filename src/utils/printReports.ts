@@ -393,18 +393,12 @@ export function buildReportSpec(filters: ReportFilters, ctx: ReportContextData):
 
     return {
       title: t.posDailySummaryTitle,
-      subtitle:
-        filters.startDate || filters.endDate
-          ? `${filters.startDate || '…'} → ${filters.endDate || '…'}`
-          : t.reportAllDates,
       storeName: cleanStore,
       generatedDate: today,
       metaPairs,
       kpis: [
         { label: t.posDailySummaryTotalTx, value: formatNumber(totalTransactions, lang) },
         { label: t.posTotalUnitsSold, value: formatNumber(totalUnits, lang) },
-        { label: t.posCartGrandTotal, value: formatCurrency(grandTotal, currency, lang) },
-        { label: t.paymentCash, value: formatCurrency(paymentTotals.cash, currency, lang) },
       ],
       tables: [
         {

@@ -531,7 +531,15 @@ export function ReportsPrintModal({
                 </div>
 
                 {previewSpec.kpis.length > 0 && (
-                  <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+                  <div
+                    className={`grid grid-cols-2 gap-2.5 ${
+                      previewSpec.kpis.length <= 2
+                        ? 'sm:grid-cols-2'
+                        : previewSpec.kpis.length === 3
+                        ? 'sm:grid-cols-3'
+                        : 'sm:grid-cols-4'
+                    }`}
+                  >
                     {previewSpec.kpis.map((kpi, idx) => (
                       <div
                         key={idx}
