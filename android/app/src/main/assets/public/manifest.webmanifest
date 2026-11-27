@@ -1,0 +1,25 @@
+{
+  "name": "Antiquités Bab Saida",
+  "short_name": "Antiquités",
+  "description": "Gestion de boutique d'antiquités : inventaire photo codifié, QR codes, fiches produits, clients et export Excel.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F7FAF8",
+  "theme_color": "#115E3B",
+  "icons": [
+    {
+      "src": "/app-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

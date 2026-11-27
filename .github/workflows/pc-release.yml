@@ -52,6 +52,7 @@ jobs:
         with:
           tag_name: pc-latest
           name: gestion antiquite PC — Windows (.exe)
+          make_latest: false
           body: |
             Installation sur PC Windows (64-bit) :
             - `gestion-antiquite-PC-Setup-1.0.0.exe` : Installateur Windows complet avec raccourci Bureau / Menu Démarrer.
