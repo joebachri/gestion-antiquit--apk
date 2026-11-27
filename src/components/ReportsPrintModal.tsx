@@ -607,13 +607,24 @@ export function ReportsPrintModal({
                   </div>
                 ))}
 
-                {previewSpec.paymentSummaryLine && (
-                  <div className="flex justify-end">
-                    <div className="tabular-nums rounded-lg border border-[#115E3B]/30 bg-[#ECF7F1] px-3 py-1.5 text-xs font-bold text-[#0B1F16] dark:border-[#34D399]/30 dark:bg-[#132B20] dark:text-[#F2F9F5]">
-                      {previewSpec.paymentSummaryLine}
+                {(() => {
+                  const payLines =
+                    previewSpec.paymentSummaryLines && previewSpec.paymentSummaryLines.length > 0
+                      ? previewSpec.paymentSummaryLines
+                      : previewSpec.paymentSummaryLine
+                      ? [previewSpec.paymentSummaryLine]
+                      : [];
+                  if (payLines.length === 0) return null;
+                  return (
+                    <div className="flex justify-end">
+                      <div className="tabular-nums space-y-0.5 rounded-lg border border-[#115E3B]/30 bg-[#ECF7F1] px-3 py-1.5 text-end text-xs font-bold text-[#0B1F16] dark:border-[#34D399]/30 dark:bg-[#132B20] dark:text-[#F2F9F5]">
+                        {payLines.map((line, i) => (
+                          <div key={i}>{line}</div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
 
                 {previewSpec.companyFooterLines && previewSpec.companyFooterLines.length > 0 && (
                   <div className="border-t border-[#DCE7E0] pt-2.5 text-center text-[11px] leading-relaxed text-[#335947] dark:border-[#1E3A2D] dark:text-[#9EC0AE]">

@@ -39,6 +39,7 @@ export interface PrintableReportSpec {
   kpis: PrintableKpi[];
   tables: PrintableTable[];
   paymentSummaryLine?: string;
+  paymentSummaryLines?: string[];
   companyFooterLines?: string[];
   footerNote?: string;
 }
@@ -116,17 +117,17 @@ function formatPaymentSummary(inv: PosInvoice, lang: Language, currency: string)
   return paymentLabel(inv.paymentMethod, lang);
 }
 
-function formatPaymentBelowTable(inv: PosInvoice, lang: Language, currency: string): string {
+function formatPaymentBelowTableLines(inv: PosInvoice, lang: Language, currency: string): string[] {
   const prefix = lang === 'ar' ? 'طريقة الدفع' : 'MODE DE PAIEMENT';
   const splits = (inv.paymentBreakdown || []).filter((p) => (Number(p.amount) || 0) > 0);
   if (splits.length > 1) {
-    const details = splits
-      .map((p) => `${paymentLabel(p.method, lang)} ........ ${formatCurrency(p.amount, currency, lang)}`)
-      .join('  +  ');
-    return `${prefix} : ${details}`;
+    return [
+      `${prefix} :`,
+      ...splits.map((p) => `${paymentLabel(p.method, lang)} ........ ${formatCurrency(p.amount, currency, lang)}`),
+    ];
   }
   const method = splits.length === 1 ? splits[0].method : inv.paymentMethod;
-  return `${prefix} : ${paymentLabel(method, lang)} ........ ${formatCurrency(inv.totalPrice, currency, lang)}`;
+  return [`${prefix} : ${paymentLabel(method, lang)} ........ ${formatCurrency(inv.totalPrice, currency, lang)}`];
 }
 
 export function buildCompanyFooterLines(
@@ -316,7 +317,7 @@ export function buildReportSpec(filters: ReportFilters, ctx: ReportContextData):
           ],
         },
       ],
-      paymentSummaryLine: formatPaymentBelowTable(inv, lang, currency),
+      paymentSummaryLines: formatPaymentBelowTableLines(inv, lang, currency),
       companyFooterLines: buildCompanyFooterLines(ctx.shopSettings, storeName, lang),
       footerNote: isCopy
         ? isAr
@@ -1343,11 +1344,18 @@ export function buildPrintableReportHtml(spec: PrintableReportSpec, lang: Langua
       ${metaHtml ? `<div class="meta-grid">${metaHtml}</div>` : ''}
       ${spec.kpis.length > 0 ? `<div class="kpis">${kpiHtml}</div>` : ''}
       ${tablesHtml}
-      ${
-        spec.paymentSummaryLine
-          ? `<div style="display:flex;justify-content:flex-end;margin:-4px 0 12px;"><div style="border:1px solid #115E3B;background:#ECF7F1;color:#0B1F16;padding:6px 12px;border-radius:6px;font-weight:800;font-size:11px;font-variant-numeric:tabular-nums;">${escapeHtml(spec.paymentSummaryLine)}</div></div>`
-          : ''
-      }
+      ${(() => {
+        const payLines =
+          spec.paymentSummaryLines && spec.paymentSummaryLines.length > 0
+            ? spec.paymentSummaryLines
+            : spec.paymentSummaryLine
+            ? [spec.paymentSummaryLine]
+            : [];
+        if (payLines.length === 0) return '';
+        return `<div style="display:flex;justify-content:flex-end;margin:-4px 0 12px;"><div style="border:1px solid #115E3B;background:#ECF7F1;color:#0B1F16;padding:6px 12px;border-radius:6px;font-weight:800;font-size:11px;line-height:1.55;text-align:${alignEnd};font-variant-numeric:tabular-nums;">${payLines
+          .map((line) => `<div>${escapeHtml(line)}</div>`)
+          .join('')}</div></div>`;
+      })()}
       <div class="footer">
         <span>${escapeHtml(spec.footerNote || spec.storeName)}</span>
         ${spec.generatedDate ? `<span>${escapeHtml(spec.generatedDate)}</span>` : '<span></span>'}
@@ -1689,17 +1697,25 @@ export async function renderSpecToPdfBlob(spec: PrintableReportSpec, lang: Langu
     y += 18;
   }
 
-  if (spec.paymentSummaryLine) {
-    ensureSpace(44);
+  const pdfPayLines =
+    spec.paymentSummaryLines && spec.paymentSummaryLines.length > 0
+      ? spec.paymentSummaryLines
+      : spec.paymentSummaryLine
+      ? [spec.paymentSummaryLine]
+      : [];
+  if (pdfPayLines.length > 0) {
+    ensureSpace(20 + pdfPayLines.length * 26);
     ctx.fillStyle = '#0B1F16';
     ctx.font = 'bold 17px system-ui, sans-serif';
     ctx.textAlign = isAr ? 'left' : 'right';
-    ctx.fillText(
-      spec.paymentSummaryLine,
-      isAr ? marginX + 8 : pageW - marginX - 8,
-      y + 6
-    );
-    y += 32;
+    pdfPayLines.forEach((line, idx) => {
+      ctx.fillText(
+        line,
+        isAr ? marginX + 8 : pageW - marginX - 8,
+        y + 6 + idx * 25
+      );
+    });
+    y += 14 + pdfPayLines.length * 25;
   }
 
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });

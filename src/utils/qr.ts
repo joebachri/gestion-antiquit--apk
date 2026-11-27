@@ -464,10 +464,12 @@ export async function buildInvoiceReceiptBlob(
           },
         ];
 
+  const activeSplits = (invoice.paymentBreakdown || []).filter((b) => (Number(b.amount) || 0) > 0);
+  const paymentBlockHeight = activeSplits.length > 1 ? 150 + (activeSplits.length + 1) * 26 : 190;
   const metaCount =
     2 + (invoice.customerName ? 1 : 0) + (invoice.warehouseName ? 1 : 0) + (invoice.notes ? 1 : 0);
   const companyFooterHeight = companyLines.length > 0 ? companyLines.length * 24 + 28 : 0;
-  const canvasHeight = Math.max(820, 380 + metaCount * 54 + items.length * 64 + 190 + companyFooterHeight);
+  const canvasHeight = Math.max(820, 380 + metaCount * 54 + items.length * 64 + paymentBlockHeight + companyFooterHeight);
 
   const canvas = document.createElement('canvas');
   canvas.width = 760;
@@ -624,24 +626,30 @@ export async function buildInvoiceReceiptBlob(
   ctx.textAlign = 'right';
   ctx.fillText(formatCurrency(invoice.totalPrice, currency, lang), canvas.width - 68, y + 57);
 
-  // Payment method right below total
+  // Payment method right below total (stacked vertically when multiple)
   const payNameMap: Record<string, string> = isAr
     ? { cash: 'نقداً', check: 'شيك', card: 'بطاقة', credit: 'آجل', transfer: 'تحويل', other: 'أخرى' }
     : { cash: 'Espèces', check: 'Chèque', card: 'Carte bancaire', credit: 'Crédit', transfer: 'Virement', other: 'Autre' };
-  const activeSplits = (invoice.paymentBreakdown || []).filter((b) => (Number(b.amount) || 0) > 0);
-  const payLine =
+  const payLines =
     activeSplits.length > 1
-      ? `${isAr ? 'طريقة الدفع' : 'MODE DE PAIEMENT'} : ${activeSplits
-          .map((b) => `${payNameMap[b.method] || b.method} ........ ${formatCurrency(b.amount, currency, lang)}`)
-          .join(' + ')}`
-      : `${isAr ? 'طريقة الدفع' : 'MODE DE PAIEMENT'} : ${
-          payNameMap[activeSplits[0]?.method || invoice.paymentMethod] || invoice.paymentMethod
-        } ........ ${formatCurrency(invoice.totalPrice, currency, lang)}`;
+      ? [
+          `${isAr ? 'طريقة الدفع' : 'MODE DE PAIEMENT'} :`,
+          ...activeSplits.map(
+            (b) => `${payNameMap[b.method] || b.method} ........ ${formatCurrency(b.amount, currency, lang)}`
+          ),
+        ]
+      : [
+          `${isAr ? 'طريقة الدفع' : 'MODE DE PAIEMENT'} : ${
+            payNameMap[activeSplits[0]?.method || invoice.paymentMethod] || invoice.paymentMethod
+          } ........ ${formatCurrency(invoice.totalPrice, currency, lang)}`,
+        ];
 
   ctx.fillStyle = '#0B1F16';
   ctx.font = 'bold 18px system-ui, sans-serif';
   ctx.textAlign = 'right';
-  ctx.fillText(payLine, canvas.width - 52, y + 122);
+  payLines.forEach((line, idx) => {
+    ctx.fillText(line, canvas.width - 52, y + 122 + idx * 26);
+  });
 
   ctx.fillStyle = '#6B8A79';
   ctx.font = '17px system-ui, sans-serif';

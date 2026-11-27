@@ -323,7 +323,9 @@ export async function printThermalTicketBluetooth(
     if (legal) ticketCompanyLines.push(legal);
   }
 
-  const heightPx = 305 + items.length * 54 + (invoice.paymentBreakdown?.length || 1) * 28 + ticketCompanyLines.length * 20;
+  const splits = (invoice.paymentBreakdown || []).filter((s) => (Number(s.amount) || 0) > 0);
+  const payLinesCount = splits.length > 1 ? splits.length + 1 : 1;
+  const heightPx = 305 + items.length * 54 + payLinesCount * 24 + ticketCompanyLines.length * 20;
   const canvas = document.createElement('canvas');
   canvas.width = widthPx;
   canvas.height = heightPx;
@@ -394,16 +396,27 @@ export async function printThermalTicketBluetooth(
 
   const payNames: Record<string, string> = isAr
     ? { cash: 'نقداً', check: 'شيك', card: 'بطاقة', credit: 'آجل', transfer: 'تحويل', other: 'أخرى' }
-    : { cash: 'Espèces', check: 'Chèque', card: 'Carte', credit: 'Crédit', transfer: 'Virement', other: 'Autre' };
-  const splits = (invoice.paymentBreakdown || []).filter((s) => (Number(s.amount) || 0) > 0);
-  const payText =
+    : { cash: 'Espèces', check: 'Chèque', card: 'Carte bancaire', credit: 'Crédit', transfer: 'Virement', other: 'Autre' };
+  const payLines =
     splits.length > 1
-      ? `MODE DE PAIEMENT : ${splits.map((s) => `${payNames[s.method] || s.method} ${formatCurrency(s.amount, currency, lang)}`).join(' + ')}`
-      : `MODE DE PAIEMENT : ${payNames[splits[0]?.method || invoice.paymentMethod] || invoice.paymentMethod} .... ${formatCurrency(invoice.totalPrice, currency, lang)}`;
+      ? [
+          `${isAr ? 'طريقة الدفع' : 'MODE DE PAIEMENT'} :`,
+          ...splits.map(
+            (s) => `${payNames[s.method] || s.method} .... ${formatCurrency(s.amount, currency, lang)}`
+          ),
+        ]
+      : [
+          `${isAr ? 'طريقة الدفع' : 'MODE DE PAIEMENT'} : ${
+            payNames[splits[0]?.method || invoice.paymentMethod] || invoice.paymentMethod
+          } .... ${formatCurrency(invoice.totalPrice, currency, lang)}`,
+        ];
   ctx.font = 'bold 14px sans-serif';
   ctx.textAlign = 'right';
-  ctx.fillText(payText.slice(0, 44), widthPx - 10, y);
-  y += 26;
+  for (const pLine of payLines) {
+    ctx.fillText(pLine.slice(0, paperFormat === 'roll_80' ? 44 : 34), widthPx - 10, y);
+    y += 22;
+  }
+  y += 6;
 
   ctx.textAlign = 'center';
   ctx.font = '14px sans-serif';
