@@ -968,50 +968,56 @@ export function PosSalesModal({
               </section>
 
               {/* Last validated BL quick confirmation banner */}
-              {lastCreatedInvoice && (
-                <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-2xl border border-[#10B981]/35 bg-[#ECF7F1] px-4 py-2.5 text-xs dark:border-[#10B981]/30 dark:bg-[#132B20]">
-                  <div className="flex items-center gap-2 font-semibold text-[#115E3B] dark:text-[#34D399]">
-                    <CheckCircle2 className="h-4 w-4 shrink-0" />
-                    <span>
-                      {t.posSoldReceiptBadge} · {lastCreatedInvoice.invoiceNumber} (
-                      {formatCurrency(lastCreatedInvoice.totalPrice, currency, lang)})
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {onPrintInvoice && (
-                      <button
-                        type="button"
-                        onClick={() => void onPrintInvoice(lastCreatedInvoice, false)}
-                        className="flex min-h-[36px] items-center gap-1.5 rounded-lg border border-[#DCE7E0] bg-white px-2.5 font-semibold text-[#115E3B] hover:bg-[#F7FAF8] dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#34D399]"
-                      >
-                        <Printer className="h-3.5 w-3.5" />
-                        <span>{t.posPrintInvoice}</span>
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        const blob = await buildInvoiceReceiptBlob(
-                          lastCreatedInvoice,
-                          storeName,
-                          currency,
-                          lang,
-                          { isCopy: false }
-                        );
-                        await saveOrShareBlob(
-                          blob,
-                          `${lastCreatedInvoice.invoiceNumber.toLowerCase()}.png`,
-                          lastCreatedInvoice.invoiceNumber
-                        );
-                      }}
-                      className="flex min-h-[36px] items-center gap-1.5 rounded-lg border border-[#DCE7E0] bg-white px-2.5 font-semibold text-[#0B1F16] hover:bg-[#F7FAF8] dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#F2F9F5]"
-                    >
-                      <Download className="h-3.5 w-3.5" />
-                      <span>PNG</span>
-                    </button>
-                  </div>
-                </div>
-              )}
+              {lastCreatedInvoice &&
+                (() => {
+                  const freshLast =
+                    invoices.find((i) => i.id === lastCreatedInvoice.id) || lastCreatedInvoice;
+                  const lastIsCopy = Boolean((freshLast.printCount || 0) > 0);
+                  return (
+                    <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-2xl border border-[#10B981]/35 bg-[#ECF7F1] px-4 py-2.5 text-xs dark:border-[#10B981]/30 dark:bg-[#132B20]">
+                      <div className="flex items-center gap-2 font-semibold text-[#115E3B] dark:text-[#34D399]">
+                        <CheckCircle2 className="h-4 w-4 shrink-0" />
+                        <span>
+                          {t.posSoldReceiptBadge} · {freshLast.invoiceNumber} (
+                          {formatCurrency(freshLast.totalPrice, currency, lang)})
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {onPrintInvoice && (
+                          <button
+                            type="button"
+                            onClick={() => void onPrintInvoice(freshLast, lastIsCopy)}
+                            className="flex min-h-[36px] items-center gap-1.5 rounded-lg border border-[#DCE7E0] bg-white px-2.5 font-semibold text-[#115E3B] hover:bg-[#F7FAF8] dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#34D399]"
+                          >
+                            <Printer className="h-3.5 w-3.5" />
+                            <span>{lastIsCopy ? t.posReprintCopy : t.posPrintInvoice}</span>
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const blob = await buildInvoiceReceiptBlob(
+                              freshLast,
+                              storeName,
+                              currency,
+                              lang,
+                              { isCopy: lastIsCopy }
+                            );
+                            await saveOrShareBlob(
+                              blob,
+                              `${freshLast.invoiceNumber.toLowerCase()}.png`,
+                              freshLast.invoiceNumber
+                            );
+                          }}
+                          className="flex min-h-[36px] items-center gap-1.5 rounded-lg border border-[#DCE7E0] bg-white px-2.5 font-semibold text-[#0B1F16] hover:bg-[#F7FAF8] dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#F2F9F5]"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                          <span>PNG</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
 
               {errorMsg && (
                 <div className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs font-semibold text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
@@ -1924,20 +1930,16 @@ export function PosSalesModal({
                             <span className="tabular-nums text-xs text-[#335947] dark:text-[#9EC0AE]">
                               {inv.saleDate}
                             </span>
-                            <span aria-hidden="true" className="text-[#6B8A79]">
-                              ·
-                            </span>
-                            <span
-                              className={`text-[11px] font-bold ${
-                                isCopy
-                                  ? 'text-amber-700 dark:text-amber-300'
-                                  : 'text-[#115E3B] dark:text-[#34D399]'
-                              }`}
-                            >
-                              {isCopy
-                                ? `${t.invoiceCopyBadge} (${inv.printCount})`
-                                : t.invoiceOriginalBadge}
-                            </span>
+                            {isCopy && (
+                              <>
+                                <span aria-hidden="true" className="text-[#6B8A79]">
+                                  ·
+                                </span>
+                                <span className="text-[11px] font-bold text-amber-700 dark:text-amber-300">
+                                  {`${t.invoiceCopyBadge} (${inv.printCount})`}
+                                </span>
+                              </>
+                            )}
                           </div>
 
                           {/* Line items */}

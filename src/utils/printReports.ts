@@ -37,6 +37,7 @@ export interface PrintableReportSpec {
   metaPairs?: Array<{ label: string; value: string }>;
   kpis: PrintableKpi[];
   tables: PrintableTable[];
+  paymentSummaryLine?: string;
   footerNote?: string;
 }
 
@@ -110,6 +111,19 @@ function formatPaymentSummary(inv: PosInvoice, lang: Language, currency: string)
       .join(' + ');
   }
   return paymentLabel(inv.paymentMethod, lang);
+}
+
+function formatPaymentBelowTable(inv: PosInvoice, lang: Language, currency: string): string {
+  const prefix = lang === 'ar' ? 'طريقة الدفع' : 'MODE DE PAIEMENT';
+  const splits = (inv.paymentBreakdown || []).filter((p) => (Number(p.amount) || 0) > 0);
+  if (splits.length > 1) {
+    const details = splits
+      .map((p) => `${paymentLabel(p.method, lang)} ........ ${formatCurrency(p.amount, currency, lang)}`)
+      .join('  +  ');
+    return `${prefix} : ${details}`;
+  }
+  const method = splits.length === 1 ? splits[0].method : inv.paymentMethod;
+  return `${prefix} : ${paymentLabel(method, lang)} ........ ${formatCurrency(inv.totalPrice, currency, lang)}`;
 }
 
 function customerCategoryLabel(cat: string, lang: Language): string {
@@ -189,7 +203,7 @@ export function buildReportSpec(filters: ReportFilters, ctx: ReportContextData):
   const prodMap = new Map(products.map((p) => [p.id, p]));
   const metaPairs = buildFilterSummaryPairs(filters, ctx);
 
-  // 1. INDIVIDUAL INVOICE (with Copy badge when isCopy)
+  // 1. INDIVIDUAL INVOICE / BL (never shows ORIGINAL; adds COPIE automatically on reprints)
   if (filters.reportType === 'invoice_single') {
     const inv = invoices.find((i) => i.id === filters.invoiceId) || invoices[0];
     if (!inv) {
@@ -209,14 +223,11 @@ export function buildReportSpec(filters: ReportFilters, ctx: ReportContextData):
     const docPrefix = isBl ? t.posBlNumberLabel : t.posInvoiceNumber;
     return {
       title: `${docPrefix} ${inv.invoiceNumber}`,
-      subtitle: isCopy
-        ? `${t.invoiceCopyBadge} · ${inv.saleDate}`
-        : `${t.invoiceOriginalBadge} · ${inv.saleDate}`,
+      subtitle: isCopy ? `${t.invoiceCopyBadge} · ${inv.saleDate}` : inv.saleDate,
       storeName: cleanStore,
-      generatedDate: today,
+      generatedDate: '',
       watermark: isCopy ? t.invoiceCopyBadge : undefined,
       metaPairs: [
-        { label: isAr ? 'التاريخ' : 'Date', value: inv.saleDate },
         ...(inv.blNumber && !isBl ? [{ label: t.posBlNumberLabel, value: inv.blNumber }] : []),
         {
           label: t.posCustomerLabel,
@@ -224,18 +235,12 @@ export function buildReportSpec(filters: ReportFilters, ctx: ReportContextData):
             ? `${inv.customerName}${inv.customerPhone ? ` (${inv.customerPhone})` : ''}`
             : t.posWalkInCustomer,
         },
-        { label: t.purchasePaymentLabel, value: formatPaymentSummary(inv, lang, currency) },
         ...(inv.warehouseName ? [{ label: t.productWarehouseLabel, value: inv.warehouseName }] : []),
         ...(inv.notes ? [{ label: t.purchaseNotesLabel, value: inv.notes }] : []),
       ],
       kpis: [
         { label: t.posCartItemsCount, value: formatNumber(items.length, lang) },
         { label: t.purchaseQuantityLabel, value: formatNumber(inv.quantity, lang) },
-        { label: t.posCartGrandTotal, value: formatCurrency(inv.totalPrice, currency, lang) },
-        {
-          label: t.invoicePrintCountLabel,
-          value: isCopy ? `${t.invoiceCopyBadge} (#${(inv.printCount || 0) + 1})` : t.invoiceOriginalBadge,
-        },
       ],
       tables: [
         {
@@ -265,17 +270,18 @@ export function buildReportSpec(filters: ReportFilters, ctx: ReportContextData):
           ],
         },
       ],
+      paymentSummaryLine: formatPaymentBelowTable(inv, lang, currency),
       footerNote: isCopy
         ? isAr
           ? 'نسخة مطابقة للأصل — شكراً لثقتكم'
-          : 'COPIE CONFORME — Merci pour votre confiance'
+          : 'COPIE — Merci pour votre confiance'
         : isBl
         ? isAr
           ? 'بيان تسليم (BL) — شكراً لثقتكم'
           : 'BON DE LIVRAISON (BL) — Merci pour votre confiance'
         : isAr
-        ? 'فاتورة أصلية — شكراً لثقتكم'
-        : 'FACTURE ORIGINALE — Merci pour votre confiance',
+        ? 'فاتورة — شكراً لثقتكم'
+        : 'FACTURE — Merci pour votre confiance',
     };
   }
 
@@ -1289,16 +1295,21 @@ export function buildPrintableReportHtml(spec: PrintableReportSpec, lang: Langua
         </div>
         <div class="header-right">
           ${spec.watermark ? `<div class="copy-badge">${escapeHtml(spec.watermark)}</div><br/>` : ''}
-          <div>${escapeHtml(translations[lang].reportGeneratedOn)} ${escapeHtml(spec.generatedDate)}</div>
+          ${spec.generatedDate ? `<div>${escapeHtml(translations[lang].reportGeneratedOn)} ${escapeHtml(spec.generatedDate)}</div>` : ''}
           ${spec.thumbnailDataUrl ? `<img class="thumb" src="${escapeHtml(spec.thumbnailDataUrl)}" alt="" />` : ''}
         </div>
       </div>
       ${metaHtml ? `<div class="meta-grid">${metaHtml}</div>` : ''}
       ${spec.kpis.length > 0 ? `<div class="kpis">${kpiHtml}</div>` : ''}
       ${tablesHtml}
+      ${
+        spec.paymentSummaryLine
+          ? `<div style="display:flex;justify-content:flex-end;margin:-4px 0 12px;"><div style="border:1px solid #115E3B;background:#ECF7F1;color:#0B1F16;padding:6px 12px;border-radius:6px;font-weight:800;font-size:11px;font-variant-numeric:tabular-nums;">${escapeHtml(spec.paymentSummaryLine)}</div></div>`
+          : ''
+      }
       <div class="footer">
         <span>${escapeHtml(spec.footerNote || spec.storeName)}</span>
-        <span>${escapeHtml(spec.generatedDate)}</span>
+        ${spec.generatedDate ? `<span>${escapeHtml(spec.generatedDate)}</span>` : '<span></span>'}
       </div>
     </body>
   </html>`;
@@ -1432,10 +1443,12 @@ export async function renderSpecToPdfBlob(spec: PrintableReportSpec, lang: Langu
     ctx.fillText(truncateText(spec.subtitle, 65), isAr ? pageW - marginX - 24 : marginX + 24, y + 102);
   }
 
-  ctx.fillStyle = '#FFFFFF';
-  ctx.font = '18px system-ui, sans-serif';
-  ctx.textAlign = isAr ? 'left' : 'right';
-  ctx.fillText(spec.generatedDate, isAr ? marginX + 24 : pageW - marginX - 24, y + 40);
+  if (spec.generatedDate) {
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '18px system-ui, sans-serif';
+    ctx.textAlign = isAr ? 'left' : 'right';
+    ctx.fillText(spec.generatedDate, isAr ? marginX + 24 : pageW - marginX - 24, y + 40);
+  }
 
   if (spec.watermark) {
     ctx.fillStyle = '#FEF3C7';
@@ -1601,6 +1614,19 @@ export async function renderSpecToPdfBlob(spec: PrintableReportSpec, lang: Langu
     }
 
     y += 18;
+  }
+
+  if (spec.paymentSummaryLine) {
+    ensureSpace(44);
+    ctx.fillStyle = '#0B1F16';
+    ctx.font = 'bold 17px system-ui, sans-serif';
+    ctx.textAlign = isAr ? 'left' : 'right';
+    ctx.fillText(
+      spec.paymentSummaryLine,
+      isAr ? marginX + 8 : pageW - marginX - 8,
+      y + 6
+    );
+    y += 32;
   }
 
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });

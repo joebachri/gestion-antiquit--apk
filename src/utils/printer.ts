@@ -323,9 +323,10 @@ export async function printThermalTicketBluetooth(
   y += 28;
 
   const isBl = invoice.documentType === 'bl';
+  const isCopy = (invoice.printCount || 0) > 0;
   ctx.font = 'bold 18px monospace';
   ctx.fillText(
-    `${isBl ? (isAr ? 'بيان تسليم' : 'BON DE LIVRAISON') : (isAr ? 'فاتورة' : 'FACTURE')} ${invoice.invoiceNumber}`,
+    `${isBl ? (isAr ? 'بيان تسليم' : 'BON DE LIVRAISON') : (isAr ? 'فاتورة' : 'FACTURE')} ${invoice.invoiceNumber}${isCopy ? (isAr ? ' [نسخة]' : ' [COPIE]') : ''}`,
     widthPx / 2,
     y
   );
@@ -367,7 +368,20 @@ export async function printThermalTicketBluetooth(
   ctx.fillText(`TOTAL (${invoice.quantity} art.)`, 10, y);
   ctx.textAlign = 'right';
   ctx.fillText(formatCurrency(invoice.totalPrice, currency, lang), widthPx - 10, y);
-  y += 30;
+  y += 24;
+
+  const payNames: Record<string, string> = isAr
+    ? { cash: 'نقداً', check: 'شيك', card: 'بطاقة', credit: 'آجل', transfer: 'تحويل', other: 'أخرى' }
+    : { cash: 'Espèces', check: 'Chèque', card: 'Carte', credit: 'Crédit', transfer: 'Virement', other: 'Autre' };
+  const splits = (invoice.paymentBreakdown || []).filter((s) => (Number(s.amount) || 0) > 0);
+  const payText =
+    splits.length > 1
+      ? `MODE DE PAIEMENT : ${splits.map((s) => `${payNames[s.method] || s.method} ${formatCurrency(s.amount, currency, lang)}`).join(' + ')}`
+      : `MODE DE PAIEMENT : ${payNames[splits[0]?.method || invoice.paymentMethod] || invoice.paymentMethod} .... ${formatCurrency(invoice.totalPrice, currency, lang)}`;
+  ctx.font = 'bold 14px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText(payText.slice(0, 44), widthPx - 10, y);
+  y += 26;
 
   ctx.textAlign = 'center';
   ctx.font = '14px sans-serif';

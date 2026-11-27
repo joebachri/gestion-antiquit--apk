@@ -453,7 +453,7 @@ export async function buildInvoiceReceiptBlob(
   ctx.font = 'bold 21px monospace';
   const isBlDoc = invoice.documentType === 'bl';
   ctx.fillText(
-    `${isBlDoc ? (isAr ? 'بيان تسليم (BL)' : 'BON DE LIVRAISON') : (isAr ? 'فاتورة' : 'FACTURE')}  ${invoice.invoiceNumber}`,
+    `${isBlDoc ? (isAr ? 'بيان تسليم (BL)' : 'BON DE LIVRAISON') : (isAr ? 'فاتورة' : 'FACTURE')}  ${invoice.invoiceNumber} · ${invoice.saleDate}`,
     44,
     110
   );
@@ -503,7 +503,6 @@ export async function buildInvoiceReceiptBlob(
     y += 34;
   };
 
-  drawMetaRow(isAr ? 'التاريخ / Date' : 'Date', invoice.saleDate);
   if (!isBlDoc && invoice.blNumber && invoice.blNumber !== invoice.invoiceNumber) {
     drawMetaRow(isAr ? 'بيان التسليم المرتبط / BL' : 'BL lié', invoice.blNumber);
   }
@@ -519,13 +518,6 @@ export async function buildInvoiceReceiptBlob(
   if (invoice.warehouseName) {
     drawMetaRow(isAr ? 'المستودع / Entrepôt' : 'Entrepôt / Magasin', invoice.warehouseName);
   }
-  const paymentSummary =
-    invoice.paymentBreakdown && invoice.paymentBreakdown.length > 1
-      ? invoice.paymentBreakdown
-          .map((b) => `${b.method.toUpperCase()} ${formatCurrency(b.amount, currency, lang)}`)
-          .join(' + ')
-      : invoice.paymentMethod.toUpperCase();
-  drawMetaRow(isAr ? 'الدفع / Paiement' : 'Mode de paiement', paymentSummary);
   if (invoice.notes) {
     drawMetaRow(isAr ? 'ملاحظات / Notes' : 'Notes', invoice.notes);
   }
@@ -594,15 +586,34 @@ export async function buildInvoiceReceiptBlob(
   ctx.textAlign = 'right';
   ctx.fillText(formatCurrency(invoice.totalPrice, currency, lang), canvas.width - 68, y + 57);
 
+  // Payment method right below total
+  const payNameMap: Record<string, string> = isAr
+    ? { cash: 'نقداً', check: 'شيك', card: 'بطاقة', credit: 'آجل', transfer: 'تحويل', other: 'أخرى' }
+    : { cash: 'Espèces', check: 'Chèque', card: 'Carte bancaire', credit: 'Crédit', transfer: 'Virement', other: 'Autre' };
+  const activeSplits = (invoice.paymentBreakdown || []).filter((b) => (Number(b.amount) || 0) > 0);
+  const payLine =
+    activeSplits.length > 1
+      ? `${isAr ? 'طريقة الدفع' : 'MODE DE PAIEMENT'} : ${activeSplits
+          .map((b) => `${payNameMap[b.method] || b.method} ........ ${formatCurrency(b.amount, currency, lang)}`)
+          .join(' + ')}`
+      : `${isAr ? 'طريقة الدفع' : 'MODE DE PAIEMENT'} : ${
+          payNameMap[activeSplits[0]?.method || invoice.paymentMethod] || invoice.paymentMethod
+        } ........ ${formatCurrency(invoice.totalPrice, currency, lang)}`;
+
+  ctx.fillStyle = '#0B1F16';
+  ctx.font = 'bold 18px system-ui, sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText(payLine, canvas.width - 52, y + 122);
+
   ctx.fillStyle = '#6B8A79';
   ctx.font = '17px system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.fillText(
     isAr
-      ? `شكراً لثقتكم${isCopy ? ' — نسخة مطابقة للأصل' : isBlDoc ? ' — بيان تسليم رقمي' : ' — فاتورة رقمية'}`
-      : `Merci pour votre confiance${isCopy ? ' — COPIE CONFORME' : isBlDoc ? ' — Bon de livraison numérique' : ' — Facture numérique'}`,
+      ? `شكراً لثقتكم${isCopy ? ' — نسخة مطابقة للأصل' : isBlDoc ? ' — بيان تسليم' : ''}`
+      : `Merci pour votre confiance${isCopy ? ' — COPIE' : isBlDoc ? ' — Bon de livraison' : ''}`,
     canvas.width / 2,
-    canvas.height - 32
+    canvas.height - 26
   );
 
   return new Promise<Blob>((resolve, reject) => {

@@ -592,6 +592,14 @@ export function ReportsPrintModal({
                     </div>
                   </div>
                 ))}
+
+                {previewSpec.paymentSummaryLine && (
+                  <div className="flex justify-end">
+                    <div className="tabular-nums rounded-lg border border-[#115E3B]/30 bg-[#ECF7F1] px-3 py-1.5 text-xs font-bold text-[#0B1F16] dark:border-[#34D399]/30 dark:bg-[#132B20] dark:text-[#F2F9F5]">
+                      {previewSpec.paymentSummaryLine}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Action Buttons */}
