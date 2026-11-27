@@ -13,6 +13,7 @@ import {
   FileSpreadsheet,
   FileText,
   Filter,
+  History,
   Landmark,
   Pencil,
   Printer,
@@ -239,6 +240,14 @@ export function PosSalesModal({
   const [dailyValidated, setDailyValidated] = useState(false);
   const [dailyRunningOutput, setDailyRunningOutput] = useState(false);
 
+  // BL History & Copy Reprint Modal inside CAISSE
+  const [blHistoryOpen, setBlHistoryOpen] = useState(false);
+  const [blHistorySearch, setBlHistorySearch] = useState('');
+  const [blHistoryDate, setBlHistoryDate] = useState('');
+  const [blHistoryProductId, setBlHistoryProductId] = useState('');
+  const [blHistoryCustomerId, setBlHistoryCustomerId] = useState('');
+  const [blHistoryPrintedOnly, setBlHistoryPrintedOnly] = useState(false);
+
   // Filter states for Factures mode
   const [searchQuery, setSearchQuery] = useState('');
   const [filterFrom, setFilterFrom] = useState('');
@@ -286,6 +295,12 @@ export function PosSalesModal({
     setDailyStartDate(todayStr);
     setDailyEndDate(todayStr);
     setDailyValidated(false);
+    setBlHistoryOpen(false);
+    setBlHistorySearch('');
+    setBlHistoryDate('');
+    setBlHistoryProductId('');
+    setBlHistoryCustomerId('');
+    setBlHistoryPrintedOnly(false);
   }, [isOpen, initialView, summary.nextBlSeq]);
 
   // Close product search dropdown on outside click
@@ -403,6 +418,55 @@ export function PosSalesModal({
     storeName,
     currency,
     lang,
+  ]);
+
+  const blHistoryMatches = useMemo(() => {
+    const q = blHistorySearch.trim().toLowerCase();
+    return invoices.filter((inv) => {
+      const hasBl = inv.documentType === 'bl' || Boolean(inv.blNumber);
+      if (!hasBl) return false;
+      if (blHistoryPrintedOnly && (inv.printCount || 0) <= 0) return false;
+      const d = (inv.saleDate || '').slice(0, 10);
+      if (blHistoryDate && d !== blHistoryDate) return false;
+      if (blHistoryCustomerId === '__walk_in__') {
+        if (inv.customerId) return false;
+      } else if (blHistoryCustomerId && inv.customerId !== blHistoryCustomerId) {
+        return false;
+      }
+      const items = getInvoiceLineItems(inv);
+      if (
+        blHistoryProductId &&
+        inv.productId !== blHistoryProductId &&
+        !items.some((li) => li.productId === blHistoryProductId)
+      ) {
+        return false;
+      }
+      if (q) {
+        const blCode = (inv.blNumber || inv.invoiceNumber || '').toLowerCase();
+        const matchText =
+          blCode.includes(q) ||
+          inv.invoiceNumber.toLowerCase().includes(q) ||
+          d.includes(q) ||
+          (inv.customerName || '').toLowerCase().includes(q) ||
+          (inv.customerPhone || '').toLowerCase().includes(q) ||
+          (inv.productCode || '').toLowerCase().includes(q) ||
+          (inv.productName || '').toLowerCase().includes(q) ||
+          items.some(
+            (li) =>
+              li.productCode.toLowerCase().includes(q) ||
+              li.productName.toLowerCase().includes(q)
+          );
+        if (!matchText) return false;
+      }
+      return true;
+    });
+  }, [
+    invoices,
+    blHistorySearch,
+    blHistoryDate,
+    blHistoryProductId,
+    blHistoryCustomerId,
+    blHistoryPrintedOnly,
   ]);
 
   // Factures filtering
@@ -1102,18 +1166,29 @@ export function PosSalesModal({
                     </button>
                   </div>
 
-                  {/* 0 - Recette journalière du caisse */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDailyValidated(false);
-                      setDailySummaryOpen(true);
-                    }}
-                    className="flex min-h-[42px] items-center gap-2 rounded-xl border border-[#115E3B]/35 bg-[#ECF7F1] px-4 text-xs font-bold text-[#115E3B] hover:bg-[#DCF0E4] whitespace-nowrap dark:border-[#10B981]/35 dark:bg-[#132B20] dark:text-[#34D399]"
-                  >
-                    <BarChart3 className="h-4 w-4 shrink-0" />
-                    <span>{t.posDailySummaryBtn}</span>
-                  </button>
+                  {/* Right actions: BL History (Reprint Copy) + Recette journalière du caisse */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setBlHistoryOpen(true)}
+                      className="flex min-h-[42px] items-center gap-2 rounded-xl border border-[#DCE7E0] bg-white px-3.5 text-xs font-bold text-[#0B1F16] hover:border-[#115E3B] hover:bg-[#ECF7F1] whitespace-nowrap dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5]"
+                    >
+                      <History className="h-4 w-4 shrink-0 text-[#115E3B] dark:text-[#34D399]" />
+                      <span>{t.posBlHistoryBtn}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDailyValidated(false);
+                        setDailySummaryOpen(true);
+                      }}
+                      className="flex min-h-[42px] items-center gap-2 rounded-xl border border-[#115E3B]/35 bg-[#ECF7F1] px-4 text-xs font-bold text-[#115E3B] hover:bg-[#DCF0E4] whitespace-nowrap dark:border-[#10B981]/35 dark:bg-[#132B20] dark:text-[#34D399]"
+                    >
+                      <BarChart3 className="h-4 w-4 shrink-0" />
+                      <span>{t.posDailySummaryBtn}</span>
+                    </button>
+                  </div>
                 </div>
 
                 {/* Product Search Engine Bar (Item 1) + BL Table (Items 1-6) */}
@@ -2683,6 +2758,283 @@ export function PosSalesModal({
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* SUB-MODAL: BL HISTORY & REPRINT COPY (INSIDE CAISSE) */}
+      {blHistoryOpen && (
+        <div
+          className="fixed inset-0 z-[60] flex items-end justify-center bg-[#06150E]/65 p-0 backdrop-blur-sm sm:items-center sm:p-4"
+          onClick={() => setBlHistoryOpen(false)}
+        >
+          <div
+            className="flex max-h-[92dvh] w-full max-w-3xl flex-col overflow-hidden rounded-t-3xl border border-[#DCE7E0] bg-white shadow-2xl sm:rounded-3xl dark:border-[#1E3A2D] dark:bg-[#0F2119]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-[#DCE7E0] px-5 py-3.5 dark:border-[#1E3A2D]">
+              <div className="flex items-start gap-2.5">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#ECF7F1] text-[#115E3B] dark:bg-[#132B20] dark:text-[#34D399]">
+                  <History className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-display text-base font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+                    {t.posBlHistoryTitle}
+                  </h3>
+                  <p className="mt-0.5 text-[11px] text-[#335947] dark:text-[#9EC0AE]">
+                    {t.posBlHistorySubtitle}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBlHistoryOpen(false)}
+                className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-xl text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE]"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 space-y-3.5 overflow-y-auto p-4 sm:p-5">
+              {/* Search & Criteria Controls */}
+              <div className="space-y-2.5 rounded-2xl border border-[#DCE7E0] bg-[#F7FAF8] p-3.5 dark:border-[#1E3A2D] dark:bg-[#091611]">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <div className="relative flex-1">
+                    <Search
+                      className={`pointer-events-none absolute top-1/2 h-4 w-4 -translate-y-1/2 text-[#6B8A79] ${
+                        lang === 'ar' ? 'right-3.5' : 'left-3.5'
+                      }`}
+                    />
+                    <input
+                      type="text"
+                      value={blHistorySearch}
+                      onChange={(e) => setBlHistorySearch(e.target.value)}
+                      placeholder={t.posBlHistorySearchPlaceholder}
+                      className={`${inputClass} ${lang === 'ar' ? 'pr-10' : 'pl-10'}`}
+                      autoFocus
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-1 rounded-xl border border-[#DCE7E0] bg-white p-1 dark:border-[#1E3A2D] dark:bg-[#0F2119]">
+                    <button
+                      type="button"
+                      onClick={() => setBlHistoryPrintedOnly(false)}
+                      className={`min-h-[38px] rounded-lg px-2.5 text-xs font-bold whitespace-nowrap transition-colors ${
+                        !blHistoryPrintedOnly
+                          ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
+                          : 'text-[#335947] dark:text-[#9EC0AE]'
+                      }`}
+                    >
+                      {t.posBlHistoryAll}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBlHistoryPrintedOnly(true)}
+                      className={`min-h-[38px] rounded-lg px-2.5 text-xs font-bold whitespace-nowrap transition-colors ${
+                        blHistoryPrintedOnly
+                          ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
+                          : 'text-[#335947] dark:text-[#9EC0AE]'
+                      }`}
+                    >
+                      {t.posBlHistoryPrintedOnly}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <div>
+                    <label className="mb-1 block text-[11px] font-semibold text-[#335947] dark:text-[#9EC0AE]">
+                      {t.addedDateLabel.replace(/^9\.\s*/, '')}
+                    </label>
+                    <input
+                      type="date"
+                      value={blHistoryDate}
+                      onChange={(e) => setBlHistoryDate(e.target.value)}
+                      className={inputClass}
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[11px] font-semibold text-[#335947] dark:text-[#9EC0AE]">
+                      {t.adjustmentFilterProduct}
+                    </label>
+                    <select
+                      value={blHistoryProductId}
+                      onChange={(e) => setBlHistoryProductId(e.target.value)}
+                      className={inputClass}
+                    >
+                      <option value="">{t.posFilterAll}</option>
+                      {products.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.code} — {p.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[11px] font-semibold text-[#335947] dark:text-[#9EC0AE]">
+                      {t.adjustmentFilterCustomer}
+                    </label>
+                    <select
+                      value={blHistoryCustomerId}
+                      onChange={(e) => setBlHistoryCustomerId(e.target.value)}
+                      className={inputClass}
+                    >
+                      <option value="">{t.posFilterAll}</option>
+                      <option value="__walk_in__">{t.posWalkInShort}</option>
+                      {customers.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.code} — {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {(blHistorySearch ||
+                  blHistoryDate ||
+                  blHistoryProductId ||
+                  blHistoryCustomerId ||
+                  blHistoryPrintedOnly) && (
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBlHistorySearch('');
+                        setBlHistoryDate('');
+                        setBlHistoryProductId('');
+                        setBlHistoryCustomerId('');
+                        setBlHistoryPrintedOnly(false);
+                      }}
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-[#115E3B] hover:underline dark:text-[#34D399]"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                      <span>{t.purchasesFilterReset}</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Matching BLs List */}
+              {blHistoryMatches.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-[#DCE7E0] bg-white px-4 py-10 text-center text-sm text-[#6B8A79] dark:border-[#1E3A2D] dark:bg-[#091611]">
+                  {t.posBlHistoryEmpty}
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {blHistoryMatches.map((inv) => {
+                    const items = getInvoiceLineItems(inv);
+                    const blNumDisplay = inv.blNumber || inv.invoiceNumber;
+                    return (
+                      <div
+                        key={inv.id}
+                        className="flex flex-col gap-3 rounded-2xl border border-[#DCE7E0] bg-white p-3.5 sm:flex-row sm:items-center sm:justify-between dark:border-[#1E3A2D] dark:bg-[#091611]"
+                      >
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-mono-code rounded-md bg-[#ECF7F1] px-2 py-0.5 text-xs font-bold text-[#115E3B] dark:bg-[#132B20] dark:text-[#34D399]">
+                              {blNumDisplay}
+                            </span>
+                            {inv.documentType === 'facture' && inv.invoiceNumber !== blNumDisplay && (
+                              <span className="font-mono-code text-[11px] font-semibold text-[#335947] dark:text-[#9EC0AE]">
+                                ({inv.invoiceNumber})
+                              </span>
+                            )}
+                            <span className="tabular-nums text-xs font-medium text-[#335947] dark:text-[#9EC0AE]">
+                              {inv.saleDate}
+                            </span>
+                            <span className="text-xs font-semibold text-[#0B1F16] dark:text-[#F2F9F5]">
+                              · {inv.customerName || t.posWalkInShort}
+                            </span>
+                            {(inv.printCount || 0) > 0 && (
+                              <span className="text-[11px] font-bold text-amber-700 dark:text-amber-300">
+                                · {t.posBlHistoryPrintedCount} ({inv.printCount})
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="space-y-0.5">
+                            {items.map((li, idx) => (
+                              <div
+                                key={`${li.productId}-${idx}`}
+                                className="flex flex-wrap items-center gap-x-2 text-xs text-[#0B1F16] dark:text-[#F2F9F5]"
+                              >
+                                <span className="font-mono-code font-semibold text-[#115E3B] dark:text-[#34D399]">
+                                  {li.productCode}
+                                </span>
+                                <span className="font-medium">{li.productName}</span>
+                                <span className="tabular-nums text-[#335947] dark:text-[#9EC0AE]">
+                                  ({formatNumber(li.quantity, lang)} ×{' '}
+                                  {formatCurrency(li.unitPrice, currency, lang)})
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+
+                          <div className="tabular-nums text-xs text-[#335947] dark:text-[#9EC0AE]">
+                            {inv.paymentBreakdown && inv.paymentBreakdown.length > 0
+                              ? inv.paymentBreakdown
+                                  .map(
+                                    (s) =>
+                                      `${paymentLabel(s.method)}: ${formatCurrency(s.amount, currency, lang)}`
+                                  )
+                                  .join(' + ')
+                              : paymentLabel(inv.paymentMethod)}
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center justify-between gap-2 sm:flex-col sm:items-end">
+                          <span className="tabular-nums text-base font-extrabold text-[#115E3B] dark:text-[#34D399]">
+                            {formatCurrency(inv.totalPrice, currency, lang)}
+                          </span>
+
+                          <div className="flex items-center gap-1.5">
+                            {onPrintInvoice && (
+                              <button
+                                type="button"
+                                disabled={printingId === inv.id}
+                                onClick={async () => {
+                                  setPrintingId(inv.id);
+                                  try {
+                                    await onPrintInvoice(inv, true);
+                                  } finally {
+                                    setPrintingId(null);
+                                  }
+                                }}
+                                className="flex min-h-[42px] items-center gap-1.5 rounded-xl bg-[#115E3B] px-3 text-xs font-bold text-white hover:bg-[#0D4A2E] disabled:opacity-60 whitespace-nowrap dark:bg-[#10B981] dark:text-[#052E1C]"
+                              >
+                                <Printer className="h-3.5 w-3.5 shrink-0" />
+                                <span>{t.posBlHistoryReprintCopy}</span>
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const blob = await buildInvoiceReceiptBlob(
+                                  inv,
+                                  storeName,
+                                  currency,
+                                  lang,
+                                  { isCopy: true }
+                                );
+                                await saveOrShareBlob(
+                                  blob,
+                                  `${blNumDisplay.toLowerCase()}-copie.png`,
+                                  `${blNumDisplay} (${t.invoiceCopyBadge})`
+                                );
+                              }}
+                              title={`${t.posDownloadReceipt} (${t.invoiceCopyBadge})`}
+                              className="flex min-h-[42px] min-w-[42px] items-center justify-center rounded-xl border border-[#DCE7E0] bg-white text-[#0B1F16] hover:bg-[#ECF7F1] dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5]"
+                            >
+                              <Download className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

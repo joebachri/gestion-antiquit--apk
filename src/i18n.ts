@@ -771,6 +771,16 @@ export const translations = {
     posConvertedFromBlPrefix: 'Issu du',
     reportTypeCashSummaryTitle: '11. Recette journalière de la caisse',
     posEmptyBlHint: 'Recherchez un article ci-dessus ou scannez un QR code pour commencer ce BL.',
+    posBlHistoryBtn: 'Historique BL / Réimprimer',
+    posBlHistoryTitle: 'Accès & Réimpression des BL (Copie)',
+    posBlHistorySubtitle:
+      'Recherchez un BL par numéro, date, code produit, nom d’article ou client, et réimprimez-le marqué COPIE.',
+    posBlHistorySearchPlaceholder: 'N° BL, code produit, article, client...',
+    posBlHistoryAll: 'Tous les BL',
+    posBlHistoryPrintedOnly: 'Déjà imprimés',
+    posBlHistoryEmpty: 'Aucun BL ne correspond aux critères sélectionnés.',
+    posBlHistoryReprintCopy: 'Réimprimer (COPIE)',
+    posBlHistoryPrintedCount: 'Imprimé',
   },
   ar: {
     brandName: 'إدارة التحف',
@@ -1532,6 +1542,16 @@ export const translations = {
     posConvertedFromBlPrefix: 'محوّل من',
     reportTypeCashSummaryTitle: '11. ملخص إيرادات الصندوق',
     posEmptyBlHint: 'ابحث عن منتج أعلاه أو امسح رمز QR لبدء بيان التسليم.',
+    posBlHistoryBtn: 'سجل BL / إعادة طباعة',
+    posBlHistoryTitle: 'سجل وإعادة طباعة بيانات التسليم (نسخة)',
+    posBlHistorySubtitle:
+      'ابحث عن بيان تسليم برقم BL أو التاريخ أو رمز/اسم المنتج أو العميل، وأعد طباعته بوسم نسخة.',
+    posBlHistorySearchPlaceholder: 'رقم BL أو رمز المنتج أو الاسم أو العميل...',
+    posBlHistoryAll: 'كل بيانات التسليم',
+    posBlHistoryPrintedOnly: 'المطبوعة سابقاً',
+    posBlHistoryEmpty: 'لا يوجد أي بيان تسليم مطابق لمعايير البحث.',
+    posBlHistoryReprintCopy: 'إعادة طباعة (نسخة)',
+    posBlHistoryPrintedCount: 'طُبع',
   },
 } as const;
 
