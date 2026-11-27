@@ -69,6 +69,14 @@ export interface ShopSettings {
   facebookHandle?: string;
   instagramHandle?: string;
   whatsappPhone?: string;
+  companyAddress?: string;
+  companyMobile?: string;
+  companyPhone?: string;
+  companyWebsite?: string;
+  companyRc?: string;
+  companyIce?: string;
+  companyIf?: string;
+  companyCnss?: string;
   printerMode?: PrinterMode;
   printerPaper?: PrinterPaperFormat;
   printerName?: string;

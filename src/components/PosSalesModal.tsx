@@ -41,6 +41,7 @@ import type {
   PosSummary,
   Product,
   PurchasePaymentMethod,
+  ShopSettings,
   Warehouse,
 } from '../types';
 import { formatCurrency, formatNumber, translations } from '../i18n';
@@ -57,6 +58,7 @@ interface PosSalesModalProps {
   lang: Language;
   currency: string;
   storeName?: string;
+  shopSettings?: Partial<ShopSettings>;
   products: Product[];
   customers: Customer[];
   warehouses?: Warehouse[];
@@ -146,6 +148,7 @@ export function PosSalesModal({
   lang,
   currency,
   storeName = '',
+  shopSettings,
   products,
   customers,
   warehouses = [],
@@ -1065,7 +1068,7 @@ export function PosSalesModal({
                               storeName,
                               currency,
                               lang,
-                              { isCopy: lastIsCopy }
+                              { isCopy: lastIsCopy, companySettings: shopSettings }
                             );
                             await saveOrShareBlob(
                               blob,
@@ -2132,7 +2135,7 @@ export function PosSalesModal({
                                   storeName,
                                   currency,
                                   lang,
-                                  { isCopy }
+                                  { isCopy, companySettings: shopSettings }
                                 );
                                 await saveOrShareBlob(
                                   blob,
@@ -3013,7 +3016,7 @@ export function PosSalesModal({
                                   storeName,
                                   currency,
                                   lang,
-                                  { isCopy: true }
+                                  { isCopy: true, companySettings: shopSettings }
                                 );
                                 await saveOrShareBlob(
                                   blob,

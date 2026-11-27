@@ -3233,6 +3233,14 @@ async function startServer() {
       facebookHandle: map.get('facebook_handle') ?? '',
       instagramHandle: map.get('instagram_handle') ?? '',
       whatsappPhone: map.get('whatsapp_phone') ?? '',
+      companyAddress: map.get('company_address') ?? '',
+      companyMobile: map.get('company_mobile') ?? '',
+      companyPhone: map.get('company_phone') ?? '',
+      companyWebsite: map.get('company_website') ?? '',
+      companyRc: map.get('company_rc') ?? '',
+      companyIce: map.get('company_ice') ?? '',
+      companyIf: map.get('company_if') ?? '',
+      companyCnss: map.get('company_cnss') ?? '',
       printerMode: map.get('printer_mode') || 'pdf_system',
       printerPaper: map.get('printer_paper') || 'a4',
       printerName: map.get('printer_name') ?? '',
@@ -3255,6 +3263,14 @@ async function startServer() {
       facebookHandle?: string;
       instagramHandle?: string;
       whatsappPhone?: string;
+      companyAddress?: string;
+      companyMobile?: string;
+      companyPhone?: string;
+      companyWebsite?: string;
+      companyRc?: string;
+      companyIce?: string;
+      companyIf?: string;
+      companyCnss?: string;
       printerMode?: string;
       printerPaper?: string;
       printerName?: string;
@@ -3295,6 +3311,46 @@ async function startServer() {
     if (typeof body.whatsappPhone === 'string') {
       db.prepare("INSERT OR REPLACE INTO shop_settings (key, value) VALUES ('whatsapp_phone', ?)").run(
         body.whatsappPhone.trim().slice(0, 40)
+      );
+    }
+    if (typeof body.companyAddress === 'string') {
+      db.prepare("INSERT OR REPLACE INTO shop_settings (key, value) VALUES ('company_address', ?)").run(
+        body.companyAddress.trim().slice(0, 240)
+      );
+    }
+    if (typeof body.companyMobile === 'string') {
+      db.prepare("INSERT OR REPLACE INTO shop_settings (key, value) VALUES ('company_mobile', ?)").run(
+        body.companyMobile.trim().slice(0, 40)
+      );
+    }
+    if (typeof body.companyPhone === 'string') {
+      db.prepare("INSERT OR REPLACE INTO shop_settings (key, value) VALUES ('company_phone', ?)").run(
+        body.companyPhone.trim().slice(0, 40)
+      );
+    }
+    if (typeof body.companyWebsite === 'string') {
+      db.prepare("INSERT OR REPLACE INTO shop_settings (key, value) VALUES ('company_website', ?)").run(
+        body.companyWebsite.trim().slice(0, 240)
+      );
+    }
+    if (typeof body.companyRc === 'string') {
+      db.prepare("INSERT OR REPLACE INTO shop_settings (key, value) VALUES ('company_rc', ?)").run(
+        body.companyRc.trim().slice(0, 60)
+      );
+    }
+    if (typeof body.companyIce === 'string') {
+      db.prepare("INSERT OR REPLACE INTO shop_settings (key, value) VALUES ('company_ice', ?)").run(
+        body.companyIce.trim().slice(0, 60)
+      );
+    }
+    if (typeof body.companyIf === 'string') {
+      db.prepare("INSERT OR REPLACE INTO shop_settings (key, value) VALUES ('company_if', ?)").run(
+        body.companyIf.trim().slice(0, 60)
+      );
+    }
+    if (typeof body.companyCnss === 'string') {
+      db.prepare("INSERT OR REPLACE INTO shop_settings (key, value) VALUES ('company_cnss', ?)").run(
+        body.companyCnss.trim().slice(0, 60)
       );
     }
     if (typeof body.printerMode === 'string' && ['pdf_system', 'thermal_bt', 'browser'].includes(body.printerMode)) {

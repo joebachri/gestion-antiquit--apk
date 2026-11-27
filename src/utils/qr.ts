@@ -1,5 +1,5 @@
 import QRCode from 'qrcode';
-import type { Language, PosInvoice, Product, ProductDigitalFile } from '../types';
+import type { Language, PosInvoice, Product, ProductDigitalFile, ShopSettings } from '../types';
 import { formatCurrency } from '../i18n';
 
 declare const __DEFAULT_PUBLIC_APP_URL__: string;
@@ -406,10 +406,47 @@ export async function buildInvoiceReceiptBlob(
   storeName: string,
   currency: string,
   lang: Language,
-  options?: { isCopy?: boolean }
+  options?: { isCopy?: boolean; companySettings?: Partial<ShopSettings> }
 ): Promise<Blob> {
   const isAr = lang === 'ar';
   const isCopy = Boolean(options?.isCopy || (invoice.printCount || 0) > 0);
+  const cs = options?.companySettings;
+  const cleanName = (cs?.storeName || storeName || '').trim();
+  const companyLines: string[] = [];
+  const line1 = [cleanName, (cs?.companyAddress || '').trim()].filter(Boolean).join(' — ');
+  if (
+    cs?.companyAddress?.trim() ||
+    cs?.companyMobile?.trim() ||
+    cs?.whatsappPhone?.trim() ||
+    cs?.companyPhone?.trim() ||
+    cs?.companyWebsite?.trim() ||
+    cs?.companyRc?.trim() ||
+    cs?.companyIce?.trim() ||
+    cs?.companyIf?.trim() ||
+    cs?.companyCnss?.trim() ||
+    cs?.storeName?.trim()
+  ) {
+    if (line1) companyLines.push(line1);
+    const contactLine = [
+      cs?.companyMobile?.trim() ? `${isAr ? 'موبايل' : 'Mobile'}: ${cs.companyMobile.trim()}` : '',
+      cs?.whatsappPhone?.trim() ? `WhatsApp: ${cs.whatsappPhone.trim()}` : '',
+      cs?.companyPhone?.trim() ? `${isAr ? 'الهاتف' : 'Tél'}: ${cs.companyPhone.trim()}` : '',
+      cs?.companyWebsite?.trim() ? cs.companyWebsite.trim() : '',
+    ]
+      .filter(Boolean)
+      .join(' · ');
+    if (contactLine) companyLines.push(contactLine);
+    const legalLine = [
+      cs?.companyRc?.trim() ? `RC: ${cs.companyRc.trim()}` : '',
+      cs?.companyIce?.trim() ? `ICE: ${cs.companyIce.trim()}` : '',
+      cs?.companyIf?.trim() ? `IF: ${cs.companyIf.trim()}` : '',
+      cs?.companyCnss?.trim() ? `CNSS: ${cs.companyCnss.trim()}` : '',
+    ]
+      .filter(Boolean)
+      .join(' · ');
+    if (legalLine) companyLines.push(legalLine);
+  }
+
   const items =
     invoice.items && invoice.items.length > 0
       ? invoice.items
@@ -428,8 +465,9 @@ export async function buildInvoiceReceiptBlob(
         ];
 
   const metaCount =
-    3 + (invoice.customerName ? 1 : 0) + (invoice.warehouseName ? 1 : 0) + (invoice.notes ? 1 : 0);
-  const canvasHeight = Math.max(820, 380 + metaCount * 54 + items.length * 64 + 170);
+    2 + (invoice.customerName ? 1 : 0) + (invoice.warehouseName ? 1 : 0) + (invoice.notes ? 1 : 0);
+  const companyFooterHeight = companyLines.length > 0 ? companyLines.length * 24 + 28 : 0;
+  const canvasHeight = Math.max(820, 380 + metaCount * 54 + items.length * 64 + 190 + companyFooterHeight);
 
   const canvas = document.createElement('canvas');
   canvas.width = 760;
@@ -608,13 +646,31 @@ export async function buildInvoiceReceiptBlob(
   ctx.fillStyle = '#6B8A79';
   ctx.font = '17px system-ui, sans-serif';
   ctx.textAlign = 'center';
+  const thanksY = companyLines.length > 0 ? canvas.height - companyFooterHeight - 16 : canvas.height - 26;
   ctx.fillText(
     isAr
       ? `شكراً لثقتكم${isCopy ? ' — نسخة مطابقة للأصل' : isBlDoc ? ' — بيان تسليم' : ''}`
       : `Merci pour votre confiance${isCopy ? ' — COPIE' : isBlDoc ? ' — Bon de livraison' : ''}`,
     canvas.width / 2,
-    canvas.height - 26
+    thanksY
   );
+
+  if (companyLines.length > 0) {
+    const lineTop = thanksY + 14;
+    ctx.strokeStyle = '#DCE7E0';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(44, lineTop);
+    ctx.lineTo(canvas.width - 44, lineTop);
+    ctx.stroke();
+
+    companyLines.forEach((line, idx) => {
+      ctx.fillStyle = idx === 0 ? '#0B1F16' : '#335947';
+      ctx.font = idx === 0 ? 'bold 14px system-ui, sans-serif' : '13px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(line.length > 88 ? `${line.slice(0, 87)}…` : line, canvas.width / 2, lineTop + 22 + idx * 22);
+    });
+  }
 
   return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob((blob) => {

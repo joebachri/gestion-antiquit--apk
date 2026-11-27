@@ -24,6 +24,14 @@ interface LogoModalProps {
   facebookHandle?: string;
   instagramHandle?: string;
   whatsappPhone?: string;
+  companyAddress?: string;
+  companyMobile?: string;
+  companyPhone?: string;
+  companyWebsite?: string;
+  companyRc?: string;
+  companyIce?: string;
+  companyIf?: string;
+  companyCnss?: string;
   printerMode?: PrinterMode;
   printerPaper?: PrinterPaperFormat;
   printerName?: string;
@@ -50,6 +58,14 @@ export function LogoModal({
   facebookHandle = '',
   instagramHandle = '',
   whatsappPhone = '',
+  companyAddress = '',
+  companyMobile = '',
+  companyPhone = '',
+  companyWebsite = '',
+  companyRc = '',
+  companyIce = '',
+  companyIf = '',
+  companyCnss = '',
   printerMode = 'pdf_system',
   printerPaper = 'a4',
   printerName = '',
@@ -72,6 +88,14 @@ export function LogoModal({
   const [draftFacebookHandle, setDraftFacebookHandle] = useState(facebookHandle);
   const [draftInstagramHandle, setDraftInstagramHandle] = useState(instagramHandle);
   const [draftWhatsappPhone, setDraftWhatsappPhone] = useState(whatsappPhone);
+  const [draftCompanyAddress, setDraftCompanyAddress] = useState(companyAddress);
+  const [draftCompanyMobile, setDraftCompanyMobile] = useState(companyMobile);
+  const [draftCompanyPhone, setDraftCompanyPhone] = useState(companyPhone);
+  const [draftCompanyWebsite, setDraftCompanyWebsite] = useState(companyWebsite);
+  const [draftCompanyRc, setDraftCompanyRc] = useState(companyRc);
+  const [draftCompanyIce, setDraftCompanyIce] = useState(companyIce);
+  const [draftCompanyIf, setDraftCompanyIf] = useState(companyIf);
+  const [draftCompanyCnss, setDraftCompanyCnss] = useState(companyCnss);
   const [draftPrinterMode, setDraftPrinterMode] = useState<PrinterMode>(printerMode);
   const [draftPrinterPaper, setDraftPrinterPaper] = useState<PrinterPaperFormat>(printerPaper);
   const [draftPrinterName, setDraftPrinterName] = useState(printerName);
@@ -88,6 +112,14 @@ export function LogoModal({
       setDraftFacebookHandle(facebookHandle);
       setDraftInstagramHandle(instagramHandle);
       setDraftWhatsappPhone(whatsappPhone);
+      setDraftCompanyAddress(companyAddress);
+      setDraftCompanyMobile(companyMobile);
+      setDraftCompanyPhone(companyPhone);
+      setDraftCompanyWebsite(companyWebsite);
+      setDraftCompanyRc(companyRc);
+      setDraftCompanyIce(companyIce);
+      setDraftCompanyIf(companyIf);
+      setDraftCompanyCnss(companyCnss);
       setDraftPrinterMode(printerMode);
       setDraftPrinterPaper(printerPaper);
       setDraftPrinterName(printerName);
@@ -102,6 +134,14 @@ export function LogoModal({
     facebookHandle,
     instagramHandle,
     whatsappPhone,
+    companyAddress,
+    companyMobile,
+    companyPhone,
+    companyWebsite,
+    companyRc,
+    companyIce,
+    companyIf,
+    companyCnss,
     printerMode,
     printerPaper,
     printerName,
@@ -139,6 +179,14 @@ export function LogoModal({
         facebookHandle: cleanFb,
         instagramHandle: normalizedIg,
         whatsappPhone: draftWhatsappPhone.trim(),
+        companyAddress: draftCompanyAddress.trim(),
+        companyMobile: draftCompanyMobile.trim(),
+        companyPhone: draftCompanyPhone.trim(),
+        companyWebsite: draftCompanyWebsite.trim(),
+        companyRc: draftCompanyRc.trim(),
+        companyIce: draftCompanyIce.trim(),
+        companyIf: draftCompanyIf.trim(),
+        companyCnss: draftCompanyCnss.trim(),
         printerMode: draftPrinterMode,
         printerPaper: draftPrinterPaper,
         printerName: draftPrinterName.trim(),
@@ -341,6 +389,131 @@ export function LogoModal({
             </p>
           </div>
 
+          {/* Company Coordinates & Legal Identifiers (Bottom of BL) */}
+          <div className="mb-5 space-y-3 rounded-2xl border border-[#DCE7E0] bg-[#F7FAF8] p-4 dark:border-[#1E3A2D] dark:bg-[#091611]">
+            <div>
+              <h3 className="text-xs font-bold text-[#115E3B] dark:text-[#34D399]">
+                {t.companyInfoSectionTitle}
+              </h3>
+              <p className="mt-0.5 text-[11px] leading-relaxed text-[#335947] dark:text-[#9EC0AE]">
+                {t.companyInfoSectionHint}
+              </p>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-[11px] font-semibold text-[#335947] dark:text-[#9EC0AE]">
+                {t.companyAddressLabel}
+              </label>
+              <input
+                type="text"
+                value={draftCompanyAddress}
+                onChange={(e) => setDraftCompanyAddress(e.target.value)}
+                placeholder={t.companyAddressPlaceholder}
+                maxLength={240}
+                className="min-h-[42px] w-full rounded-xl border border-[#DCE7E0] bg-white px-3 text-sm text-[#0B1F16] placeholder:text-[#6B8A79] focus:border-[#115E3B] focus:outline-none dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5] dark:placeholder:text-[#8FB39E] dark:focus:border-[#10B981]"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-[11px] font-semibold text-[#335947] dark:text-[#9EC0AE]">
+                  {t.companyMobileLabel}
+                </label>
+                <input
+                  type="tel"
+                  value={draftCompanyMobile}
+                  onChange={(e) => setDraftCompanyMobile(e.target.value)}
+                  placeholder={t.companyMobilePlaceholder}
+                  maxLength={40}
+                  className="min-h-[42px] w-full rounded-xl border border-[#DCE7E0] bg-white px-3 text-sm text-[#0B1F16] placeholder:text-[#6B8A79] focus:border-[#115E3B] focus:outline-none dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5] dark:placeholder:text-[#8FB39E] dark:focus:border-[#10B981]"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-[11px] font-semibold text-[#335947] dark:text-[#9EC0AE]">
+                  {t.companyPhoneLabel}
+                </label>
+                <input
+                  type="tel"
+                  value={draftCompanyPhone}
+                  onChange={(e) => setDraftCompanyPhone(e.target.value)}
+                  placeholder={t.companyPhonePlaceholder}
+                  maxLength={40}
+                  className="min-h-[42px] w-full rounded-xl border border-[#DCE7E0] bg-white px-3 text-sm text-[#0B1F16] placeholder:text-[#6B8A79] focus:border-[#115E3B] focus:outline-none dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5] dark:placeholder:text-[#8FB39E] dark:focus:border-[#10B981]"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-[11px] font-semibold text-[#335947] dark:text-[#9EC0AE]">
+                {t.companyWebsiteLabel}
+              </label>
+              <input
+                type="url"
+                dir="ltr"
+                value={draftCompanyWebsite}
+                onChange={(e) => setDraftCompanyWebsite(e.target.value)}
+                placeholder={t.companyWebsitePlaceholder}
+                maxLength={240}
+                className="min-h-[42px] w-full rounded-xl border border-[#DCE7E0] bg-white px-3 text-sm text-[#0B1F16] placeholder:text-[#6B8A79] focus:border-[#115E3B] focus:outline-none dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5] dark:placeholder:text-[#8FB39E] dark:focus:border-[#10B981]"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-[11px] font-semibold text-[#335947] dark:text-[#9EC0AE]">
+                  {t.companyRcLabel}
+                </label>
+                <input
+                  type="text"
+                  value={draftCompanyRc}
+                  onChange={(e) => setDraftCompanyRc(e.target.value)}
+                  maxLength={60}
+                  className="font-mono-code min-h-[42px] w-full rounded-xl border border-[#DCE7E0] bg-white px-3 text-sm text-[#0B1F16] focus:border-[#115E3B] focus:outline-none dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5] dark:focus:border-[#10B981]"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-[11px] font-semibold text-[#335947] dark:text-[#9EC0AE]">
+                  {t.companyIceLabel}
+                </label>
+                <input
+                  type="text"
+                  value={draftCompanyIce}
+                  onChange={(e) => setDraftCompanyIce(e.target.value)}
+                  maxLength={60}
+                  className="font-mono-code min-h-[42px] w-full rounded-xl border border-[#DCE7E0] bg-white px-3 text-sm text-[#0B1F16] focus:border-[#115E3B] focus:outline-none dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5] dark:focus:border-[#10B981]"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-[11px] font-semibold text-[#335947] dark:text-[#9EC0AE]">
+                  {t.companyIfLabel}
+                </label>
+                <input
+                  type="text"
+                  value={draftCompanyIf}
+                  onChange={(e) => setDraftCompanyIf(e.target.value)}
+                  maxLength={60}
+                  className="font-mono-code min-h-[42px] w-full rounded-xl border border-[#DCE7E0] bg-white px-3 text-sm text-[#0B1F16] focus:border-[#115E3B] focus:outline-none dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5] dark:focus:border-[#10B981]"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-[11px] font-semibold text-[#335947] dark:text-[#9EC0AE]">
+                  {t.companyCnssLabel}
+                </label>
+                <input
+                  type="text"
+                  value={draftCompanyCnss}
+                  onChange={(e) => setDraftCompanyCnss(e.target.value)}
+                  maxLength={60}
+                  className="font-mono-code min-h-[42px] w-full rounded-xl border border-[#DCE7E0] bg-white px-3 text-sm text-[#0B1F16] focus:border-[#115E3B] focus:outline-none dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5] dark:focus:border-[#10B981]"
+                />
+              </div>
+            </div>
+          </div>
+
           {/* Printer & Label Configuration */}
           <div className="mb-5">
             <PrinterSettingsCard
@@ -361,6 +534,14 @@ export function LogoModal({
                   facebookHandle: draftFacebookHandle.trim(),
                   instagramHandle: draftInstagramHandle.trim(),
                   whatsappPhone: draftWhatsappPhone.trim(),
+                  companyAddress: draftCompanyAddress.trim(),
+                  companyMobile: draftCompanyMobile.trim(),
+                  companyPhone: draftCompanyPhone.trim(),
+                  companyWebsite: draftCompanyWebsite.trim(),
+                  companyRc: draftCompanyRc.trim(),
+                  companyIce: draftCompanyIce.trim(),
+                  companyIf: draftCompanyIf.trim(),
+                  companyCnss: draftCompanyCnss.trim(),
                   printerMode: next.printerMode,
                   printerPaper: next.printerPaper,
                   printerName: next.printerName,
@@ -396,6 +577,14 @@ export function LogoModal({
                   facebookHandle: next.facebookHandle,
                   instagramHandle: next.instagramHandle,
                   whatsappPhone: draftWhatsappPhone.trim(),
+                  companyAddress: draftCompanyAddress.trim(),
+                  companyMobile: draftCompanyMobile.trim(),
+                  companyPhone: draftCompanyPhone.trim(),
+                  companyWebsite: draftCompanyWebsite.trim(),
+                  companyRc: draftCompanyRc.trim(),
+                  companyIce: draftCompanyIce.trim(),
+                  companyIf: draftCompanyIf.trim(),
+                  companyCnss: draftCompanyCnss.trim(),
                   printerMode: draftPrinterMode,
                   printerPaper: draftPrinterPaper,
                   printerName: draftPrinterName.trim(),

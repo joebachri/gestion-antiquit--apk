@@ -9,6 +9,7 @@ import type {
   Product,
   ProductDigitalFile,
   ReportFilters,
+  ShopSettings,
   Supplier,
   Warehouse,
 } from '../types';
@@ -38,6 +39,7 @@ export interface PrintableReportSpec {
   kpis: PrintableKpi[];
   tables: PrintableTable[];
   paymentSummaryLine?: string;
+  companyFooterLines?: string[];
   footerNote?: string;
 }
 
@@ -52,6 +54,7 @@ export interface ReportContextData {
   currency: string;
   lang: Language;
   digitalFile?: ProductDigitalFile | null;
+  shopSettings?: Partial<ShopSettings>;
 }
 
 function escapeHtml(text: string): string {
@@ -124,6 +127,49 @@ function formatPaymentBelowTable(inv: PosInvoice, lang: Language, currency: stri
   }
   const method = splits.length === 1 ? splits[0].method : inv.paymentMethod;
   return `${prefix} : ${paymentLabel(method, lang)} ........ ${formatCurrency(inv.totalPrice, currency, lang)}`;
+}
+
+export function buildCompanyFooterLines(
+  settings: Partial<ShopSettings> | undefined,
+  storeNameFallback: string,
+  lang: Language
+): string[] {
+  const isAr = lang === 'ar';
+  const name = (settings?.storeName || storeNameFallback || '').trim();
+  const addr = (settings?.companyAddress || '').trim();
+  const mob = (settings?.companyMobile || '').trim();
+  const wa = (settings?.whatsappPhone || '').trim();
+  const fix = (settings?.companyPhone || '').trim();
+  const web = (settings?.companyWebsite || '').trim();
+  const rc = (settings?.companyRc || '').trim();
+  const ice = (settings?.companyIce || '').trim();
+  const taxIf = (settings?.companyIf || '').trim();
+  const cnss = (settings?.companyCnss || '').trim();
+
+  const hasExtraCoords = Boolean(addr || mob || wa || fix || web || rc || ice || taxIf || cnss || settings?.storeName?.trim());
+  if (!hasExtraCoords) return [];
+
+  const lines: string[] = [];
+  const line1 = [name, addr].filter(Boolean).join(' — ');
+  if (line1) lines.push(line1);
+
+  const contacts = [
+    mob ? `${isAr ? 'موبايل' : 'Mobile'}: ${mob}` : '',
+    wa ? `WhatsApp: ${wa}` : '',
+    fix ? `${isAr ? 'الهاتف' : 'Tél'}: ${fix}` : '',
+    web ? web : '',
+  ].filter(Boolean);
+  if (contacts.length > 0) lines.push(contacts.join('  ·  '));
+
+  const legal = [
+    rc ? `RC: ${rc}` : '',
+    ice ? `ICE: ${ice}` : '',
+    taxIf ? `IF: ${taxIf}` : '',
+    cnss ? `CNSS: ${cnss}` : '',
+  ].filter(Boolean);
+  if (legal.length > 0) lines.push(legal.join('  ·  '));
+
+  return lines;
 }
 
 function customerCategoryLabel(cat: string, lang: Language): string {
@@ -271,6 +317,7 @@ export function buildReportSpec(filters: ReportFilters, ctx: ReportContextData):
         },
       ],
       paymentSummaryLine: formatPaymentBelowTable(inv, lang, currency),
+      companyFooterLines: buildCompanyFooterLines(ctx.shopSettings, storeName, lang),
       footerNote: isCopy
         ? isAr
           ? 'نسخة مطابقة للأصل — شكراً لثقتكم'
@@ -1311,6 +1358,18 @@ export function buildPrintableReportHtml(spec: PrintableReportSpec, lang: Langua
         <span>${escapeHtml(spec.footerNote || spec.storeName)}</span>
         ${spec.generatedDate ? `<span>${escapeHtml(spec.generatedDate)}</span>` : '<span></span>'}
       </div>
+      ${
+        spec.companyFooterLines && spec.companyFooterLines.length > 0
+          ? `<div style="margin-top:10px;padding-top:8px;border-top:1px solid #DCE7E0;text-align:center;color:#335947;font-size:9.5px;line-height:1.55;">
+              ${spec.companyFooterLines
+                .map(
+                  (line, idx) =>
+                    `<div style="${idx === 0 ? 'font-weight:700;color:#0B1F16;font-size:10px;' : ''}">${escapeHtml(line)}</div>`
+                )
+                .join('')}
+            </div>`
+          : ''
+      }
     </body>
   </html>`;
 }
@@ -1384,7 +1443,9 @@ export async function renderSpecToPdfBlob(spec: PrintableReportSpec, lang: Langu
   const pageH = 1754;
   const marginX = 56;
   const contentW = pageW - marginX * 2;
-  const bottomLimit = pageH - 72;
+  const companyLines = spec.companyFooterLines || [];
+  const companyBlockH = companyLines.length > 0 ? companyLines.length * 22 + 30 : 0;
+  const bottomLimit = pageH - (72 + companyBlockH);
 
   const pages: HTMLCanvasElement[] = [];
 
@@ -1409,13 +1470,31 @@ export async function renderSpecToPdfBlob(spec: PrintableReportSpec, lang: Langu
       ctx.restore();
     }
 
-    // Footer
+    // Footer & optional company coordinates at bottom of BL
+    const noteY = companyLines.length > 0 ? pageH - companyBlockH - 22 : pageH - 32;
     ctx.fillStyle = '#6B8A79';
     ctx.font = '18px system-ui, sans-serif';
     ctx.textAlign = isAr ? 'right' : 'left';
-    ctx.fillText(spec.footerNote || spec.storeName, isAr ? pageW - marginX : marginX, pageH - 32);
+    ctx.fillText(spec.footerNote || spec.storeName, isAr ? pageW - marginX : marginX, noteY);
     ctx.textAlign = isAr ? 'left' : 'right';
-    ctx.fillText(`p.${pageNum}`, isAr ? marginX : pageW - marginX, pageH - 32);
+    ctx.fillText(`p.${pageNum}`, isAr ? marginX : pageW - marginX, noteY);
+
+    if (companyLines.length > 0) {
+      const dividerY = pageH - companyBlockH - 4;
+      ctx.strokeStyle = '#DCE7E0';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(marginX, dividerY);
+      ctx.lineTo(pageW - marginX, dividerY);
+      ctx.stroke();
+
+      companyLines.forEach((line, idx) => {
+        ctx.fillStyle = idx === 0 ? '#0B1F16' : '#335947';
+        ctx.font = idx === 0 ? 'bold 15px system-ui, sans-serif' : '14px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(truncateText(line, 115), pageW / 2, dividerY + 24 + idx * 22);
+      });
+    }
 
     pages.push(canvas);
     return { canvas, ctx };

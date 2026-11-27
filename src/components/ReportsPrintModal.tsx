@@ -14,6 +14,7 @@ import type {
   Product,
   ReportFilters,
   ReportType,
+  ShopSettings,
   Supplier,
   Warehouse,
 } from '../types';
@@ -25,6 +26,7 @@ interface ReportsPrintModalProps {
   lang: Language;
   currency: string;
   storeName: string;
+  shopSettings?: Partial<ShopSettings>;
   initialFilters?: Partial<ReportFilters>;
   products: Product[];
   warehouses: Warehouse[];
@@ -42,6 +44,7 @@ export function ReportsPrintModal({
   lang,
   currency,
   storeName,
+  shopSettings,
   initialFilters,
   products,
   warehouses,
@@ -145,6 +148,7 @@ export function ReportsPrintModal({
         storeName,
         currency,
         lang,
+        shopSettings,
       }),
     [
       currentFilters,
@@ -157,6 +161,7 @@ export function ReportsPrintModal({
       storeName,
       currency,
       lang,
+      shopSettings,
     ]
   );
 
@@ -218,6 +223,7 @@ export function ReportsPrintModal({
           storeName,
           currency,
           lang,
+          shopSettings,
         }
       );
 
@@ -598,6 +604,19 @@ export function ReportsPrintModal({
                     <div className="tabular-nums rounded-lg border border-[#115E3B]/30 bg-[#ECF7F1] px-3 py-1.5 text-xs font-bold text-[#0B1F16] dark:border-[#34D399]/30 dark:bg-[#132B20] dark:text-[#F2F9F5]">
                       {previewSpec.paymentSummaryLine}
                     </div>
+                  </div>
+                )}
+
+                {previewSpec.companyFooterLines && previewSpec.companyFooterLines.length > 0 && (
+                  <div className="border-t border-[#DCE7E0] pt-2.5 text-center text-[11px] leading-relaxed text-[#335947] dark:border-[#1E3A2D] dark:text-[#9EC0AE]">
+                    {previewSpec.companyFooterLines.map((line, i) => (
+                      <div
+                        key={i}
+                        className={i === 0 ? 'font-bold text-[#0B1F16] dark:text-[#F2F9F5]' : ''}
+                      >
+                        {line}
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>

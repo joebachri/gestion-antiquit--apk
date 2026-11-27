@@ -1,6 +1,6 @@
 import { Capacitor } from '@capacitor/core';
 import { jsPDF } from 'jspdf';
-import type { Language, PosInvoice, PrinterMode, PrinterPaperFormat, Product } from '../types';
+import type { Language, PosInvoice, PrinterMode, PrinterPaperFormat, Product, ShopSettings } from '../types';
 import { formatCurrency } from '../i18n';
 import { buildProductQrUrl, buildQrStickerBlob, generateQrDataUrl } from './qr';
 import { saveOrShareBlob } from './download';
@@ -277,7 +277,8 @@ export async function printThermalTicketBluetooth(
   currency: string,
   lang: Language,
   paperFormat: PrinterPaperFormat = 'roll_80',
-  withDrawerKick = true
+  withDrawerKick = true,
+  companySettings?: Partial<ShopSettings>
 ): Promise<void> {
   if (!activeBtCharacteristic || !activeBtDevice?.gatt?.connected) {
     throw new Error('BT_NOT_CONNECTED');
@@ -301,7 +302,28 @@ export async function printThermalTicketBluetooth(
           },
         ];
 
-  const heightPx = 280 + items.length * 54 + (invoice.paymentBreakdown?.length || 1) * 28;
+  const ticketCompanyLines: string[] = [];
+  if (companySettings) {
+    const addr = (companySettings.companyAddress || '').trim();
+    const mob = (companySettings.companyMobile || '').trim();
+    const wa = (companySettings.whatsappPhone || '').trim();
+    const fix = (companySettings.companyPhone || '').trim();
+    const web = (companySettings.companyWebsite || '').trim();
+    const rc = (companySettings.companyRc || '').trim();
+    const ice = (companySettings.companyIce || '').trim();
+    const taxIf = (companySettings.companyIf || '').trim();
+    const cnss = (companySettings.companyCnss || '').trim();
+    if (addr) ticketCompanyLines.push(addr);
+    const phones = [mob && `Mob:${mob}`, wa && `WA:${wa}`, fix && `Tél:${fix}`].filter(Boolean).join(' ');
+    if (phones) ticketCompanyLines.push(phones);
+    if (web) ticketCompanyLines.push(web);
+    const legal = [rc && `RC:${rc}`, ice && `ICE:${ice}`, taxIf && `IF:${taxIf}`, cnss && `CNSS:${cnss}`]
+      .filter(Boolean)
+      .join(' · ');
+    if (legal) ticketCompanyLines.push(legal);
+  }
+
+  const heightPx = 305 + items.length * 54 + (invoice.paymentBreakdown?.length || 1) * 28 + ticketCompanyLines.length * 20;
   const canvas = document.createElement('canvas');
   canvas.width = widthPx;
   canvas.height = heightPx;
@@ -386,6 +408,13 @@ export async function printThermalTicketBluetooth(
   ctx.textAlign = 'center';
   ctx.font = '14px sans-serif';
   ctx.fillText(isAr ? 'شكراً لزيارتكم' : 'Merci pour votre visite', widthPx / 2, y);
+  y += 22;
+
+  for (const cLine of ticketCompanyLines) {
+    ctx.font = '12px sans-serif';
+    ctx.fillText(cLine.slice(0, paperFormat === 'roll_80' ? 52 : 40), widthPx / 2, y);
+    y += 18;
+  }
 
   const imgData = ctx.getImageData(0, 0, widthPx, heightPx).data;
   const widthBytes = Math.ceil(widthPx / 8);

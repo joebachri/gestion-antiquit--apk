@@ -853,6 +853,46 @@ export async function localGetSettings(): Promise<ShopSettings> {
     STORE_SETTINGS,
     'whatsappPhone'
   );
+  const companyAddress = await getFromStore<{ key: string; value: string }>(
+    db,
+    STORE_SETTINGS,
+    'companyAddress'
+  );
+  const companyMobile = await getFromStore<{ key: string; value: string }>(
+    db,
+    STORE_SETTINGS,
+    'companyMobile'
+  );
+  const companyPhone = await getFromStore<{ key: string; value: string }>(
+    db,
+    STORE_SETTINGS,
+    'companyPhone'
+  );
+  const companyWebsite = await getFromStore<{ key: string; value: string }>(
+    db,
+    STORE_SETTINGS,
+    'companyWebsite'
+  );
+  const companyRc = await getFromStore<{ key: string; value: string }>(
+    db,
+    STORE_SETTINGS,
+    'companyRc'
+  );
+  const companyIce = await getFromStore<{ key: string; value: string }>(
+    db,
+    STORE_SETTINGS,
+    'companyIce'
+  );
+  const companyIf = await getFromStore<{ key: string; value: string }>(
+    db,
+    STORE_SETTINGS,
+    'companyIf'
+  );
+  const companyCnss = await getFromStore<{ key: string; value: string }>(
+    db,
+    STORE_SETTINGS,
+    'companyCnss'
+  );
   const printerMode = await getFromStore<{ key: string; value: string }>(
     db,
     STORE_SETTINGS,
@@ -904,6 +944,14 @@ export async function localGetSettings(): Promise<ShopSettings> {
     facebookHandle: facebookHandle?.value ?? '',
     instagramHandle: instagramHandle?.value ?? '',
     whatsappPhone: whatsappPhone?.value ?? '',
+    companyAddress: companyAddress?.value ?? '',
+    companyMobile: companyMobile?.value ?? '',
+    companyPhone: companyPhone?.value ?? '',
+    companyWebsite: companyWebsite?.value ?? '',
+    companyRc: companyRc?.value ?? '',
+    companyIce: companyIce?.value ?? '',
+    companyIf: companyIf?.value ?? '',
+    companyCnss: companyCnss?.value ?? '',
     printerMode: (printerMode?.value as ShopSettings['printerMode']) || 'pdf_system',
     printerPaper: (printerPaper?.value as ShopSettings['printerPaper']) || 'a4',
     printerName: printerName?.value ?? '',
@@ -940,6 +988,54 @@ export async function localSaveSettings(settings: ShopSettings): Promise<ShopSet
     await putInStore(db, STORE_SETTINGS, {
       key: 'whatsappPhone',
       value: settings.whatsappPhone.trim().slice(0, 40),
+    });
+  }
+  if (typeof settings.companyAddress === 'string') {
+    await putInStore(db, STORE_SETTINGS, {
+      key: 'companyAddress',
+      value: settings.companyAddress.trim().slice(0, 240),
+    });
+  }
+  if (typeof settings.companyMobile === 'string') {
+    await putInStore(db, STORE_SETTINGS, {
+      key: 'companyMobile',
+      value: settings.companyMobile.trim().slice(0, 40),
+    });
+  }
+  if (typeof settings.companyPhone === 'string') {
+    await putInStore(db, STORE_SETTINGS, {
+      key: 'companyPhone',
+      value: settings.companyPhone.trim().slice(0, 40),
+    });
+  }
+  if (typeof settings.companyWebsite === 'string') {
+    await putInStore(db, STORE_SETTINGS, {
+      key: 'companyWebsite',
+      value: settings.companyWebsite.trim().slice(0, 240),
+    });
+  }
+  if (typeof settings.companyRc === 'string') {
+    await putInStore(db, STORE_SETTINGS, {
+      key: 'companyRc',
+      value: settings.companyRc.trim().slice(0, 60),
+    });
+  }
+  if (typeof settings.companyIce === 'string') {
+    await putInStore(db, STORE_SETTINGS, {
+      key: 'companyIce',
+      value: settings.companyIce.trim().slice(0, 60),
+    });
+  }
+  if (typeof settings.companyIf === 'string') {
+    await putInStore(db, STORE_SETTINGS, {
+      key: 'companyIf',
+      value: settings.companyIf.trim().slice(0, 60),
+    });
+  }
+  if (typeof settings.companyCnss === 'string') {
+    await putInStore(db, STORE_SETTINGS, {
+      key: 'companyCnss',
+      value: settings.companyCnss.trim().slice(0, 60),
     });
   }
   if (settings.printerMode) {

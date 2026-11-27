@@ -160,6 +160,14 @@ export default function App() {
     facebookHandle: '',
     instagramHandle: '',
     whatsappPhone: '',
+    companyAddress: '',
+    companyMobile: '',
+    companyPhone: '',
+    companyWebsite: '',
+    companyRc: '',
+    companyIce: '',
+    companyIf: '',
+    companyCnss: '',
     printerMode: 'pdf_system',
     printerPaper: 'a4',
     printerName: '',
@@ -655,6 +663,7 @@ export default function App() {
           storeName: settings.storeName || qrSnapshotExtras.storeName || '',
           currency: settings.currency,
           lang,
+          shopSettings: settings,
         }
       );
       const outcome = await executeReportOutput({
@@ -677,8 +686,7 @@ export default function App() {
       suppliers,
       posInvoices,
       adjustments,
-      settings.storeName,
-      settings.currency,
+      settings,
       qrSnapshotExtras.storeName,
       lang,
       handleMarkInvoicePrinted,
@@ -735,7 +743,8 @@ export default function App() {
           settings.currency,
           lang,
           settings.printerPaper || 'roll_80',
-          true
+          true,
+          settings
         );
         await handleMarkInvoicePrinted(invoice.id);
         showToast(`${t.invoicePrintedToast} ${invoice.invoiceNumber}`);
@@ -747,10 +756,7 @@ export default function App() {
       handleMarkInvoicePrinted,
       handlePrintInvoice,
       lang,
-      settings.currency,
-      settings.printerMode,
-      settings.printerPaper,
-      settings.storeName,
+      settings,
       showToast,
       t.invoicePrintedToast,
     ]
@@ -2349,6 +2355,14 @@ export default function App() {
         facebookHandle={settings.facebookHandle}
         instagramHandle={settings.instagramHandle}
         whatsappPhone={settings.whatsappPhone}
+        companyAddress={settings.companyAddress}
+        companyMobile={settings.companyMobile}
+        companyPhone={settings.companyPhone}
+        companyWebsite={settings.companyWebsite}
+        companyRc={settings.companyRc}
+        companyIce={settings.companyIce}
+        companyIf={settings.companyIf}
+        companyCnss={settings.companyCnss}
         printerMode={settings.printerMode}
         printerPaper={settings.printerPaper}
         printerName={settings.printerName}
@@ -2525,6 +2539,7 @@ export default function App() {
         lang={lang}
         currency={settings.currency}
         storeName={settings.storeName || ''}
+        shopSettings={settings}
         initialFilters={reportsInitialFilters}
         products={localizedProducts}
         warehouses={localizedWarehouses}
@@ -2656,6 +2671,7 @@ export default function App() {
         lang={lang}
         currency={settings.currency}
         storeName={settings.storeName}
+        shopSettings={settings}
         products={localizedProducts}
         customers={customers}
         warehouses={localizedWarehouses}
