@@ -131,10 +131,11 @@ export function PosSalesModal({
     [products]
   );
 
-  const [showNewSale, setShowNewSale] = useState(initialView === 'caisse');
+  const isCaisseMode = initialView === 'caisse';
   const [showReport, setShowReport] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [exportingSales, setExportingSales] = useState(false);
+  const [lastCreatedInvoice, setLastCreatedInvoice] = useState<PosInvoice | null>(null);
 
   // Cart & New Sale form states
   const [selectedProductId, setSelectedProductId] = useState('');
@@ -327,7 +328,7 @@ export function PosSalesModal({
     if (!justOpened) return;
 
     setErrorMsg('');
-    setShowNewSale(initialView === 'caisse');
+    setLastCreatedInvoice(null);
     setShowFilters(false);
     setShowReport(false);
     if (availableProducts.length > 0) {
@@ -561,7 +562,7 @@ export function PosSalesModal({
         source: 'pos_manual',
       });
       if (created) {
-        setShowNewSale(false);
+        setLastCreatedInvoice(created);
         setCartItems([]);
         setNotes('');
         setProductSearchInput('');
@@ -608,13 +609,15 @@ export function PosSalesModal({
         <div className="flex items-center justify-between border-b border-[#DCE7E0] px-5 py-4 dark:border-[#1E3A2D]">
           <div className="flex items-center gap-3 min-w-0">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#ECF7F1] text-[#115E3B] dark:bg-[#132B20] dark:text-[#34D399]">
-              {showNewSale ? <ShoppingBag className="h-5 w-5" /> : <Receipt className="h-5 w-5" />}
+              {isCaisseMode ? <ShoppingBag className="h-5 w-5" /> : <Receipt className="h-5 w-5" />}
             </div>
             <div className="min-w-0">
               <h2 className="truncate font-display text-lg font-bold text-[#0B1F16] sm:text-xl dark:text-[#F2F9F5]">
-                {showNewSale ? t.launcherCashierLabel : t.launcherInvoicesLabel}
+                {isCaisseMode ? t.launcherCashierLabel : t.launcherInvoicesLabel}
               </h2>
-              <p className="truncate text-xs text-[#335947] dark:text-[#9EC0AE]">{t.posSubtitle}</p>
+              <p className="truncate text-xs text-[#335947] dark:text-[#9EC0AE]">
+                {isCaisseMode ? t.launcherCashierModalSubtitle : t.launcherInvoicesModalSubtitle}
+              </p>
             </div>
           </div>
 
@@ -630,40 +633,7 @@ export function PosSalesModal({
 
         {/* Scrollable Content */}
         <div className="flex-1 space-y-5 overflow-y-auto p-5">
-          {/* Quick Mode Switcher: Caisse vs Factures */}
-          <div className="inline-grid w-full grid-cols-2 gap-1.5 rounded-2xl border border-[#DCE7E0] bg-[#F7FAF8] p-1 sm:w-auto dark:border-[#1E3A2D] dark:bg-[#091611]">
-            <button
-              type="button"
-              onClick={() => {
-                setShowNewSale(true);
-                setShowFilters(false);
-                setShowReport(false);
-              }}
-              className={`flex min-h-[40px] items-center justify-center gap-2 rounded-xl px-4 text-xs font-bold transition-colors ${
-                showNewSale
-                  ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
-                  : 'text-[#335947] hover:bg-white dark:text-[#9EC0AE] dark:hover:bg-[#0F2119]'
-              }`}
-            >
-              <ShoppingBag className="h-4 w-4 shrink-0" />
-              <span>{t.launcherCashierLabel}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowNewSale(false)}
-              className={`flex min-h-[40px] items-center justify-center gap-2 rounded-xl px-4 text-xs font-bold transition-colors ${
-                !showNewSale
-                  ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
-                  : 'text-[#335947] hover:bg-white dark:text-[#9EC0AE] dark:hover:bg-[#0F2119]'
-              }`}
-            >
-              <Receipt className="h-4 w-4 shrink-0" />
-              <span>
-                {t.launcherInvoicesLabel} ({formatNumber(activeSummary.totalInvoices, lang)})
-              </span>
-            </button>
-          </div>
-          {!showNewSale && (
+          {!isCaisseMode && (
             <>
           {/* KPI Strip */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -723,13 +693,7 @@ export function PosSalesModal({
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={() => {
-                  setShowFilters((v) => {
-                    const next = !v;
-                    if (next) setShowNewSale(false);
-                    return next;
-                  });
-                }}
+                onClick={() => setShowFilters((v) => !v)}
                 className={`flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl border px-3 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
                   showFilters || hasActiveFilters
                     ? 'border-[#115E3B] bg-[#ECF7F1] text-[#115E3B] dark:border-[#10B981] dark:bg-[#132B20] dark:text-[#34D399]'
@@ -742,13 +706,7 @@ export function PosSalesModal({
 
               <button
                 type="button"
-                onClick={() => {
-                  setShowReport((v) => {
-                    const next = !v;
-                    if (next) setShowNewSale(false);
-                    return next;
-                  });
-                }}
+                onClick={() => setShowReport((v) => !v)}
                 className={`flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl border px-3 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
                   showReport
                     ? 'border-[#115E3B] bg-[#ECF7F1] text-[#115E3B] dark:border-[#10B981] dark:bg-[#132B20] dark:text-[#34D399]'
@@ -788,24 +746,6 @@ export function PosSalesModal({
               >
                 <FileSpreadsheet className="h-4 w-4" />
                 <span>{t.salesReportExportExcel}</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setShowNewSale((v) => {
-                    const next = !v;
-                    if (next) {
-                      setShowReport(false);
-                      setShowFilters(false);
-                    }
-                    return next;
-                  });
-                }}
-                className="flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-xl bg-[#115E3B] px-4 text-sm font-semibold text-white hover:bg-[#0D4A2E] whitespace-nowrap shrink-0 sm:flex-initial dark:bg-[#10B981] dark:text-[#052E1C]"
-              >
-                <Plus className="h-4 w-4" />
-                <span>{t.posNewSale}</span>
               </button>
             </div>
           </div>
@@ -1074,7 +1014,7 @@ export function PosSalesModal({
           )}
 
           {/* Multi-Product New POS Sale Form */}
-          {showNewSale && (
+          {isCaisseMode && (
             <form
               onSubmit={handleSubmitSale}
               className="space-y-4 rounded-2xl border border-[#115E3B]/30 bg-[#ECF7F1]/50 p-4 dark:border-[#10B981]/30 dark:bg-[#132B20]/40"
@@ -1086,12 +1026,57 @@ export function PosSalesModal({
                 </h3>
                 <button
                   type="button"
-                  onClick={() => setShowNewSale(false)}
+                  onClick={onClose}
                   className="text-xs font-semibold text-[#335947] hover:underline dark:text-[#9EC0AE]"
                 >
-                  {t.cancel}
+                  {t.close}
                 </button>
               </div>
+
+              {lastCreatedInvoice && (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#115E3B]/30 bg-white px-3.5 py-2.5 text-xs dark:border-[#10B981]/30 dark:bg-[#091611]">
+                  <div className="flex items-center gap-2 font-semibold text-[#115E3B] dark:text-[#34D399]">
+                    <CheckCircle2 className="h-4 w-4 shrink-0" />
+                    <span>
+                      {t.posSoldReceiptBadge} · {lastCreatedInvoice.invoiceNumber} (
+                      {formatCurrency(lastCreatedInvoice.totalPrice, currency, lang)})
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {onPrintInvoice && (
+                      <button
+                        type="button"
+                        onClick={() => void onPrintInvoice(lastCreatedInvoice, false)}
+                        className="flex min-h-[36px] items-center gap-1.5 rounded-lg border border-[#DCE7E0] bg-[#ECF7F1] px-2.5 font-semibold text-[#115E3B] hover:bg-[#DCF0E4] dark:border-[#1E3A2D] dark:bg-[#132B20] dark:text-[#34D399]"
+                      >
+                        <Printer className="h-3.5 w-3.5" />
+                        <span>{t.posPrintInvoice}</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const blob = await buildInvoiceReceiptBlob(
+                          lastCreatedInvoice,
+                          storeName,
+                          currency,
+                          lang,
+                          { isCopy: false }
+                        );
+                        await saveOrShareBlob(
+                          blob,
+                          `${lastCreatedInvoice.invoiceNumber.toLowerCase()}.png`,
+                          lastCreatedInvoice.invoiceNumber
+                        );
+                      }}
+                      className="flex min-h-[36px] items-center gap-1.5 rounded-lg border border-[#DCE7E0] bg-white px-2.5 font-semibold text-[#0B1F16] hover:bg-[#F7FAF8] dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5]"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      <span>{t.posDownloadReceipt}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {errorMsg && (
                 <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
@@ -1430,7 +1415,7 @@ export function PosSalesModal({
           )}
 
           {/* Invoices List */}
-          {!showNewSale && (filteredInvoices.length === 0 ? (
+          {!isCaisseMode && (filteredInvoices.length === 0 ? (
             <div className="rounded-2xl border border-[#DCE7E0] bg-[#F7FAF8] px-5 py-10 text-center dark:border-[#1E3A2D] dark:bg-[#091611]">
               <Receipt className="mx-auto mb-2 h-8 w-8 text-[#115E3B]/45 dark:text-[#34D399]/45" />
               <p className="text-sm font-medium text-[#335947] dark:text-[#9EC0AE]">
