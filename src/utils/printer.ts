@@ -1,6 +1,6 @@
 import { Capacitor } from '@capacitor/core';
 import { jsPDF } from 'jspdf';
-import type { Language, PrinterMode, PrinterPaperFormat, Product } from '../types';
+import type { Language, PosInvoice, PrinterMode, PrinterPaperFormat, Product } from '../types';
 import { formatCurrency } from '../i18n';
 import { buildProductQrUrl, buildQrStickerBlob, generateQrDataUrl } from './qr';
 import { saveOrShareBlob } from './download';
@@ -251,6 +251,164 @@ export async function printQrLabelsBluetooth(
       await writeChunkToCharacteristic(activeBtCharacteristic, packet.slice(offset, offset + 120));
       await new Promise((r) => setTimeout(r, 14));
     }
+  }
+}
+
+export async function openCashDrawer(): Promise<'bt_sent' | 'no_drawer'> {
+  if (!activeBtCharacteristic || !activeBtDevice?.gatt?.connected) {
+    return 'no_drawer';
+  }
+  try {
+    // ESC p m t1 t2 — standard ESC/POS cash drawer kick pulse (pin 2 & pin 5)
+    const kickPin2 = new Uint8Array([0x1b, 0x70, 0x00, 0x19, 0xfa]);
+    const kickPin5 = new Uint8Array([0x1b, 0x70, 0x01, 0x19, 0xfa]);
+    await writeChunkToCharacteristic(activeBtCharacteristic, kickPin2);
+    await new Promise((r) => setTimeout(r, 40));
+    await writeChunkToCharacteristic(activeBtCharacteristic, kickPin5);
+    return 'bt_sent';
+  } catch {
+    return 'no_drawer';
+  }
+}
+
+export async function printThermalTicketBluetooth(
+  invoice: PosInvoice,
+  storeName: string,
+  currency: string,
+  lang: Language,
+  paperFormat: PrinterPaperFormat = 'roll_80',
+  withDrawerKick = true
+): Promise<void> {
+  if (!activeBtCharacteristic || !activeBtDevice?.gatt?.connected) {
+    throw new Error('BT_NOT_CONNECTED');
+  }
+
+  const isAr = lang === 'ar';
+  const widthPx = paperFormat === 'roll_80' ? 512 : 384;
+  const items =
+    invoice.items && invoice.items.length > 0
+      ? invoice.items
+      : [
+          {
+            productId: invoice.productId,
+            productCode: invoice.productCode,
+            productName: invoice.productName,
+            quantity: invoice.quantity,
+            unitPrice: invoice.unitPrice,
+            discountPercent: 0,
+            totalPrice: invoice.totalPrice,
+            purchasePrice: invoice.purchasePrice,
+          },
+        ];
+
+  const heightPx = 280 + items.length * 54 + (invoice.paymentBreakdown?.length || 1) * 28;
+  const canvas = document.createElement('canvas');
+  canvas.width = widthPx;
+  canvas.height = heightPx;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas unavailable');
+
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, widthPx, heightPx);
+  ctx.fillStyle = '#000000';
+
+  let y = 28;
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 24px sans-serif';
+  ctx.fillText(
+    (storeName.trim() || (isAr ? 'إدارة التحف' : 'Gestion Antiquités')).slice(0, 28),
+    widthPx / 2,
+    y
+  );
+  y += 28;
+
+  const isBl = invoice.documentType === 'bl';
+  ctx.font = 'bold 18px monospace';
+  ctx.fillText(
+    `${isBl ? (isAr ? 'بيان تسليم' : 'BON DE LIVRAISON') : (isAr ? 'فاتورة' : 'FACTURE')} ${invoice.invoiceNumber}`,
+    widthPx / 2,
+    y
+  );
+  y += 24;
+
+  ctx.font = '15px sans-serif';
+  ctx.fillText(`${invoice.saleDate} · ${invoice.customerName || (isAr ? 'زبون عابر' : 'Client de passage')}`, widthPx / 2, y);
+  y += 18;
+
+  ctx.strokeStyle = '#000000';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(10, y);
+  ctx.lineTo(widthPx - 10, y);
+  ctx.stroke();
+  y += 22;
+
+  for (const li of items) {
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.fillText(`${li.productCode} ${li.productName}`.slice(0, 32), 10, y);
+    y += 20;
+    ctx.font = '15px monospace';
+    const discTxt = li.discountPercent && li.discountPercent > 0 ? ` (-${li.discountPercent}%)` : '';
+    ctx.fillText(`${li.quantity} x ${formatCurrency(li.unitPrice, currency, lang)}${discTxt}`, 10, y);
+    ctx.textAlign = 'right';
+    ctx.fillText(formatCurrency(li.totalPrice, currency, lang), widthPx - 10, y);
+    y += 26;
+  }
+
+  ctx.beginPath();
+  ctx.moveTo(10, y);
+  ctx.lineTo(widthPx - 10, y);
+  ctx.stroke();
+  y += 28;
+
+  ctx.textAlign = 'left';
+  ctx.font = 'bold 22px sans-serif';
+  ctx.fillText(`TOTAL (${invoice.quantity} art.)`, 10, y);
+  ctx.textAlign = 'right';
+  ctx.fillText(formatCurrency(invoice.totalPrice, currency, lang), widthPx - 10, y);
+  y += 30;
+
+  ctx.textAlign = 'center';
+  ctx.font = '14px sans-serif';
+  ctx.fillText(isAr ? 'شكراً لزيارتكم' : 'Merci pour votre visite', widthPx / 2, y);
+
+  const imgData = ctx.getImageData(0, 0, widthPx, heightPx).data;
+  const widthBytes = Math.ceil(widthPx / 8);
+  const data = new Uint8Array(widthBytes * heightPx);
+  for (let py = 0; py < heightPx; py += 1) {
+    for (let px = 0; px < widthPx; px += 1) {
+      const idx = (py * widthPx + px) * 4;
+      const lum = 0.299 * imgData[idx] + 0.587 * imgData[idx + 1] + 0.114 * imgData[idx + 2];
+      if (lum < 150) {
+        data[py * widthBytes + (px >> 3)] |= 0x80 >> (px & 7);
+      }
+    }
+  }
+
+  const xL = widthBytes & 0xff;
+  const xH = (widthBytes >> 8) & 0xff;
+  const yL = heightPx & 0xff;
+  const yH = (heightPx >> 8) & 0xff;
+
+  const initCmd = new Uint8Array([0x1b, 0x40]);
+  const rasterHeader = new Uint8Array([0x1d, 0x76, 0x30, 0x00, xL, xH, yL, yH]);
+  const feedAndCut = new Uint8Array([0x1b, 0x64, 0x04, 0x1d, 0x56, 0x42, 0x00]);
+  const drawerCmd = withDrawerKick ? new Uint8Array([0x1b, 0x70, 0x00, 0x19, 0xfa]) : new Uint8Array(0);
+
+  const packet = new Uint8Array(
+    initCmd.length + rasterHeader.length + data.length + feedAndCut.length + drawerCmd.length
+  );
+  let pos = 0;
+  packet.set(initCmd, pos); pos += initCmd.length;
+  packet.set(rasterHeader, pos); pos += rasterHeader.length;
+  packet.set(data, pos); pos += data.length;
+  packet.set(feedAndCut, pos); pos += feedAndCut.length;
+  if (drawerCmd.length > 0) packet.set(drawerCmd, pos);
+
+  for (let offset = 0; offset < packet.length; offset += 120) {
+    await writeChunkToCharacteristic(activeBtCharacteristic, packet.slice(offset, offset + 120));
+    await new Promise((r) => setTimeout(r, 14));
   }
 }
 

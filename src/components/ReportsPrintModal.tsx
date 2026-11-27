@@ -66,6 +66,7 @@ export function ReportsPrintModal({
     { type: 'products', title: t.reportType8Title },
     { type: 'product_single', title: t.reportType9Title },
     { type: 'warehouses', title: t.reportType10Title },
+    { type: 'cash_register_summary', title: t.reportTypeCashSummaryTitle },
   ];
 
   const categories = useMemo(
@@ -169,6 +170,7 @@ export function ReportsPrintModal({
     'sales',
     'products',
     'warehouses',
+    'cash_register_summary',
   ].includes(reportType);
   const showWarehouseFilter = ['inventory', 'warehouses'].includes(reportType);
   const showCategoryFilter = [

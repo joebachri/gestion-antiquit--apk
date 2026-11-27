@@ -451,8 +451,9 @@ export async function buildInvoiceReceiptBlob(
 
   ctx.fillStyle = '#A7F3D0';
   ctx.font = 'bold 21px monospace';
+  const isBlDoc = invoice.documentType === 'bl';
   ctx.fillText(
-    `${isAr ? 'فاتورة' : 'FACTURE'}  ${invoice.invoiceNumber}`,
+    `${isBlDoc ? (isAr ? 'بيان تسليم (BL)' : 'BON DE LIVRAISON') : (isAr ? 'فاتورة' : 'FACTURE')}  ${invoice.invoiceNumber}`,
     44,
     110
   );
@@ -503,17 +504,28 @@ export async function buildInvoiceReceiptBlob(
   };
 
   drawMetaRow(isAr ? 'التاريخ / Date' : 'Date', invoice.saleDate);
-  if (invoice.customerName) {
-    drawMetaRow(
-      isAr ? 'العميل / Client' : 'Client',
-      `${invoice.customerName}${invoice.customerPhone ? ` (${invoice.customerPhone})` : ''}`,
-      true
-    );
+  if (!isBlDoc && invoice.blNumber && invoice.blNumber !== invoice.invoiceNumber) {
+    drawMetaRow(isAr ? 'بيان التسليم المرتبط / BL' : 'BL lié', invoice.blNumber);
   }
+  drawMetaRow(
+    isAr ? 'العميل / Client' : 'Client',
+    invoice.customerName
+      ? `${invoice.customerName}${invoice.customerPhone ? ` (${invoice.customerPhone})` : ''}`
+      : isAr
+      ? 'زبون عابر'
+      : 'Client de passage',
+    true
+  );
   if (invoice.warehouseName) {
     drawMetaRow(isAr ? 'المستودع / Entrepôt' : 'Entrepôt / Magasin', invoice.warehouseName);
   }
-  drawMetaRow(isAr ? 'الدفع / Paiement' : 'Mode de paiement', invoice.paymentMethod.toUpperCase());
+  const paymentSummary =
+    invoice.paymentBreakdown && invoice.paymentBreakdown.length > 1
+      ? invoice.paymentBreakdown
+          .map((b) => `${b.method.toUpperCase()} ${formatCurrency(b.amount, currency, lang)}`)
+          .join(' + ')
+      : invoice.paymentMethod.toUpperCase();
+  drawMetaRow(isAr ? 'الدفع / Paiement' : 'Mode de paiement', paymentSummary);
   if (invoice.notes) {
     drawMetaRow(isAr ? 'ملاحظات / Notes' : 'Notes', invoice.notes);
   }
@@ -530,7 +542,7 @@ export async function buildInvoiceReceiptBlob(
   ctx.textAlign = 'left';
   ctx.fillText(isAr ? 'المنتج / Article' : 'Article', 56, y + 27);
   ctx.textAlign = 'right';
-  ctx.fillText(isAr ? 'الكمية × السعر = المجموع' : 'Qté × P.U. = Total', canvas.width - 56, y + 27);
+  ctx.fillText(isAr ? 'الكمية × السعر = المجموع' : 'Qté × P.U. (R%) = Total', canvas.width - 56, y + 27);
   y += 60;
 
   for (const line of items) {
@@ -543,7 +555,8 @@ export async function buildInvoiceReceiptBlob(
     ctx.fillStyle = '#335947';
     ctx.font = '17px system-ui, sans-serif';
     ctx.textAlign = 'right';
-    const qtyLabel = `${line.quantity} × ${formatCurrency(line.unitPrice, currency, lang)}`;
+    const discSuffix = line.discountPercent && line.discountPercent > 0 ? ` (-${line.discountPercent}%)` : '';
+    const qtyLabel = `${line.quantity} × ${formatCurrency(line.unitPrice, currency, lang)}${discSuffix}`;
     ctx.fillText(
       `${qtyLabel} = ${formatCurrency(line.totalPrice, currency, lang)}`,
       canvas.width - 52,
@@ -586,8 +599,8 @@ export async function buildInvoiceReceiptBlob(
   ctx.textAlign = 'center';
   ctx.fillText(
     isAr
-      ? `شكراً لثقتكم${isCopy ? ' — نسخة مطابقة للأصل' : ' — فاتورة رقمية'}`
-      : `Merci pour votre confiance${isCopy ? ' — COPIE CONFORME' : ' — Facture numérique'}`,
+      ? `شكراً لثقتكم${isCopy ? ' — نسخة مطابقة للأصل' : isBlDoc ? ' — بيان تسليم رقمي' : ' — فاتورة رقمية'}`
+      : `Merci pour votre confiance${isCopy ? ' — COPIE CONFORME' : isBlDoc ? ' — Bon de livraison numérique' : ' — Facture numérique'}`,
     canvas.width / 2,
     canvas.height - 32
   );

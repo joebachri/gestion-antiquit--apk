@@ -15,6 +15,7 @@ import type {
   MetaAuthStatus,
   PosInvoice,
   PosSalePayload,
+  PosSummary,
   Product,
   ProductDigitalFile,
   ProductPayload,
@@ -32,6 +33,7 @@ import {
   localAddPurchase,
   localAddSupplierGalleryImages,
   localAddSupplierPurchase,
+  localConvertBlToInvoice,
   localCreateAdjustment,
   localCreateCustomer,
   localCreatePosSale,
@@ -61,6 +63,7 @@ import {
   localMarkInvoicePrinted,
   localNextCode,
   localSaveSettings,
+  localSetNextBlSequence,
   localUpdateCustomer,
   localUpdateProduct,
   localUpdatePurchase,
@@ -502,12 +505,7 @@ export async function fetchProductDigitalFileApi(
 
 export async function fetchPosSalesApi(): Promise<{
   invoices: PosInvoice[];
-  summary: {
-    totalInvoices: number;
-    totalUnitsSold: number;
-    totalRevenueMad: number;
-    totalProfitMad: number;
-  };
+  summary: PosSummary;
 }> {
   if (isNative()) {
     return localListPosSales();
@@ -517,12 +515,7 @@ export async function fetchPosSalesApi(): Promise<{
     if (!res.ok) throw new Error('HTTP error');
     return (await res.json()) as {
       invoices: PosInvoice[];
-      summary: {
-        totalInvoices: number;
-        totalUnitsSold: number;
-        totalRevenueMad: number;
-        totalProfitMad: number;
-      };
+      summary: PosSummary;
     };
   } catch {
     return localListPosSales();
@@ -533,6 +526,7 @@ export async function createPosSaleApi(payload: PosSalePayload): Promise<{
   invoice: PosInvoice;
   digitalFile: ProductDigitalFile;
   summary: InventorySummary;
+  nextBlSeq?: number;
 }> {
   if (isNative()) {
     return localCreatePosSale(payload);
@@ -552,7 +546,41 @@ export async function createPosSaleApi(payload: PosSalePayload): Promise<{
     invoice: PosInvoice;
     digitalFile: ProductDigitalFile;
     summary: InventorySummary;
+    nextBlSeq?: number;
   };
+}
+
+export async function setNextBlSequenceApi(
+  nextSeqOrLabel: number | string
+): Promise<{ nextBlSeq: number; blNumber: string }> {
+  if (isNative()) {
+    return localSetNextBlSequence(nextSeqOrLabel);
+  }
+  try {
+    const res = await fetch('/api/pos/bl-sequence', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(
+        typeof nextSeqOrLabel === 'number'
+          ? { nextSeq: nextSeqOrLabel }
+          : { blNumber: nextSeqOrLabel }
+      ),
+    });
+    if (!res.ok) throw new Error('HTTP error');
+    return (await res.json()) as { nextBlSeq: number; blNumber: string };
+  } catch {
+    return localSetNextBlSequence(nextSeqOrLabel);
+  }
+}
+
+export async function convertBlToInvoiceApi(invoiceId: string): Promise<PosInvoice> {
+  if (isNative()) {
+    return localConvertBlToInvoice(invoiceId);
+  }
+  const res = await fetch(`/api/pos/sales/${invoiceId}/convert`, { method: 'POST' });
+  if (!res.ok) throw new Error('Convert BL failed');
+  const data = (await res.json()) as { invoice: PosInvoice };
+  return data.invoice;
 }
 
 export async function deletePosSaleApi(invoiceId: string): Promise<void> {

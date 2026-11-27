@@ -128,6 +128,7 @@ interface SalesInvoiceItem {
   supplier?: string;
   quantity: number;
   unitPrice: number;
+  discountPercent?: number;
   totalPrice: number;
   purchasePrice: number;
 }
@@ -135,6 +136,8 @@ interface SalesInvoiceItem {
 interface SalesInvoiceRow {
   id: string;
   invoice_number: string;
+  document_type: string;
+  bl_number: string;
   product_id: string;
   product_code: string;
   product_name: string;
@@ -150,6 +153,7 @@ interface SalesInvoiceRow {
   total_price: number;
   purchase_price: number;
   payment_method: string;
+  payment_breakdown_json: string;
   sale_date: string;
   notes: string;
   print_count: number;
@@ -541,6 +545,15 @@ if (!salesInvoiceTableColumns.includes('warehouse_name')) {
 }
 if (!salesInvoiceTableColumns.includes('print_count')) {
   db.exec('ALTER TABLE sales_invoices ADD COLUMN print_count INTEGER NOT NULL DEFAULT 0');
+}
+if (!salesInvoiceTableColumns.includes('document_type')) {
+  db.exec("ALTER TABLE sales_invoices ADD COLUMN document_type TEXT NOT NULL DEFAULT 'facture'");
+}
+if (!salesInvoiceTableColumns.includes('bl_number')) {
+  db.exec("ALTER TABLE sales_invoices ADD COLUMN bl_number TEXT NOT NULL DEFAULT ''");
+}
+if (!salesInvoiceTableColumns.includes('payment_breakdown_json')) {
+  db.exec("ALTER TABLE sales_invoices ADD COLUMN payment_breakdown_json TEXT NOT NULL DEFAULT '[]'");
 }
 
 const customerTableColumns = (
@@ -1010,6 +1023,75 @@ function generateNextInvoiceNumber(): string {
   return `FAC-${String(maxNum + 1).padStart(4, '0')}`;
 }
 
+function getNextBlSeq(): number {
+  const row = db
+    .prepare("SELECT value FROM shop_settings WHERE key = 'next_bl_seq'")
+    .get() as { value: string } | undefined;
+  const parsed = row ? Number.parseInt(row.value, 10) : NaN;
+  if (Number.isFinite(parsed) && parsed >= 1) {
+    return parsed;
+  }
+  // Fallback: compute max existing BL-XXXX + 1
+  const existing = db
+    .prepare("SELECT invoice_number, bl_number FROM sales_invoices WHERE invoice_number LIKE 'BL-%' OR bl_number LIKE 'BL-%'")
+    .all() as Array<{ invoice_number: string; bl_number: string }>;
+  let maxNum = 0;
+  for (const r of existing) {
+    for (const candidate of [r.invoice_number, r.bl_number]) {
+      if (candidate && candidate.startsWith('BL-')) {
+        const suffix = candidate.slice(3);
+        if (/^\d+$/.test(suffix)) {
+          const n = Number.parseInt(suffix, 10);
+          if (n > maxNum) maxNum = n;
+        }
+      }
+    }
+  }
+  return maxNum + 1;
+}
+
+function setNextBlSeq(seq: number): number {
+  const clean = Math.max(1, Math.floor(Number(seq) || 1));
+  db.prepare(
+    "INSERT INTO shop_settings (key, value) VALUES ('next_bl_seq', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+  ).run(String(clean));
+  return clean;
+}
+
+function formatBlNumber(seq: number): string {
+  return `BL-${String(Math.max(1, Math.floor(seq))).padStart(4, '0')}`;
+}
+
+function parseBlSequenceInput(raw: string | number | undefined): number | null {
+  if (typeof raw === 'number' && Number.isFinite(raw) && raw >= 1) {
+    return Math.floor(raw);
+  }
+  if (typeof raw === 'string') {
+    const m = raw.trim().match(/(\d+)/);
+    if (m) {
+      const n = Number.parseInt(m[1], 10);
+      if (Number.isFinite(n) && n >= 1) return n;
+    }
+  }
+  return null;
+}
+
+function allocateNextBlNumber(preferredBlOrSeq?: string | number): { blNumber: string; nextSeq: number } {
+  const startSeq = parseBlSequenceInput(preferredBlOrSeq) ?? getNextBlSeq();
+  let candidateSeq = startSeq;
+  while (true) {
+    const candidate = formatBlNumber(candidateSeq);
+    const conflict = db
+      .prepare('SELECT id FROM sales_invoices WHERE invoice_number = ? OR bl_number = ?')
+      .get(candidate, candidate) as { id: string } | undefined;
+    if (!conflict) {
+      setNextBlSeq(candidateSeq + 1);
+      return { blNumber: candidate, nextSeq: candidateSeq + 1 };
+    }
+    candidateSeq += 1;
+  }
+}
+
 function generateNextWarehouseCode(): string {
   const rows = db.prepare("SELECT code FROM warehouses WHERE code LIKE 'WH%'").all() as Array<{ code: string }>;
   let maxNum = 0;
@@ -1190,11 +1272,31 @@ function parseInvoiceItemsJson(row: SalesInvoiceRow): SalesInvoiceItem[] {
   ];
 }
 
+function parsePaymentBreakdownJson(rawJson: string | undefined): Array<{ method: string; amount: number }> {
+  if (!rawJson || !rawJson.trim().startsWith('[')) return [];
+  try {
+    const parsed = JSON.parse(rawJson);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((x) => x && typeof x.method === 'string' && Number.isFinite(Number(x.amount)))
+      .map((x) => ({
+        method: String(x.method),
+        amount: Math.round(Number(x.amount) * 100) / 100,
+      }));
+  } catch {
+    return [];
+  }
+}
+
 function mapSalesInvoiceRow(row: SalesInvoiceRow) {
   const items = parseInvoiceItemsJson(row);
+  const documentType = row.document_type === 'bl' ? 'bl' : 'facture';
+  const blNumber = row.bl_number || (documentType === 'bl' ? row.invoice_number : '');
   return {
     id: row.id,
     invoiceNumber: row.invoice_number,
+    documentType,
+    blNumber,
     productId: row.product_id,
     productCode: row.product_code,
     productName: row.product_name,
@@ -1210,10 +1312,46 @@ function mapSalesInvoiceRow(row: SalesInvoiceRow) {
     totalPrice: row.total_price,
     purchasePrice: row.purchase_price,
     paymentMethod: row.payment_method || 'cash',
+    paymentBreakdown: parsePaymentBreakdownJson(row.payment_breakdown_json),
     saleDate: row.sale_date,
     notes: row.notes || '',
     printCount: Number(row.print_count) || 0,
     createdAt: row.created_at,
+  };
+}
+
+function computePosSalesSummary(invoices: ReturnType<typeof mapSalesInvoiceRow>[]) {
+  const today = new Date().toISOString().slice(0, 10);
+  const totalRevenueMad = invoices.reduce((sum, inv) => sum + (Number(inv.totalPrice) || 0), 0);
+  const totalCostMad = invoices.reduce((sum, inv) => {
+    if (Array.isArray(inv.items) && inv.items.length > 0) {
+      return (
+        sum +
+        inv.items.reduce(
+          (s, item) => s + (Number(item.purchasePrice) || 0) * (Number(item.quantity) || 1),
+          0
+        )
+      );
+    }
+    return sum + (Number(inv.purchasePrice) || 0) * (Number(inv.quantity) || 1);
+  }, 0);
+  const totalUnitsSold = invoices.reduce((sum, inv) => sum + (Number(inv.quantity) || 0), 0);
+  const totalFormalInvoices = invoices.filter((inv) => inv.documentType === 'facture').length;
+  const totalBlCount = invoices.filter((inv) => inv.documentType === 'bl').length;
+  const todayBlCount = invoices.filter(
+    (inv) =>
+      (inv.saleDate || '').slice(0, 10) === today &&
+      (inv.documentType === 'bl' || Boolean(inv.blNumber))
+  ).length;
+  return {
+    totalInvoices: invoices.length,
+    totalFormalInvoices,
+    totalBlCount,
+    todayBlCount,
+    totalUnitsSold,
+    totalRevenueMad,
+    totalProfitMad: totalRevenueMad - totalCostMad,
+    nextBlSeq: getNextBlSeq(),
   };
 }
 
@@ -2659,29 +2797,21 @@ async function startServer() {
   app.get('/api/pos/sales', (_req: Request, res: Response) => {
     const rows = db.prepare('SELECT * FROM sales_invoices ORDER BY created_at DESC').all() as SalesInvoiceRow[];
     const invoices = rows.map(mapSalesInvoiceRow);
-    const totalRevenueMad = invoices.reduce((sum, inv) => sum + (Number(inv.totalPrice) || 0), 0);
-    const totalCostMad = invoices.reduce((sum, inv) => {
-      if (Array.isArray(inv.items) && inv.items.length > 0) {
-        return (
-          sum +
-          inv.items.reduce(
-            (s, item) => s + (Number(item.purchasePrice) || 0) * (Number(item.quantity) || 1),
-            0
-          )
-        );
-      }
-      return sum + (Number(inv.purchasePrice) || 0) * (Number(inv.quantity) || 1);
-    }, 0);
-    const totalUnitsSold = invoices.reduce((sum, inv) => sum + (Number(inv.quantity) || 0), 0);
     res.json({
       invoices,
-      summary: {
-        totalInvoices: invoices.length,
-        totalUnitsSold,
-        totalRevenueMad,
-        totalProfitMad: totalRevenueMad - totalCostMad,
-      },
+      summary: computePosSalesSummary(invoices),
     });
+  });
+
+  app.post('/api/pos/bl-sequence', (req: Request, res: Response) => {
+    const body = req.body as { nextSeq?: number; blNumber?: string };
+    const parsed = parseBlSequenceInput(body?.nextSeq ?? body?.blNumber);
+    if (!parsed) {
+      res.status(400).json({ error: 'Invalid BL sequence number' });
+      return;
+    }
+    const nextBlSeq = setNextBlSeq(parsed);
+    res.json({ nextBlSeq, blNumber: formatBlNumber(nextBlSeq) });
   });
 
   app.post('/api/pos/sales', (req: Request, res: Response) => {
@@ -2690,11 +2820,14 @@ async function startServer() {
       qrCode?: string;
       quantity?: number;
       unitPrice?: number;
-      items?: Array<{ productId?: string; quantity?: number; unitPrice?: number }>;
+      items?: Array<{ productId?: string; quantity?: number; unitPrice?: number; discountPercent?: number }>;
       customerId?: string;
       customerName?: string;
       customerPhone?: string;
       paymentMethod?: string;
+      paymentBreakdown?: Array<{ method?: string; amount?: number }>;
+      documentType?: string;
+      blNumber?: string;
       saleDate?: string;
       notes?: string;
       source?: string;
@@ -2704,7 +2837,7 @@ async function startServer() {
       Array.isArray(body?.items) && body.items.length > 0
         ? body.items
         : body?.productId || body?.qrCode
-          ? [{ productId: body.productId, qrCode: body.qrCode, quantity: body.quantity, unitPrice: body.unitPrice }]
+          ? [{ productId: body.productId, qrCode: body.qrCode, quantity: body.quantity, unitPrice: body.unitPrice, discountPercent: 0 }]
           : [];
 
     if (rawLineItems.length === 0) {
@@ -2716,6 +2849,7 @@ async function startServer() {
       productRow: ProductRow;
       quantity: number;
       unitPrice: number;
+      discountPercent: number;
       totalPrice: number;
       purchasePrice: number;
     }> = [];
@@ -2751,13 +2885,18 @@ async function startServer() {
         typeof rawItem.unitPrice === 'number' && Number.isFinite(rawItem.unitPrice) && rawItem.unitPrice >= 0
           ? rawItem.unitPrice
           : targetRow.selling_price;
-      const totalPrice = Math.round(saleQty * unitPrice * 100) / 100;
+      const discountPercent =
+        typeof rawItem.discountPercent === 'number' && Number.isFinite(rawItem.discountPercent)
+          ? Math.max(0, Math.min(100, rawItem.discountPercent))
+          : 0;
+      const totalPrice = Math.round(saleQty * unitPrice * (1 - discountPercent / 100) * 100) / 100;
       const purchasePrice = (Number(targetRow.reference_price) || 0) + (Number(targetRow.expenses) || 0);
 
       resolvedItems.push({
         productRow: targetRow,
         quantity: saleQty,
         unitPrice,
+        discountPercent,
         totalPrice,
         purchasePrice,
       });
@@ -2766,11 +2905,20 @@ async function startServer() {
     const now = new Date().toISOString();
     const saleDate =
       typeof body.saleDate === 'string' && body.saleDate.trim() ? body.saleDate.trim() : now.slice(0, 10);
-    const validPayments = new Set(['cash', 'transfer', 'check', 'card', 'other']);
+    const validPayments = new Set(['cash', 'transfer', 'check', 'card', 'credit', 'mixed', 'other']);
     const paymentMethod =
       typeof body.paymentMethod === 'string' && validPayments.has(body.paymentMethod)
         ? body.paymentMethod
         : 'cash';
+
+    const cleanBreakdown = Array.isArray(body.paymentBreakdown)
+      ? body.paymentBreakdown
+          .filter((entry) => entry && typeof entry.method === 'string' && validPayments.has(entry.method) && Number(entry.amount) > 0)
+          .map((entry) => ({
+            method: String(entry.method),
+            amount: Math.round(Number(entry.amount) * 100) / 100,
+          }))
+      : [];
 
     let customerId = typeof body.customerId === 'string' ? body.customerId.trim() : '';
     let customerName = typeof body.customerName === 'string' ? body.customerName.trim() : '';
@@ -2787,7 +2935,17 @@ async function startServer() {
     }
 
     const invoiceId = crypto.randomUUID();
-    const invoiceNumber = generateNextInvoiceNumber();
+    const documentType = body.documentType === 'facture' ? 'facture' : 'bl';
+    let invoiceNumber = '';
+    let blNumber = '';
+    if (documentType === 'bl') {
+      const alloc = allocateNextBlNumber(body.blNumber);
+      blNumber = alloc.blNumber;
+      invoiceNumber = alloc.blNumber;
+    } else {
+      invoiceNumber = generateNextInvoiceNumber();
+      blNumber = typeof body.blNumber === 'string' ? body.blNumber.trim() : '';
+    }
     const notes = typeof body.notes === 'string' ? body.notes.trim() : '';
 
     const invoiceItems: SalesInvoiceItem[] = resolvedItems.map((entry) => ({
@@ -2801,6 +2959,7 @@ async function startServer() {
       supplier: entry.productRow.supplier || '',
       quantity: entry.quantity,
       unitPrice: entry.unitPrice,
+      discountPercent: entry.discountPercent,
       totalPrice: entry.totalPrice,
       purchasePrice: entry.purchasePrice,
     }));
@@ -2819,6 +2978,11 @@ async function startServer() {
       invoiceItems.length === 1
         ? primaryItem.name
         : `${primaryItem.name} (+${invoiceItems.length - 1})`;
+
+    const finalBreakdown =
+      cleanBreakdown.length > 0
+        ? cleanBreakdown
+        : [{ method: paymentMethod === 'mixed' ? 'cash' : paymentMethod, amount: grandTotalPrice }];
 
     const tx = db.transaction(() => {
       for (const entry of resolvedItems) {
@@ -2881,15 +3045,17 @@ async function startServer() {
 
       db.prepare(
         `INSERT INTO sales_invoices (
-          id, invoice_number, product_id, product_code, product_name,
+          id, invoice_number, document_type, bl_number, product_id, product_code, product_name,
           category, warehouse_id, warehouse_name, items_json,
           customer_id, customer_name, customer_phone,
           quantity, unit_price, total_price, purchase_price,
-          payment_method, sale_date, notes, print_count, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`
+          payment_method, payment_breakdown_json, sale_date, notes, print_count, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`
       ).run(
         invoiceId,
         invoiceNumber,
+        documentType,
+        blNumber,
         primaryItem.id,
         summaryCode,
         summaryName,
@@ -2905,6 +3071,7 @@ async function startServer() {
         grandTotalPrice,
         avgPurchaseCost,
         paymentMethod,
+        JSON.stringify(finalBreakdown),
         saleDate,
         notes,
         now
@@ -2922,7 +3089,52 @@ async function startServer() {
       invoice: mapSalesInvoiceRow(invoiceRow),
       digitalFile: buildProductDigitalFile(updatedRow),
       summary: getInventorySummary(),
+      nextBlSeq: getNextBlSeq(),
     });
+  });
+
+  app.post('/api/pos/sales/:invoiceId/convert', (req: Request, res: Response) => {
+    const invoice = db
+      .prepare('SELECT * FROM sales_invoices WHERE id = ?')
+      .get(req.params.invoiceId) as SalesInvoiceRow | undefined;
+    if (!invoice) {
+      res.status(404).json({ error: 'BL not found' });
+      return;
+    }
+    if (invoice.document_type === 'facture' && invoice.invoice_number.startsWith('FAC-')) {
+      res.json({ invoice: mapSalesInvoiceRow(invoice) });
+      return;
+    }
+
+    const originalBlNumber = invoice.bl_number || invoice.invoice_number;
+    const formalNumber = generateNextInvoiceNumber();
+    const now = new Date().toISOString();
+    const lineItems = parseInvoiceItemsJson(invoice);
+
+    const tx = db.transaction(() => {
+      db.prepare(
+        "UPDATE sales_invoices SET invoice_number = ?, document_type = 'facture', bl_number = ? WHERE id = ?"
+      ).run(formalNumber, originalBlNumber, invoice.id);
+
+      for (const item of lineItems) {
+        const prod = db.prepare('SELECT quantity FROM products WHERE id = ?').get(item.productId) as
+          | { quantity: number }
+          | undefined;
+        logProductHistory(
+          item.productId,
+          'invoice_created',
+          `${formalNumber} (${originalBlNumber})`,
+          `${item.totalPrice} MAD`,
+          0,
+          prod?.quantity ?? 0,
+          now
+        );
+      }
+    });
+
+    tx();
+    const updated = db.prepare('SELECT * FROM sales_invoices WHERE id = ?').get(invoice.id) as SalesInvoiceRow;
+    res.json({ invoice: mapSalesInvoiceRow(updated) });
   });
 
   app.post('/api/pos/sales/:invoiceId/print', (req: Request, res: Response) => {

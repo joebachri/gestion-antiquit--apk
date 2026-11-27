@@ -45,6 +45,7 @@ import type {
   MetaAuthStatus,
   PosInvoice,
   PosSalePayload,
+  PosSummary,
   Product,
   ProductDigitalFile,
   ProductPayload,
@@ -67,6 +68,7 @@ import {
   buildSuppliersExcelBlob,
 } from './utils/excel';
 import {
+  convertBlToInvoiceApi,
   createAdjustmentApi,
   createPosSaleApi,
   deleteAdjustmentApi,
@@ -101,12 +103,14 @@ import {
   saveSupplierGalleryImagesApi,
   saveSupplierPurchaseApi,
   saveWarehouseApi,
+  setNextBlSequenceApi,
 } from './utils/api';
 import { saveOrShareBlob } from './utils/download';
 import { isVideoMedia } from './utils/image';
 import { localizeProduct, localizeWarehouse } from './utils/productTranslation';
 import { extractQrParamFromLocation, extractSnapshotExtrasFromQrInput } from './utils/qr';
 import { buildReportSpec, executeReportOutput } from './utils/printReports';
+import { isBluetoothPrinterConnected, printThermalTicketBluetooth } from './utils/printer';
 import { Header } from './components/Header';
 import { LauncherHome } from './components/LauncherHome';
 import { ProductFormModal } from './components/ProductFormModal';
@@ -207,12 +211,17 @@ export default function App() {
   const [posModalOpen, setPosModalOpen] = useState(false);
   const [posModalInitialView, setPosModalInitialView] = useState<'caisse' | 'invoices'>('invoices');
   const [posInvoices, setPosInvoices] = useState<PosInvoice[]>([]);
-  const [posSummary, setPosSummary] = useState({
+  const [posSummary, setPosSummary] = useState<PosSummary>({
     totalInvoices: 0,
+    totalFormalInvoices: 0,
+    totalBlCount: 0,
+    todayBlCount: 0,
     totalUnitsSold: 0,
     totalRevenueMad: 0,
     totalProfitMad: 0,
+    nextBlSeq: 1,
   });
+  const qrPosPickHandlerRef = useRef<((product: Product) => void) | null>(null);
   const [logoModalOpen, setLogoModalOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [calculatorOpen, setCalculatorOpen] = useState(false);
@@ -687,6 +696,65 @@ export default function App() {
     showToast(t.customerSavedToast);
     await fetchCustomers(customerSearch, customerCategory);
   };
+
+  const handleCreateCustomerForPos = useCallback(
+    async (payload: CustomerPayload): Promise<Customer> => {
+      const saved = await saveCustomerApi(payload);
+      showToast(t.customerSavedToast);
+      await fetchCustomers(customerSearch, customerCategory);
+      return saved;
+    },
+    [customerCategory, customerSearch, fetchCustomers, showToast, t.customerSavedToast]
+  );
+
+  const handleUpdateBlSequence = useCallback(
+    async (nextSeqOrLabel: number | string) => {
+      const res = await setNextBlSequenceApi(nextSeqOrLabel);
+      await fetchPosSales();
+      return res;
+    },
+    [fetchPosSales]
+  );
+
+  const handleConvertBlToInvoice = useCallback(
+    async (invoiceId: string): Promise<PosInvoice | null> => {
+      const converted = await convertBlToInvoiceApi(invoiceId);
+      await Promise.all([fetchPosSales(), fetchProducts(searchQuery)]);
+      showToast(`${t.posConvertedToInvoiceToast} ${converted.invoiceNumber}`);
+      return converted;
+    },
+    [fetchPosSales, fetchProducts, searchQuery, showToast, t.posConvertedToInvoiceToast]
+  );
+
+  const handlePrintPosTicket = useCallback(
+    async (invoice: PosInvoice) => {
+      if (settings.printerMode === 'thermal_bt' && isBluetoothPrinterConnected()) {
+        await printThermalTicketBluetooth(
+          invoice,
+          settings.storeName || '',
+          settings.currency,
+          lang,
+          settings.printerPaper || 'roll_80',
+          true
+        );
+        await handleMarkInvoicePrinted(invoice.id);
+        showToast(`${t.invoicePrintedToast} ${invoice.invoiceNumber}`);
+        return;
+      }
+      await handlePrintInvoice(invoice, false);
+    },
+    [
+      handleMarkInvoicePrinted,
+      handlePrintInvoice,
+      lang,
+      settings.currency,
+      settings.printerMode,
+      settings.printerPaper,
+      settings.storeName,
+      showToast,
+      t.invoicePrintedToast,
+    ]
+  );
 
   const handleDeleteCustomer = async (customerId: string) => {
     await deleteCustomerApi(customerId);
@@ -2486,6 +2554,7 @@ export default function App() {
         customers={customers}
         lockedCustomer={qrScannerLockedCustomer}
         onClose={() => {
+          qrPosPickHandlerRef.current = null;
           setQrScannerOpen(false);
           setQrScannerLockedCustomer(null);
           setQrScannerInitialMode('view');
@@ -2493,8 +2562,12 @@ export default function App() {
         }}
         onLookupQr={lookupProductByQrApi}
         onExecuteQrSale={handleExecuteQrSale}
+        onPickProductForPos={(digitalFile) => {
+          qrPosPickHandlerRef.current?.(localizeProduct(digitalFile.product, lang));
+        }}
         onPrintInvoice={handlePrintInvoice}
         onOpenDigitalFile={(file, view) => {
+          qrPosPickHandlerRef.current = null;
           const keepClientLock = qrScannerClientOnly;
           setQrScannerOpen(false);
           setQrScannerClientOnly(false);
@@ -2591,7 +2664,18 @@ export default function App() {
         onClose={() => setPosModalOpen(false)}
         onCreateSale={handleRecordPosSale}
         onCancelInvoice={handleCancelPosInvoice}
+        onUpdateBlSequence={handleUpdateBlSequence}
+        onConvertBlToInvoice={handleConvertBlToInvoice}
+        onCreateCustomer={handleCreateCustomerForPos}
+        onPickProductViaQr={(onSelect) => {
+          qrPosPickHandlerRef.current = onSelect;
+          setQrScannerLockedCustomer(null);
+          setQrScannerInitialMode('pos_pick');
+          setQrScannerClientOnly(false);
+          setQrScannerOpen(true);
+        }}
         onPrintInvoice={handlePrintInvoice}
+        onPrintPosTicket={handlePrintPosTicket}
         onOpenProductDigitalFile={(productId) => {
           setPosModalOpen(false);
           void openDigitalFileForProduct(productId, 'management');
@@ -2616,6 +2700,7 @@ export default function App() {
             category: filters.category,
           })
         }
+        onNotify={showToast}
       />
 
       {/* Global Confirmation Toast */}

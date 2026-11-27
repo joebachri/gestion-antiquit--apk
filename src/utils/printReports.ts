@@ -97,7 +97,19 @@ function paymentLabel(method: string, lang: Language): string {
   if (method === 'transfer') return t.paymentTransfer;
   if (method === 'check') return t.paymentCheck;
   if (method === 'card') return t.paymentCard;
+  if (method === 'credit') return t.paymentCredit;
+  if (method === 'mixed') return t.posPaymentMixed;
   return t.paymentOther;
+}
+
+function formatPaymentSummary(inv: PosInvoice, lang: Language, currency: string): string {
+  if (inv.paymentBreakdown && inv.paymentBreakdown.length > 0) {
+    return inv.paymentBreakdown
+      .filter((p) => (Number(p.amount) || 0) > 0)
+      .map((p) => `${paymentLabel(p.method, lang)}: ${formatCurrency(p.amount, currency, lang)}`)
+      .join(' + ');
+  }
+  return paymentLabel(inv.paymentMethod, lang);
 }
 
 function customerCategoryLabel(cat: string, lang: Language): string {
@@ -126,6 +138,15 @@ function buildFilterSummaryPairs(
     pairs.push({
       label: ctx.lang === 'ar' ? 'الفترة' : 'Période',
       value: `${filters.startDate || '…'} → ${filters.endDate || '…'}`,
+    });
+  }
+  if (filters.timeOfDay && filters.timeOfDay !== 'all') {
+    pairs.push({
+      label: ctx.lang === 'ar' ? 'الفترة الزمنية' : 'Tranche',
+      value:
+        filters.timeOfDay === 'morning'
+          ? t.posPeriodMorning
+          : t.posPeriodAfternoon,
     });
   }
   if (filters.warehouseId) {
@@ -184,8 +205,10 @@ export function buildReportSpec(filters: ReportFilters, ctx: ReportContextData):
     }
     const items = getInvoiceItems(inv);
     const isCopy = Boolean(filters.isCopy || (inv.printCount || 0) > 0);
+    const isBl = inv.documentType === 'bl';
+    const docPrefix = isBl ? t.posBlNumberLabel : t.posInvoiceNumber;
     return {
-      title: `${t.posInvoiceNumber} ${inv.invoiceNumber}`,
+      title: `${docPrefix} ${inv.invoiceNumber}`,
       subtitle: isCopy
         ? `${t.invoiceCopyBadge} · ${inv.saleDate}`
         : `${t.invoiceOriginalBadge} · ${inv.saleDate}`,
@@ -194,13 +217,14 @@ export function buildReportSpec(filters: ReportFilters, ctx: ReportContextData):
       watermark: isCopy ? t.invoiceCopyBadge : undefined,
       metaPairs: [
         { label: isAr ? 'التاريخ' : 'Date', value: inv.saleDate },
+        ...(inv.blNumber && !isBl ? [{ label: t.posBlNumberLabel, value: inv.blNumber }] : []),
         {
           label: t.posCustomerLabel,
           value: inv.customerName
             ? `${inv.customerName}${inv.customerPhone ? ` (${inv.customerPhone})` : ''}`
             : t.posWalkInCustomer,
         },
-        { label: t.purchasePaymentLabel, value: paymentLabel(inv.paymentMethod, lang) },
+        { label: t.purchasePaymentLabel, value: formatPaymentSummary(inv, lang, currency) },
         ...(inv.warehouseName ? [{ label: t.productWarehouseLabel, value: inv.warehouseName }] : []),
         ...(inv.notes ? [{ label: t.purchaseNotesLabel, value: inv.notes }] : []),
       ],
@@ -216,23 +240,26 @@ export function buildReportSpec(filters: ReportFilters, ctx: ReportContextData):
       tables: [
         {
           columns: [
-            { label: isAr ? 'الرمز' : 'Code', widthWeight: 1.1 },
-            { label: isAr ? 'المنتج' : 'Article', widthWeight: 2.5 },
-            { label: isAr ? 'الكمية' : 'Qté', align: 'right', widthWeight: 0.8 },
-            { label: isAr ? 'سعر الوحدة' : 'P.U.', align: 'right', widthWeight: 1.3 },
-            { label: isAr ? 'المجموع' : 'Total', align: 'right', widthWeight: 1.4 },
+            { label: isAr ? 'الرمز' : 'Code', widthWeight: 1.0 },
+            { label: isAr ? 'المنتج' : 'Article', widthWeight: 2.3 },
+            { label: isAr ? 'الكمية' : 'Qté', align: 'right', widthWeight: 0.7 },
+            { label: isAr ? 'سعر الوحدة' : 'P.U.', align: 'right', widthWeight: 1.2 },
+            { label: 'R %', align: 'right', widthWeight: 0.7 },
+            { label: isAr ? 'المجموع' : 'Total', align: 'right', widthWeight: 1.3 },
           ],
           rows: items.map((item) => [
             item.productCode || '—',
             item.productName,
             formatNumber(item.quantity, lang),
             formatCurrency(item.unitPrice, currency, lang),
+            `${formatNumber(item.discountPercent || 0, lang)}%`,
             formatCurrency(item.totalPrice, currency, lang),
           ]),
           totalsRow: [
             isAr ? 'المجموع' : 'TOTAL',
             `${items.length} ${t.posItemCountUnit}`,
             formatNumber(inv.quantity, lang),
+            '',
             '',
             formatCurrency(inv.totalPrice, currency, lang),
           ],
@@ -242,9 +269,141 @@ export function buildReportSpec(filters: ReportFilters, ctx: ReportContextData):
         ? isAr
           ? 'نسخة مطابقة للأصل — شكراً لثقتكم'
           : 'COPIE CONFORME — Merci pour votre confiance'
+        : isBl
+        ? isAr
+          ? 'بيان تسليم (BL) — شكراً لثقتكم'
+          : 'BON DE LIVRAISON (BL) — Merci pour votre confiance'
         : isAr
         ? 'فاتورة أصلية — شكراً لثقتكم'
         : 'FACTURE ORIGINALE — Merci pour votre confiance',
+    };
+  }
+
+  // 1B. DAILY CASH REGISTER SUMMARY (Recette journalière du caisse)
+  if (filters.reportType === 'cash_register_summary') {
+    const filtered = invoices.filter((inv) => {
+      if (!withinDateRange(inv.saleDate, filters.startDate, filters.endDate)) return false;
+      if (filters.timeOfDay && filters.timeOfDay !== 'all') {
+        const created = inv.createdAt || '';
+        const hourMatch = created.match(/T(\d{2}):/);
+        const hour = hourMatch ? Number(hourMatch[1]) : 12;
+        if (filters.timeOfDay === 'morning' && hour >= 13) return false;
+        if (filters.timeOfDay === 'afternoon' && hour < 13) return false;
+      }
+      return true;
+    });
+
+    const totalTransactions = filtered.length;
+    const totalUnits = filtered.reduce((s, inv) => s + (Number(inv.quantity) || 0), 0);
+    const grandTotal = filtered.reduce((s, inv) => s + (Number(inv.totalPrice) || 0), 0);
+
+    const paymentTotals: Record<'cash' | 'check' | 'card' | 'credit' | 'transfer' | 'other', number> = {
+      cash: 0,
+      check: 0,
+      card: 0,
+      credit: 0,
+      transfer: 0,
+      other: 0,
+    };
+
+    for (const inv of filtered) {
+      if (inv.paymentBreakdown && inv.paymentBreakdown.length > 0) {
+        for (const split of inv.paymentBreakdown) {
+          const amt = Number(split.amount) || 0;
+          if (amt <= 0) continue;
+          const m = split.method;
+          if (m in paymentTotals) {
+            paymentTotals[m as keyof typeof paymentTotals] += amt;
+          } else {
+            paymentTotals.other += amt;
+          }
+        }
+      } else {
+        const amt = Number(inv.totalPrice) || 0;
+        const m = inv.paymentMethod || 'cash';
+        if (m in paymentTotals) {
+          paymentTotals[m as keyof typeof paymentTotals] += amt;
+        } else {
+          paymentTotals.other += amt;
+        }
+      }
+    }
+
+    const paymentRows: Array<string[]> = [
+      [t.paymentCash, formatCurrency(paymentTotals.cash, currency, lang)],
+      [t.paymentCheck, formatCurrency(paymentTotals.check, currency, lang)],
+      [t.paymentCard, formatCurrency(paymentTotals.card, currency, lang)],
+      [t.paymentCredit, formatCurrency(paymentTotals.credit, currency, lang)],
+      [t.paymentTransfer, formatCurrency(paymentTotals.transfer, currency, lang)],
+      [t.paymentOther, formatCurrency(paymentTotals.other, currency, lang)],
+    ];
+
+    return {
+      title: t.posDailySummaryTitle,
+      subtitle:
+        filters.startDate || filters.endDate
+          ? `${filters.startDate || '…'} → ${filters.endDate || '…'}`
+          : t.reportAllDates,
+      storeName: cleanStore,
+      generatedDate: today,
+      metaPairs,
+      kpis: [
+        { label: t.posDailySummaryTotalTx, value: formatNumber(totalTransactions, lang) },
+        { label: t.posTotalUnitsSold, value: formatNumber(totalUnits, lang) },
+        { label: t.posCartGrandTotal, value: formatCurrency(grandTotal, currency, lang) },
+        { label: t.paymentCash, value: formatCurrency(paymentTotals.cash, currency, lang) },
+      ],
+      tables: [
+        {
+          heading: t.posDailySummaryTxList,
+          columns: [
+            { label: isAr ? 'رقم BL / الوثيقة' : 'N° BL', widthWeight: 1.4 },
+            { label: isAr ? 'التاريخ' : 'Date', widthWeight: 1.0 },
+            { label: isAr ? 'رموز العمليات / المنتجات' : 'IDs / Articles', widthWeight: 2.5 },
+            { label: isAr ? 'الكمية' : 'Qté', align: 'right', widthWeight: 0.7 },
+            { label: isAr ? 'الدفع' : 'Paiement', widthWeight: 1.3 },
+            { label: isAr ? 'المجموع' : 'Total BL', align: 'right', widthWeight: 1.3 },
+          ],
+          rows: filtered.map((inv) => {
+            const items = getInvoiceItems(inv);
+            const itemCodes = items.map((x) => `${x.productCode} (×${x.quantity})`).join(', ');
+            const blLabel =
+              inv.documentType === 'bl'
+                ? inv.invoiceNumber
+                : inv.blNumber
+                ? `${inv.blNumber} → ${inv.invoiceNumber}`
+                : inv.invoiceNumber;
+            return [
+              blLabel,
+              inv.saleDate,
+              itemCodes,
+              formatNumber(inv.quantity, lang),
+              formatPaymentSummary(inv, lang, currency),
+              formatCurrency(inv.totalPrice, currency, lang),
+            ];
+          }),
+          totalsRow: [
+            isAr ? 'المجموع العام' : 'TOTAL GÉNÉRAL',
+            '',
+            `${formatNumber(totalTransactions, lang)} ${isAr ? 'عمليات' : 'opérations'}`,
+            formatNumber(totalUnits, lang),
+            '',
+            formatCurrency(grandTotal, currency, lang),
+          ],
+        },
+        {
+          heading: t.posDailySummaryByPayment,
+          columns: [
+            { label: t.purchasePaymentLabel, widthWeight: 2.2 },
+            { label: isAr ? 'المبلغ' : 'Montant', align: 'right', widthWeight: 1.4 },
+          ],
+          rows: paymentRows,
+          totalsRow: [
+            isAr ? 'المجموع الكلي للمداخيل' : 'TOTAL RECETTE',
+            formatCurrency(grandTotal, currency, lang),
+          ],
+        },
+      ],
     };
   }
 
@@ -296,7 +455,7 @@ export function buildReportSpec(filters: ReportFilters, ctx: ReportContextData):
               inv.customerName || t.posWalkInCustomer,
               summaryItems,
               formatNumber(inv.quantity, lang),
-              paymentLabel(inv.paymentMethod, lang),
+              formatPaymentSummary(inv, lang, currency),
               formatCurrency(inv.totalPrice, currency, lang),
             ];
           }),

@@ -33,7 +33,7 @@ import { convertFromMad, convertToMad } from '../utils/currency';
 import { buildInvoiceReceiptBlob } from '../utils/qr';
 import { saveOrShareBlob } from '../utils/download';
 
-export type QrScanMode = 'view' | 'sell';
+export type QrScanMode = 'view' | 'sell' | 'pos_pick';
 
 interface QrScannerModalProps {
   isOpen: boolean;
@@ -50,6 +50,7 @@ interface QrScannerModalProps {
     invoice: PosInvoice;
     digitalFile: ProductDigitalFile;
   }>;
+  onPickProductForPos?: (digitalFile: ProductDigitalFile) => void;
   onPrintInvoice?: (invoice: PosInvoice, isCopy: boolean) => Promise<void>;
   onOpenDigitalFile: (digitalFile: ProductDigitalFile, view: 'client' | 'management') => void;
 }
@@ -193,6 +194,7 @@ export function QrScannerModal({
   onClose,
   onLookupQr,
   onExecuteQrSale,
+  onPickProductForPos,
   onPrintInvoice,
   onOpenDigitalFile,
 }: QrScannerModalProps) {
@@ -270,6 +272,17 @@ export function QrScannerModal({
           stopCamera();
           onClose();
           onOpenDigitalFile(digitalFile, clientOnly ? 'client' : 'management');
+        } else if (scanMode === 'pos_pick') {
+          const digitalFile = await onLookupQr(clean, false);
+          if ((Number(digitalFile.product.quantity) || 0) <= 0) {
+            setErrorMsg(t.qrScannerOutOfStock);
+            return;
+          }
+          onPickProductForPos?.(digitalFile);
+          setManualInput('');
+          setNoticeMsg(
+            `${t.posQrUpdatedQtyToast} ${digitalFile.product.code} — ${digitalFile.product.name}`
+          );
         } else {
           const digitalFile = await onLookupQr(clean, false);
           if ((Number(digitalFile.product.quantity) || 0) <= 0) {
@@ -296,10 +309,12 @@ export function QrScannerModal({
       clientOnly,
       scanMode,
       onLookupQr,
+      onPickProductForPos,
       populateSaleDraft,
       onClose,
       onOpenDigitalFile,
       stopCamera,
+      t.posQrUpdatedQtyToast,
       t.qrScannerNotFound,
       t.qrScannerOutOfStock,
     ]
@@ -695,8 +710,22 @@ export function QrScannerModal({
             </div>
           )}
 
-          {/* Two Scan Options Selector */}
-          {!clientOnly && (
+          {/* Two Scan Options Selector (hidden in clientOnly or pos_pick mode) */}
+          {!clientOnly && scanMode === 'pos_pick' ? (
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-[#115E3B]/30 bg-[#ECF7F1] px-4 py-3 text-xs text-[#0B1F16] dark:border-[#10B981]/30 dark:bg-[#132B20] dark:text-[#F2F9F5]">
+              <div className="flex min-w-0 items-center gap-2.5">
+                <QrCode className="h-4 w-4 shrink-0 text-[#115E3B] dark:text-[#34D399]" />
+                <span className="leading-snug font-medium">{t.posQrAddHint}</span>
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                className="min-h-[36px] shrink-0 whitespace-nowrap rounded-xl bg-[#115E3B] px-3 text-xs font-bold text-white hover:bg-[#0D4A2E] dark:bg-[#10B981] dark:text-[#052E1C]"
+              >
+                {t.posQrPickDone}
+              </button>
+            </div>
+          ) : !clientOnly ? (
             <div>
               <p className="mb-2 text-xs font-bold uppercase tracking-wider text-[#335947] dark:text-[#9EC0AE]">
                 {t.qrModeLabel}
@@ -743,7 +772,7 @@ export function QrScannerModal({
                 </button>
               </div>
             </div>
-          )}
+          ) : null}
 
           {noticeMsg && (
             <div className="rounded-xl border border-[#10B981]/40 bg-[#ECF7F1] px-4 py-2.5 text-xs font-semibold text-[#115E3B] dark:bg-[#132B20] dark:text-[#34D399]">

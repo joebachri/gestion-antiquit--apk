@@ -141,6 +141,24 @@ export interface ProductHistoryEvent {
   createdAt: string;
 }
 
+export type PosDocumentType = 'bl' | 'facture';
+
+export interface PosPaymentSplit {
+  method: Exclude<PurchasePaymentMethod, 'mixed'>;
+  amount: number;
+}
+
+export interface PosSummary {
+  totalInvoices: number;
+  totalFormalInvoices: number;
+  totalBlCount: number;
+  todayBlCount: number;
+  totalUnitsSold: number;
+  totalRevenueMad: number;
+  totalProfitMad: number;
+  nextBlSeq: number;
+}
+
 export interface PosInvoiceItem {
   productId: string;
   productCode: string;
@@ -152,6 +170,7 @@ export interface PosInvoiceItem {
   supplier?: string;
   quantity: number;
   unitPrice: number;
+  discountPercent?: number;
   totalPrice: number;
   purchasePrice: number;
 }
@@ -159,6 +178,8 @@ export interface PosInvoiceItem {
 export interface PosInvoice {
   id: string;
   invoiceNumber: string;
+  documentType?: PosDocumentType;
+  blNumber?: string;
   productId: string;
   productCode: string;
   productName: string;
@@ -174,6 +195,7 @@ export interface PosInvoice {
   totalPrice: number;
   purchasePrice: number;
   paymentMethod: PurchasePaymentMethod;
+  paymentBreakdown?: PosPaymentSplit[];
   saleDate: string;
   notes: string;
   printCount?: number;
@@ -184,6 +206,7 @@ export interface PosSaleItemPayload {
   productId: string;
   quantity: number;
   unitPrice: number;
+  discountPercent?: number;
 }
 
 export interface PosSalePayload {
@@ -195,6 +218,9 @@ export interface PosSalePayload {
   customerName?: string;
   customerPhone?: string;
   paymentMethod?: PurchasePaymentMethod;
+  paymentBreakdown?: PosPaymentSplit[];
+  documentType?: PosDocumentType;
+  blNumber?: string;
   saleDate?: string;
   notes?: string;
   source?: 'qr_scan' | 'pos_manual';
@@ -255,7 +281,14 @@ export interface InstagramPublishPayload {
 
 export type CustomerCategory = 'seller' | 'hobbyist' | 'regular' | 'other';
 
-export type PurchasePaymentMethod = 'cash' | 'transfer' | 'check' | 'card' | 'other';
+export type PurchasePaymentMethod =
+  | 'cash'
+  | 'transfer'
+  | 'check'
+  | 'card'
+  | 'credit'
+  | 'mixed'
+  | 'other';
 
 export type CustomerImageSource = 'facebook' | 'instagram' | 'website' | 'upload';
 
@@ -507,12 +540,14 @@ export type ReportType =
   | 'sales'
   | 'products'
   | 'product_single'
-  | 'warehouses';
+  | 'warehouses'
+  | 'cash_register_summary';
 
 export interface ReportFilters {
   reportType: ReportType;
   startDate?: string;
   endDate?: string;
+  timeOfDay?: 'all' | 'morning' | 'afternoon';
   warehouseId?: string;
   category?: string;
   productId?: string;

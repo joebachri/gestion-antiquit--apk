@@ -16,7 +16,9 @@ import type {
   InventorySummary,
   PosInvoice,
   PosInvoiceItem,
+  PosPaymentSplit,
   PosSalePayload,
+  PosSummary,
   Product,
   ProductDigitalFile,
   ProductHistoryEvent,
@@ -1385,38 +1387,86 @@ export async function localGetProductDigitalFile(
   return buildLocalDigitalFile(db, found);
 }
 
+function formatLocalBlNumber(seq: number): string {
+  return `BL-${String(Math.max(1, Math.floor(seq))).padStart(4, '0')}`;
+}
+
+function parseLocalBlSeq(raw: string | number | undefined): number | null {
+  if (typeof raw === 'number' && Number.isFinite(raw) && raw >= 1) {
+    return Math.floor(raw);
+  }
+  if (typeof raw === 'string') {
+    const m = raw.trim().match(/(\d+)/);
+    if (m) {
+      const n = Number.parseInt(m[1], 10);
+      if (Number.isFinite(n) && n >= 1) return n;
+    }
+  }
+  return null;
+}
+
+async function getLocalNextBlSeq(db: IDBDatabase, existingInvoices?: PosInvoice[]): Promise<number> {
+  const row = await getFromStore<{ key: string; value: number }>(db, STORE_SETTINGS, 'next_bl_seq');
+  if (row && Number.isFinite(Number(row.value)) && Number(row.value) >= 1) {
+    return Math.floor(Number(row.value));
+  }
+  const all = existingInvoices || (await getAllFromStore<PosInvoice>(db, STORE_INVOICES));
+  let maxNum = 0;
+  for (const inv of all) {
+    for (const candidate of [inv.invoiceNumber, inv.blNumber]) {
+      if (candidate && candidate.startsWith('BL-')) {
+        const n = Number.parseInt(candidate.slice(3), 10);
+        if (Number.isFinite(n) && n > maxNum) maxNum = n;
+      }
+    }
+  }
+  return maxNum + 1;
+}
+
+export async function localSetNextBlSequence(
+  nextSeqOrLabel: number | string
+): Promise<{ nextBlSeq: number; blNumber: string }> {
+  const db = await openDb();
+  const parsed = parseLocalBlSeq(nextSeqOrLabel) || 1;
+  const nextBlSeq = Math.max(1, parsed);
+  await putInStore(db, STORE_SETTINGS, { key: 'next_bl_seq', value: nextBlSeq });
+  return { nextBlSeq, blNumber: formatLocalBlNumber(nextBlSeq) };
+}
+
 export async function localListPosSales(): Promise<{
   invoices: PosInvoice[];
-  summary: {
-    totalInvoices: number;
-    totalUnitsSold: number;
-    totalRevenueMad: number;
-    totalProfitMad: number;
-  };
+  summary: PosSummary;
 }> {
   const db = await openDb();
   await ensureSeeded(db);
-  const invoices = (await getAllFromStore<PosInvoice>(db, STORE_INVOICES)).map((inv) => ({
-    ...inv,
-    printCount: Number(inv.printCount) || 0,
-    items:
-      Array.isArray(inv.items) && inv.items.length > 0
-        ? inv.items
-        : [
-            {
-              productId: inv.productId,
-              productCode: inv.productCode,
-              productName: inv.productName,
-              category: inv.category || '',
-              warehouseId: inv.warehouseId || '',
-              warehouseName: inv.warehouseName || '',
-              quantity: Number(inv.quantity) || 1,
-              unitPrice: Number(inv.unitPrice) || 0,
-              totalPrice: Number(inv.totalPrice) || 0,
-              purchasePrice: Number(inv.purchasePrice) || 0,
-            },
-          ],
-  }));
+  const invoices = (await getAllFromStore<PosInvoice>(db, STORE_INVOICES)).map((inv) => {
+    const docType = inv.documentType === 'bl' ? 'bl' : 'facture';
+    return {
+      ...inv,
+      documentType: docType as 'bl' | 'facture',
+      blNumber: inv.blNumber || (docType === 'bl' ? inv.invoiceNumber : ''),
+      paymentBreakdown: Array.isArray(inv.paymentBreakdown) ? inv.paymentBreakdown : [],
+      printCount: Number(inv.printCount) || 0,
+      items:
+        Array.isArray(inv.items) && inv.items.length > 0
+          ? inv.items
+          : [
+              {
+                productId: inv.productId,
+                productCode: inv.productCode,
+                productName: inv.productName,
+                category: inv.category || '',
+                warehouseId: inv.warehouseId || '',
+                warehouseName: inv.warehouseName || '',
+                quantity: Number(inv.quantity) || 1,
+                unitPrice: Number(inv.unitPrice) || 0,
+                discountPercent: 0,
+                totalPrice: Number(inv.totalPrice) || 0,
+                purchasePrice: Number(inv.purchasePrice) || 0,
+              },
+            ],
+    };
+  });
   invoices.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const totalRevenueMad = invoices.reduce((s, inv) => s + (Number(inv.totalPrice) || 0), 0);
   const totalCostMad = invoices.reduce((s, inv) => {
@@ -1432,13 +1482,26 @@ export async function localListPosSales(): Promise<{
     return s + (Number(inv.purchasePrice) || 0) * (Number(inv.quantity) || 1);
   }, 0);
   const totalUnitsSold = invoices.reduce((s, inv) => s + (Number(inv.quantity) || 0), 0);
+  const today = new Date().toISOString().slice(0, 10);
+  const totalFormalInvoices = invoices.filter((inv) => inv.documentType === 'facture').length;
+  const totalBlCount = invoices.filter((inv) => inv.documentType === 'bl').length;
+  const todayBlCount = invoices.filter(
+    (inv) =>
+      (inv.saleDate || '').slice(0, 10) === today &&
+      (inv.documentType === 'bl' || Boolean(inv.blNumber))
+  ).length;
+  const nextBlSeq = await getLocalNextBlSeq(db, invoices);
   return {
     invoices,
     summary: {
       totalInvoices: invoices.length,
+      totalFormalInvoices,
+      totalBlCount,
+      todayBlCount,
       totalUnitsSold,
       totalRevenueMad,
       totalProfitMad: totalRevenueMad - totalCostMad,
+      nextBlSeq,
     },
   };
 }
@@ -1447,6 +1510,7 @@ export async function localCreatePosSale(payload: PosSalePayload): Promise<{
   invoice: PosInvoice;
   digitalFile: ProductDigitalFile;
   summary: InventorySummary;
+  nextBlSeq: number;
 }> {
   const db = await openDb();
   await ensureSeeded(db);
@@ -1455,7 +1519,7 @@ export async function localCreatePosSale(payload: PosSalePayload): Promise<{
     Array.isArray(payload.items) && payload.items.length > 0
       ? payload.items
       : payload.productId
-        ? [{ productId: payload.productId, quantity: payload.quantity ?? 1, unitPrice: payload.unitPrice }]
+        ? [{ productId: payload.productId, quantity: payload.quantity ?? 1, unitPrice: payload.unitPrice, discountPercent: 0 }]
         : [];
   if (rawLineItems.length === 0) throw new Error('At least one product is required');
 
@@ -1463,6 +1527,7 @@ export async function localCreatePosSale(payload: PosSalePayload): Promise<{
     product: Product;
     quantity: number;
     unitPrice: number;
+    discountPercent: number;
     totalPrice: number;
     purchasePrice: number;
   }> = [];
@@ -1479,30 +1544,59 @@ export async function localCreatePosSale(payload: PosSalePayload): Promise<{
       typeof item.unitPrice === 'number' && Number.isFinite(item.unitPrice)
         ? Math.max(0, item.unitPrice)
         : prod.sellingPrice;
+    const discountPercent =
+      typeof item.discountPercent === 'number' && Number.isFinite(item.discountPercent)
+        ? Math.max(0, Math.min(100, item.discountPercent))
+        : 0;
     resolved.push({
       product: prod,
       quantity: qty,
       unitPrice,
-      totalPrice: Math.round(qty * unitPrice * 100) / 100,
+      discountPercent,
+      totalPrice: Math.round(qty * unitPrice * (1 - discountPercent / 100) * 100) / 100,
       purchasePrice: (Number(prod.referencePrice) || 0) + (Number(prod.expenses) || 0),
     });
   }
 
   const allInvoices = await getAllFromStore<PosInvoice>(db, STORE_INVOICES);
-  let maxInv = 0;
-  for (const inv of allInvoices) {
-    if (inv.invoiceNumber.startsWith('FAC-')) {
-      const n = Number.parseInt(inv.invoiceNumber.slice(4), 10);
-      if (Number.isFinite(n) && n > maxInv) maxInv = n;
+  const documentType: 'bl' | 'facture' = payload.documentType === 'facture' ? 'facture' : 'bl';
+  let invoiceNumber = '';
+  let blNumber = '';
+  let nextBlSeq = await getLocalNextBlSeq(db, allInvoices);
+
+  if (documentType === 'bl') {
+    let seqCandidate = parseLocalBlSeq(payload.blNumber) ?? nextBlSeq;
+    while (
+      allInvoices.some(
+        (inv) =>
+          inv.invoiceNumber === formatLocalBlNumber(seqCandidate) ||
+          inv.blNumber === formatLocalBlNumber(seqCandidate)
+      )
+    ) {
+      seqCandidate += 1;
     }
+    blNumber = formatLocalBlNumber(seqCandidate);
+    invoiceNumber = blNumber;
+    nextBlSeq = seqCandidate + 1;
+    await putInStore(db, STORE_SETTINGS, { key: 'next_bl_seq', value: nextBlSeq });
+  } else {
+    let maxInv = 0;
+    for (const inv of allInvoices) {
+      if (inv.invoiceNumber.startsWith('FAC-')) {
+        const n = Number.parseInt(inv.invoiceNumber.slice(4), 10);
+        if (Number.isFinite(n) && n > maxInv) maxInv = n;
+      }
+    }
+    invoiceNumber = `FAC-${String(maxInv + 1).padStart(4, '0')}`;
+    blNumber = payload.blNumber || '';
   }
-  const invoiceNumber = `FAC-${String(maxInv + 1).padStart(4, '0')}`;
+
   const now = new Date().toISOString();
 
   let customerName = (payload.customerName || '').trim();
   let customerPhone = (payload.customerPhone || '').trim();
   const customerId = (payload.customerId || '').trim();
-  let customerRecord = customerId ? await getFromStore<Customer>(db, STORE_CUSTOMERS, customerId) : undefined;
+  const customerRecord = customerId ? await getFromStore<Customer>(db, STORE_CUSTOMERS, customerId) : undefined;
   if (customerRecord) {
     if (!customerName) customerName = customerRecord.name;
     if (!customerPhone) customerPhone = customerRecord.phone;
@@ -1581,6 +1675,7 @@ export async function localCreatePosSale(payload: PosSalePayload): Promise<{
     supplier: entry.product.supplier || '',
     quantity: entry.quantity,
     unitPrice: entry.unitPrice,
+    discountPercent: entry.discountPercent,
     totalPrice: entry.totalPrice,
     purchasePrice: entry.purchasePrice,
   }));
@@ -1591,10 +1686,17 @@ export async function localCreatePosSale(payload: PosSalePayload): Promise<{
   const avgUnitPrice = totalQuantity > 0 ? Math.round((grandTotalPrice / totalQuantity) * 100) / 100 : 0;
   const totalPurchaseCost = invoiceItems.reduce((s, i) => s + i.purchasePrice * i.quantity, 0);
   const avgPurchaseCost = totalQuantity > 0 ? Math.round((totalPurchaseCost / totalQuantity) * 100) / 100 : 0;
+  const payMethod = (payload.paymentMethod || 'cash') as PurchasePaymentMethod;
+  const cleanBreakdown: PosPaymentSplit[] =
+    Array.isArray(payload.paymentBreakdown) && payload.paymentBreakdown.length > 0
+      ? payload.paymentBreakdown.filter((b) => Number(b.amount) > 0)
+      : [{ method: payMethod === 'mixed' ? 'cash' : payMethod, amount: grandTotalPrice }];
 
   const invoice: PosInvoice = {
     id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
     invoiceNumber,
+    documentType,
+    blNumber,
     productId: primaryProduct.id,
     productCode:
       invoiceItems.length === 1 ? primaryProduct.code : invoiceItems.map((i) => i.productCode).join(', '),
@@ -1613,7 +1715,8 @@ export async function localCreatePosSale(payload: PosSalePayload): Promise<{
     unitPrice: avgUnitPrice,
     totalPrice: grandTotalPrice,
     purchasePrice: avgPurchaseCost,
-    paymentMethod: (payload.paymentMethod || 'cash') as PurchasePaymentMethod,
+    paymentMethod: payMethod,
+    paymentBreakdown: cleanBreakdown,
     saleDate: payload.saleDate || now.slice(0, 10),
     notes: (payload.notes || '').trim(),
     printCount: 0,
@@ -1627,7 +1730,34 @@ export async function localCreatePosSale(payload: PosSalePayload): Promise<{
     invoice,
     digitalFile: await buildLocalDigitalFile(db, primaryUpdated),
     summary: computeSummary(nextProducts),
+    nextBlSeq,
   };
+}
+
+export async function localConvertBlToInvoice(invoiceId: string): Promise<PosInvoice> {
+  const db = await openDb();
+  const inv = await getFromStore<PosInvoice>(db, STORE_INVOICES, invoiceId);
+  if (!inv) throw new Error('BL not found');
+  if (inv.documentType === 'facture' && inv.invoiceNumber.startsWith('FAC-')) {
+    return inv;
+  }
+  const allInvoices = await getAllFromStore<PosInvoice>(db, STORE_INVOICES);
+  let maxInv = 0;
+  for (const row of allInvoices) {
+    if (row.invoiceNumber.startsWith('FAC-')) {
+      const n = Number.parseInt(row.invoiceNumber.slice(4), 10);
+      if (Number.isFinite(n) && n > maxInv) maxInv = n;
+    }
+  }
+  const formalNumber = `FAC-${String(maxInv + 1).padStart(4, '0')}`;
+  const updated: PosInvoice = {
+    ...inv,
+    invoiceNumber: formalNumber,
+    documentType: 'facture',
+    blNumber: inv.blNumber || inv.invoiceNumber,
+  };
+  await putInStore(db, STORE_INVOICES, updated);
+  return updated;
 }
 
 export async function localMarkInvoicePrinted(invoiceId: string): Promise<PosInvoice> {
