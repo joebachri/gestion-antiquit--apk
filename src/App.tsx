@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowRightLeft,
+  Banknote,
   BarChart3,
   CheckCircle2,
   ChevronDown,
@@ -204,6 +205,7 @@ export default function App() {
   const [showStockPurchasesReport, setShowStockPurchasesReport] = useState(false);
   const [exportingStockPurchases, setExportingStockPurchases] = useState(false);
   const [posModalOpen, setPosModalOpen] = useState(false);
+  const [posModalInitialView, setPosModalInitialView] = useState<'caisse' | 'invoices'>('invoices');
   const [posInvoices, setPosInvoices] = useState<PosInvoice[]>([]);
   const [posSummary, setPosSummary] = useState({
     totalInvoices: 0,
@@ -1230,7 +1232,14 @@ export default function App() {
               setEditingProduct(null);
               setFormOpen(true);
             }}
-            onOpenPos={() => setPosModalOpen(true)}
+            onOpenCaisse={() => {
+              setPosModalInitialView('caisse');
+              setPosModalOpen(true);
+            }}
+            onOpenInvoices={() => {
+              setPosModalInitialView('invoices');
+              setPosModalOpen(true);
+            }}
             onOpenQrScanner={() => {
               setQrScannerLockedCustomer(null);
               setQrScannerInitialMode('view');
@@ -1324,11 +1333,26 @@ export default function App() {
               <div className="grid w-full grid-cols-2 gap-1.5 sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:gap-2">
                 <button
                   type="button"
-                  onClick={() => setPosModalOpen(true)}
+                  onClick={() => {
+                    setPosModalInitialView('caisse');
+                    setPosModalOpen(true);
+                  }}
+                  className="flex min-h-[42px] items-center justify-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs font-bold text-[#0B1F16] transition-colors hover:bg-[#ECF7F1] whitespace-nowrap dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5] dark:hover:bg-[#162E23]"
+                >
+                  <Banknote className="h-4 w-4 shrink-0 text-[#115E3B] dark:text-[#34D399]" />
+                  <span className="truncate">{t.launcherCashierLabel}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPosModalInitialView('invoices');
+                    setPosModalOpen(true);
+                  }}
                   className="flex min-h-[42px] items-center justify-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs font-bold text-[#0B1F16] transition-colors hover:bg-[#ECF7F1] whitespace-nowrap dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5] dark:hover:bg-[#162E23]"
                 >
                   <Receipt className="h-4 w-4 shrink-0 text-[#115E3B] dark:text-[#34D399]" />
-                  <span className="truncate">{t.posTabLabel}</span>
+                  <span className="truncate">{t.launcherInvoicesLabel}</span>
                   <span className="tabular-nums opacity-75">({formatNumber(posSummary.totalInvoices, lang)})</span>
                 </button>
 
@@ -2555,6 +2579,7 @@ export default function App() {
 
       <PosSalesModal
         isOpen={posModalOpen}
+        initialView={posModalInitialView}
         lang={lang}
         currency={settings.currency}
         storeName={settings.storeName}

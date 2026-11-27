@@ -1,5 +1,6 @@
 import {
   ArrowRightLeft,
+  Banknote,
   BookOpen,
   Calculator,
   FileSpreadsheet,
@@ -32,7 +33,8 @@ interface LauncherHomeProps {
   exportingExcel: boolean;
   onOpenInventory: () => void;
   onOpenAddProduct: () => void;
-  onOpenPos: () => void;
+  onOpenCaisse: () => void;
+  onOpenInvoices: () => void;
   onOpenQrScanner: () => void;
   onOpenCustomers: () => void;
   onOpenSuppliers: () => void;
@@ -69,7 +71,8 @@ export function LauncherHome({
   exportingExcel,
   onOpenInventory,
   onOpenAddProduct,
-  onOpenPos,
+  onOpenCaisse,
+  onOpenInvoices,
   onOpenQrScanner,
   onOpenCustomers,
   onOpenSuppliers,
@@ -105,13 +108,22 @@ export function LauncherHome({
       onClick: onOpenAddProduct,
     },
     {
-      id: 'pos',
-      label: t.posTabLabel,
+      id: 'caisse',
+      label: t.launcherCashierLabel,
+      subtitle: t.launcherCashierSubtitle,
+      icon: Banknote,
+      toneClass:
+        'border-[#047857]/25 bg-[#D1FAE5] text-[#065F46] dark:border-[#10B981]/30 dark:bg-[#0D2E22] dark:text-[#34D399]',
+      onClick: onOpenCaisse,
+    },
+    {
+      id: 'invoices',
+      label: t.launcherInvoicesLabel,
       subtitle: `${formatNumber(totalInvoices, lang)} ${t.launcherInvoicesUnit}`,
       icon: Receipt,
       toneClass:
         'border-[#B45309]/25 bg-[#FEF3C7] text-[#92400E] dark:border-[#F59E0B]/30 dark:bg-[#2B1F0B] dark:text-[#FBBF24]',
-      onClick: onOpenPos,
+      onClick: onOpenInvoices,
     },
     {
       id: 'qr-scanner',

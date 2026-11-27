@@ -35,6 +35,7 @@ import { saveOrShareBlob } from '../utils/download';
 
 interface PosSalesModalProps {
   isOpen: boolean;
+  initialView?: 'caisse' | 'invoices';
   lang: Language;
   currency: string;
   storeName?: string;
@@ -98,6 +99,7 @@ function getInvoiceLineItems(inv: PosInvoice): PosInvoiceItem[] {
 
 export function PosSalesModal({
   isOpen,
+  initialView = 'invoices',
   lang,
   currency,
   storeName = '',
@@ -129,7 +131,7 @@ export function PosSalesModal({
     [products]
   );
 
-  const [showNewSale, setShowNewSale] = useState(false);
+  const [showNewSale, setShowNewSale] = useState(initialView === 'caisse');
   const [showReport, setShowReport] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [exportingSales, setExportingSales] = useState(false);
@@ -325,6 +327,9 @@ export function PosSalesModal({
     if (!justOpened) return;
 
     setErrorMsg('');
+    setShowNewSale(initialView === 'caisse');
+    setShowFilters(false);
+    setShowReport(false);
     if (availableProducts.length > 0) {
       const first = availableProducts[0];
       setSelectedProductId(first.id);
@@ -343,7 +348,7 @@ export function PosSalesModal({
     setNotes('');
     setProductSearchInput('');
     setCustomerSearchInput('');
-  }, [isOpen, availableProducts, currency]);
+  }, [isOpen, initialView, availableProducts, currency]);
 
   const filteredAvailableProducts = useMemo(() => {
     const q = productSearchInput.trim().toLowerCase();
@@ -603,11 +608,11 @@ export function PosSalesModal({
         <div className="flex items-center justify-between border-b border-[#DCE7E0] px-5 py-4 dark:border-[#1E3A2D]">
           <div className="flex items-center gap-3 min-w-0">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#ECF7F1] text-[#115E3B] dark:bg-[#132B20] dark:text-[#34D399]">
-              <Receipt className="h-5 w-5" />
+              {showNewSale ? <ShoppingBag className="h-5 w-5" /> : <Receipt className="h-5 w-5" />}
             </div>
             <div className="min-w-0">
               <h2 className="truncate font-display text-lg font-bold text-[#0B1F16] sm:text-xl dark:text-[#F2F9F5]">
-                {t.posTitle}
+                {showNewSale ? t.launcherCashierLabel : t.launcherInvoicesLabel}
               </h2>
               <p className="truncate text-xs text-[#335947] dark:text-[#9EC0AE]">{t.posSubtitle}</p>
             </div>
@@ -625,6 +630,41 @@ export function PosSalesModal({
 
         {/* Scrollable Content */}
         <div className="flex-1 space-y-5 overflow-y-auto p-5">
+          {/* Quick Mode Switcher: Caisse vs Factures */}
+          <div className="inline-grid w-full grid-cols-2 gap-1.5 rounded-2xl border border-[#DCE7E0] bg-[#F7FAF8] p-1 sm:w-auto dark:border-[#1E3A2D] dark:bg-[#091611]">
+            <button
+              type="button"
+              onClick={() => {
+                setShowNewSale(true);
+                setShowFilters(false);
+                setShowReport(false);
+              }}
+              className={`flex min-h-[40px] items-center justify-center gap-2 rounded-xl px-4 text-xs font-bold transition-colors ${
+                showNewSale
+                  ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
+                  : 'text-[#335947] hover:bg-white dark:text-[#9EC0AE] dark:hover:bg-[#0F2119]'
+              }`}
+            >
+              <ShoppingBag className="h-4 w-4 shrink-0" />
+              <span>{t.launcherCashierLabel}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowNewSale(false)}
+              className={`flex min-h-[40px] items-center justify-center gap-2 rounded-xl px-4 text-xs font-bold transition-colors ${
+                !showNewSale
+                  ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
+                  : 'text-[#335947] hover:bg-white dark:text-[#9EC0AE] dark:hover:bg-[#0F2119]'
+              }`}
+            >
+              <Receipt className="h-4 w-4 shrink-0" />
+              <span>
+                {t.launcherInvoicesLabel} ({formatNumber(activeSummary.totalInvoices, lang)})
+              </span>
+            </button>
+          </div>
+          {!showNewSale && (
+            <>
           {/* KPI Strip */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div className="rounded-2xl border border-[#DCE7E0] bg-[#F7FAF8] p-3.5 dark:border-[#1E3A2D] dark:bg-[#091611]">
@@ -1030,6 +1070,8 @@ export function PosSalesModal({
               )}
             </section>
           )}
+            </>
+          )}
 
           {/* Multi-Product New POS Sale Form */}
           {showNewSale && (
@@ -1388,7 +1430,7 @@ export function PosSalesModal({
           )}
 
           {/* Invoices List */}
-          {filteredInvoices.length === 0 ? (
+          {!showNewSale && (filteredInvoices.length === 0 ? (
             <div className="rounded-2xl border border-[#DCE7E0] bg-[#F7FAF8] px-5 py-10 text-center dark:border-[#1E3A2D] dark:bg-[#091611]">
               <Receipt className="mx-auto mb-2 h-8 w-8 text-[#115E3B]/45 dark:text-[#34D399]/45" />
               <p className="text-sm font-medium text-[#335947] dark:text-[#9EC0AE]">
@@ -1545,7 +1587,7 @@ export function PosSalesModal({
                 );
               })}
             </div>
-          )}
+          ))}
         </div>
       </div>
     </div>
