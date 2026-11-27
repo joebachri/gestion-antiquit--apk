@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ArrowLeft,
+  ArrowRight,
   ArrowRightLeft,
   BarChart3,
   CheckCircle2,
@@ -8,6 +10,7 @@ import {
   Edit3,
   FileSpreadsheet,
   Image as ImageIcon,
+  LayoutGrid,
   Package,
   Play,
   Plus,
@@ -104,6 +107,7 @@ import { localizeProduct, localizeWarehouse } from './utils/productTranslation';
 import { extractQrParamFromLocation, extractSnapshotExtrasFromQrInput } from './utils/qr';
 import { buildReportSpec, executeReportOutput } from './utils/printReports';
 import { Header } from './components/Header';
+import { LauncherHome } from './components/LauncherHome';
 import { ProductFormModal } from './components/ProductFormModal';
 import { ProductDetailSheet } from './components/ProductDetailSheet';
 import { ShareModal } from './components/ShareModal';
@@ -210,13 +214,7 @@ export default function App() {
   const [logoModalOpen, setLogoModalOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [calculatorOpen, setCalculatorOpen] = useState(false);
-  const [setupOpen, setSetupOpen] = useState<boolean>(() => {
-    const hasQrParam =
-      typeof window !== 'undefined' &&
-      Boolean(extractQrParamFromLocation(window.location).qrCode);
-    if (hasQrParam) return false;
-    return localStorage.getItem('babsaida_onboarding_done') !== '1';
-  });
+  const [setupOpen, setSetupOpen] = useState<boolean>(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [, setRatesVersion] = useState(0);
@@ -224,7 +222,7 @@ export default function App() {
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Module Navigation & Customers / Suppliers / Warehouses / Adjustments / Reports state
-  const [activeTab, setActiveTab] = useState<'inventory' | 'customers' | 'suppliers'>('inventory');
+  const [activeTab, setActiveTab] = useState<'home' | 'inventory' | 'customers' | 'suppliers'>('home');
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customerSummary, setCustomerSummary] = useState<CustomerSummary>({
     totalCustomers: 0,
@@ -278,22 +276,6 @@ export default function App() {
       setToastMessage('');
     }, 5500);
   }, []);
-
-  const linkedAccountLabel = (() => {
-    if (metaStatus.connected) {
-      const activePage =
-        metaStatus.pages.find((p) => p.id === metaStatus.selectedPageId) || metaStatus.pages[0];
-      const igList = metaStatus.pages.filter((p) => p.igAccount).map((p) => p.igAccount!);
-      const activeIg = igList.find((ig) => ig.id === metaStatus.selectedIgId) || igList[0];
-      if (activeIg?.username) return `@${activeIg.username}`;
-      if (activePage?.name) return activePage.name;
-      if (metaStatus.userName) return metaStatus.userName;
-    }
-    const handles = [settings.instagramHandle?.trim(), settings.facebookHandle?.trim()].filter(
-      Boolean
-    );
-    return handles.join(' · ');
-  })();
 
   const t = translations[lang];
 
@@ -1221,120 +1203,164 @@ export default function App() {
     <div className="min-h-dvh bg-[#F7FAF8] text-[#0B1F16] dark:bg-[#08130E] dark:text-[#F2F9F5]">
       <Header
         lang={lang}
-        onChangeLang={handleChangeLang}
-        isDark={isDark}
-        onToggleTheme={() => setIsDark((d) => !d)}
         customLogo={settings.customLogo}
         storeName={settings.storeName}
-        linkedAccountLabel={linkedAccountLabel}
+        onGoHome={() => setActiveTab('home')}
         onOpenLogoSettings={() => setLogoModalOpen(true)}
-        onOpenGuide={() => setGuideOpen(true)}
-        onOpenCalculator={() => setCalculatorOpen(true)}
-        onOpenQrScanner={() => {
-          setQrScannerLockedCustomer(null);
-          setQrScannerInitialMode('view');
-          setQrScannerClientOnly(false);
-          setQrScannerOpen(true);
-        }}
       />
 
       <main
         dir={lang === 'ar' ? 'rtl' : 'ltr'}
-        className="mx-auto max-w-7xl px-4 pb-28 pt-5 sm:px-6 sm:pb-12"
+        className={`mx-auto max-w-7xl px-4 pt-5 sm:px-6 ${
+          activeTab === 'home' ? 'pb-10' : 'pb-28 sm:pb-12'
+        }`}
       >
-        {/* Top Module Switcher & Operations Toolbar */}
-        <div className="mb-5 flex flex-wrap items-center justify-between gap-2.5">
-          <nav
-            aria-label="Sections"
-            className="grid w-full grid-cols-3 gap-1.5 rounded-2xl border border-[#DCE7E0] bg-white p-1.5 sm:inline-grid sm:w-auto sm:gap-2 dark:border-[#1E3A2D] dark:bg-[#0F2119]"
-          >
-            <button
-              type="button"
-              onClick={() => setActiveTab('inventory')}
-              className={`flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl px-2.5 text-xs font-bold transition-colors whitespace-nowrap sm:gap-2 sm:px-4 sm:text-sm ${
-                activeTab === 'inventory'
-                  ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
-                  : 'text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]'
-              }`}
-            >
-              <Package className="h-4 w-4 shrink-0" />
-              <span className="truncate">{t.tabInventory}</span>
-              <span className="tabular-nums opacity-80">({formatNumber(summary.totalReferences, lang)})</span>
-            </button>
+        {activeTab === 'home' ? (
+          <LauncherHome
+            lang={lang}
+            isDark={isDark}
+            totalProducts={summary.totalReferences}
+            totalCustomers={customerSummary.totalCustomers}
+            totalSuppliers={supplierSummary.totalSuppliers}
+            totalInvoices={posSummary.totalInvoices}
+            totalWarehouses={warehouses.length}
+            exportingExcel={exporting}
+            onOpenInventory={() => setActiveTab('inventory')}
+            onOpenAddProduct={() => {
+              setEditingProduct(null);
+              setFormOpen(true);
+            }}
+            onOpenPos={() => setPosModalOpen(true)}
+            onOpenQrScanner={() => {
+              setQrScannerLockedCustomer(null);
+              setQrScannerInitialMode('view');
+              setQrScannerClientOnly(false);
+              setQrScannerOpen(true);
+            }}
+            onOpenCustomers={() => setActiveTab('customers')}
+            onOpenSuppliers={() => setActiveTab('suppliers')}
+            onOpenWarehouses={() => setWarehousesModalOpen(true)}
+            onOpenAdjustments={() => setAdjustmentsModalOpen(true)}
+            onOpenReports={() => openReportsHub({ reportType: 'inventory' })}
+            onOpenImportExcel={() => setImportExcelOpen(true)}
+            onExportExcel={() => void handleExportExcel()}
+            onOpenCalculator={() => setCalculatorOpen(true)}
+            onOpenSettings={() => setLogoModalOpen(true)}
+            onOpenGuide={() => setGuideOpen(true)}
+            onToggleLanguage={() => handleChangeLang(lang === 'fr' ? 'ar' : 'fr')}
+            onToggleTheme={() => setIsDark((d) => !d)}
+          />
+        ) : (
+          <>
+            {/* Top Module Switcher & Back-to-Launcher Bar */}
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-2.5">
+              <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('home')}
+                  className="flex min-h-[44px] items-center gap-1.5 rounded-2xl border border-[#DCE7E0] bg-white px-3.5 text-xs font-bold text-[#115E3B] transition-colors hover:bg-[#ECF7F1] whitespace-nowrap shrink-0 dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#34D399] dark:hover:bg-[#162E23]"
+                >
+                  {lang === 'ar' ? (
+                    <ArrowRight className="h-4 w-4 shrink-0" />
+                  ) : (
+                    <ArrowLeft className="h-4 w-4 shrink-0" />
+                  )}
+                  <LayoutGrid className="h-4 w-4 shrink-0" />
+                  <span>{t.launcherBackHome}</span>
+                </button>
 
-            <button
-              type="button"
-              onClick={() => setActiveTab('customers')}
-              className={`flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl px-2.5 text-xs font-bold transition-colors whitespace-nowrap sm:gap-2 sm:px-4 sm:text-sm ${
-                activeTab === 'customers'
-                  ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
-                  : 'text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]'
-              }`}
-            >
-              <Users className="h-4 w-4 shrink-0" />
-              <span className="truncate">{t.tabCustomers}</span>
-              <span className="tabular-nums opacity-80">
-                ({formatNumber(customerSummary.totalCustomers, lang)})
-              </span>
-            </button>
+                <nav
+                  aria-label="Sections"
+                  className="grid flex-1 grid-cols-3 gap-1.5 rounded-2xl border border-[#DCE7E0] bg-white p-1.5 sm:inline-grid sm:flex-none sm:gap-2 dark:border-[#1E3A2D] dark:bg-[#0F2119]"
+                >
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('inventory')}
+                    className={`flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl px-2.5 text-xs font-bold transition-colors whitespace-nowrap sm:gap-2 sm:px-4 sm:text-sm ${
+                      activeTab === 'inventory'
+                        ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
+                        : 'text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]'
+                    }`}
+                  >
+                    <Package className="h-4 w-4 shrink-0" />
+                    <span className="truncate">{t.tabInventory}</span>
+                    <span className="tabular-nums opacity-80">({formatNumber(summary.totalReferences, lang)})</span>
+                  </button>
 
-            <button
-              type="button"
-              onClick={() => setActiveTab('suppliers')}
-              className={`flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl px-2.5 text-xs font-bold transition-colors whitespace-nowrap sm:gap-2 sm:px-4 sm:text-sm ${
-                activeTab === 'suppliers'
-                  ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
-                  : 'text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]'
-              }`}
-            >
-              <Truck className="h-4 w-4 shrink-0" />
-              <span className="truncate">{t.suppliersNavLabel}</span>
-              <span className="tabular-nums opacity-80">
-                ({formatNumber(supplierSummary.totalSuppliers, lang)})
-              </span>
-            </button>
-          </nav>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('customers')}
+                    className={`flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl px-2.5 text-xs font-bold transition-colors whitespace-nowrap sm:gap-2 sm:px-4 sm:text-sm ${
+                      activeTab === 'customers'
+                        ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
+                        : 'text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]'
+                    }`}
+                  >
+                    <Users className="h-4 w-4 shrink-0" />
+                    <span className="truncate">{t.tabCustomers}</span>
+                    <span className="tabular-nums opacity-80">
+                      ({formatNumber(customerSummary.totalCustomers, lang)})
+                    </span>
+                  </button>
 
-          <div className="grid w-full grid-cols-2 gap-1.5 sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:gap-2">
-            <button
-              type="button"
-              onClick={() => setPosModalOpen(true)}
-              className="flex min-h-[42px] items-center justify-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs font-bold text-[#0B1F16] transition-colors hover:bg-[#ECF7F1] whitespace-nowrap dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5] dark:hover:bg-[#162E23]"
-            >
-              <Receipt className="h-4 w-4 shrink-0 text-[#115E3B] dark:text-[#34D399]" />
-              <span className="truncate">{t.posTabLabel}</span>
-              <span className="tabular-nums opacity-75">({formatNumber(posSummary.totalInvoices, lang)})</span>
-            </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('suppliers')}
+                    className={`flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl px-2.5 text-xs font-bold transition-colors whitespace-nowrap sm:gap-2 sm:px-4 sm:text-sm ${
+                      activeTab === 'suppliers'
+                        ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
+                        : 'text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]'
+                    }`}
+                  >
+                    <Truck className="h-4 w-4 shrink-0" />
+                    <span className="truncate">{t.suppliersNavLabel}</span>
+                    <span className="tabular-nums opacity-80">
+                      ({formatNumber(supplierSummary.totalSuppliers, lang)})
+                    </span>
+                  </button>
+                </nav>
+              </div>
 
-            <button
-              type="button"
-              onClick={() => setWarehousesModalOpen(true)}
-              className="flex min-h-[42px] items-center justify-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs font-bold text-[#0B1F16] transition-colors hover:bg-[#ECF7F1] whitespace-nowrap dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5] dark:hover:bg-[#162E23]"
-            >
-              <WarehouseIcon className="h-4 w-4 shrink-0 text-[#115E3B] dark:text-[#34D399]" />
-              <span className="truncate">{t.warehousesNavLabel}</span>
-              <span className="tabular-nums opacity-75">({formatNumber(warehouses.length, lang)})</span>
-            </button>
+              <div className="grid w-full grid-cols-2 gap-1.5 sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPosModalOpen(true)}
+                  className="flex min-h-[42px] items-center justify-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs font-bold text-[#0B1F16] transition-colors hover:bg-[#ECF7F1] whitespace-nowrap dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5] dark:hover:bg-[#162E23]"
+                >
+                  <Receipt className="h-4 w-4 shrink-0 text-[#115E3B] dark:text-[#34D399]" />
+                  <span className="truncate">{t.posTabLabel}</span>
+                  <span className="tabular-nums opacity-75">({formatNumber(posSummary.totalInvoices, lang)})</span>
+                </button>
 
-            <button
-              type="button"
-              onClick={() => setAdjustmentsModalOpen(true)}
-              className="flex min-h-[42px] items-center justify-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs font-bold text-[#0B1F16] transition-colors hover:bg-[#ECF7F1] whitespace-nowrap dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5] dark:hover:bg-[#162E23]"
-            >
-              <ArrowRightLeft className="h-4 w-4 shrink-0 text-[#115E3B] dark:text-[#34D399]" />
-              <span className="truncate">{t.adjustmentsNavLabel}</span>
-            </button>
+                <button
+                  type="button"
+                  onClick={() => setWarehousesModalOpen(true)}
+                  className="flex min-h-[42px] items-center justify-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs font-bold text-[#0B1F16] transition-colors hover:bg-[#ECF7F1] whitespace-nowrap dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5] dark:hover:bg-[#162E23]"
+                >
+                  <WarehouseIcon className="h-4 w-4 shrink-0 text-[#115E3B] dark:text-[#34D399]" />
+                  <span className="truncate">{t.warehousesNavLabel}</span>
+                  <span className="tabular-nums opacity-75">({formatNumber(warehouses.length, lang)})</span>
+                </button>
 
-            <button
-              type="button"
-              onClick={() => openReportsHub({ reportType: 'inventory' })}
-              className="flex min-h-[42px] items-center justify-center gap-1.5 rounded-xl bg-[#ECF7F1] px-3 text-xs font-bold text-[#115E3B] transition-colors hover:bg-[#DCF0E4] whitespace-nowrap dark:bg-[#132B20] dark:text-[#34D399]"
-            >
-              <Printer className="h-4 w-4 shrink-0" />
-              <span className="truncate">{t.reportsNavLabel}</span>
-            </button>
-          </div>
-        </div>
+                <button
+                  type="button"
+                  onClick={() => setAdjustmentsModalOpen(true)}
+                  className="flex min-h-[42px] items-center justify-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs font-bold text-[#0B1F16] transition-colors hover:bg-[#ECF7F1] whitespace-nowrap dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5] dark:hover:bg-[#162E23]"
+                >
+                  <ArrowRightLeft className="h-4 w-4 shrink-0 text-[#115E3B] dark:text-[#34D399]" />
+                  <span className="truncate">{t.adjustmentsNavLabel}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => openReportsHub({ reportType: 'inventory' })}
+                  className="flex min-h-[42px] items-center justify-center gap-1.5 rounded-xl bg-[#ECF7F1] px-3 text-xs font-bold text-[#115E3B] transition-colors hover:bg-[#DCF0E4] whitespace-nowrap dark:bg-[#132B20] dark:text-[#34D399]"
+                >
+                  <Printer className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{t.reportsNavLabel}</span>
+                </button>
+              </div>
+            </div>
 
         {activeTab === 'customers' ? (
           <CustomersView
@@ -2054,9 +2080,12 @@ export default function App() {
         )}
           </>
         )}
+          </>
+        )}
       </main>
 
       {/* Mobile Sticky Bottom Action Bar (Thumb Zone) */}
+      {activeTab !== 'home' && (
       <div
         dir={lang === 'ar' ? 'rtl' : 'ltr'}
         className="pb-safe fixed bottom-0 left-0 right-0 z-30 border-t border-[#DCE7E0] bg-white/95 px-4 pt-2.5 backdrop-blur-md sm:hidden dark:border-[#1E3A2D] dark:bg-[#0A1812]/95"
@@ -2160,6 +2189,7 @@ export default function App() {
           </div>
         )}
       </div>
+      )}
 
       {/* Modals */}
       <ProductFormModal
