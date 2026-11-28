@@ -2,8 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
-  ArrowRightLeft,
-  Banknote,
   BarChart3,
   CheckCircle2,
   ChevronDown,
@@ -17,7 +15,6 @@ import {
   Plus,
   Printer,
   QrCode,
-  Receipt,
   RotateCcw,
   Search,
   Share2,
@@ -27,7 +24,6 @@ import {
   UserPlus,
   Users,
   Video,
-  Wallet,
   Warehouse as WarehouseIcon,
   X,
 } from 'lucide-react';
@@ -1431,6 +1427,30 @@ export default function App() {
                   </span>
                 </button>
               </div>
+            ) : activeTab === 'suppliers' ? (
+              <div className="mb-5 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('home')}
+                  className="flex min-h-[44px] items-center gap-1.5 rounded-2xl border border-[#DCE7E0] bg-white px-3.5 text-xs font-bold text-[#115E3B] transition-colors hover:bg-[#ECF7F1] whitespace-nowrap shrink-0 dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#34D399] dark:hover:bg-[#162E23]"
+                >
+                  {lang === 'ar' ? (
+                    <ArrowRight className="h-4 w-4 shrink-0" />
+                  ) : (
+                    <ArrowLeft className="h-4 w-4 shrink-0" />
+                  )}
+                  <LayoutGrid className="h-4 w-4 shrink-0" />
+                  <span>{t.launcherBackHome}</span>
+                </button>
+
+                <div className="inline-flex min-h-[44px] items-center gap-2 rounded-2xl bg-[#115E3B] px-4 text-sm font-bold text-white dark:bg-[#10B981] dark:text-[#052E1C]">
+                  <Truck className="h-4 w-4 shrink-0" />
+                  <span>{t.suppliersNavLabel}</span>
+                  <span className="tabular-nums opacity-80">
+                    ({formatNumber(supplierSummary.totalSuppliers, lang)})
+                  </span>
+                </div>
+              </div>
             ) : (
               <div className="mb-5 flex flex-wrap items-center justify-between gap-2.5">
                 <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
@@ -1465,11 +1485,7 @@ export default function App() {
                     <button
                       type="button"
                       onClick={() => setActiveTab('customers')}
-                      className={`flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl px-2.5 text-xs font-bold transition-colors whitespace-nowrap sm:gap-2 sm:px-4 sm:text-sm ${
-                        activeTab === 'customers'
-                          ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
-                          : 'text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]'
-                      }`}
+                      className="flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl bg-[#115E3B] px-2.5 text-xs font-bold text-white transition-colors whitespace-nowrap sm:gap-2 sm:px-4 sm:text-sm dark:bg-[#10B981] dark:text-[#052E1C]"
                     >
                       <Users className="h-4 w-4 shrink-0" />
                       <span className="truncate">{t.tabCustomers}</span>
@@ -1481,11 +1497,7 @@ export default function App() {
                     <button
                       type="button"
                       onClick={() => setActiveTab('suppliers')}
-                      className={`flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl px-2.5 text-xs font-bold transition-colors whitespace-nowrap sm:gap-2 sm:px-4 sm:text-sm ${
-                        activeTab === 'suppliers'
-                          ? 'bg-[#115E3B] text-white dark:bg-[#10B981] dark:text-[#052E1C]'
-                          : 'text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]'
-                      }`}
+                      className="flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl px-2.5 text-xs font-bold text-[#335947] transition-colors hover:bg-[#ECF7F1] whitespace-nowrap sm:gap-2 sm:px-4 sm:text-sm dark:text-[#9EC0AE] dark:hover:bg-[#162E23]"
                     >
                       <Truck className="h-4 w-4 shrink-0" />
                       <span className="truncate">{t.suppliersNavLabel}</span>
@@ -1494,75 +1506,6 @@ export default function App() {
                       </span>
                     </button>
                   </nav>
-                </div>
-
-                <div className="grid w-full grid-cols-2 gap-1.5 sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPosModalInitialView('caisse');
-                      setPosModalOpen(true);
-                    }}
-                    className="flex min-h-[42px] items-center justify-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs font-bold text-[#0B1F16] transition-colors hover:bg-[#ECF7F1] whitespace-nowrap dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5] dark:hover:bg-[#162E23]"
-                  >
-                    <Banknote className="h-4 w-4 shrink-0 text-[#115E3B] dark:text-[#34D399]" />
-                    <span className="truncate">{t.launcherCashierLabel}</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPosModalInitialView('invoices');
-                      setPosModalOpen(true);
-                    }}
-                    className="flex min-h-[42px] items-center justify-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs font-bold text-[#0B1F16] transition-colors hover:bg-[#ECF7F1] whitespace-nowrap dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5] dark:hover:bg-[#162E23]"
-                  >
-                    <Receipt className="h-4 w-4 shrink-0 text-[#115E3B] dark:text-[#34D399]" />
-                    <span className="truncate">{t.launcherInvoicesLabel}</span>
-                    <span className="tabular-nums opacity-75">({formatNumber(posSummary.totalInvoices, lang)})</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setPortfolioModalOpen(true)}
-                    className="flex min-h-[42px] items-center justify-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs font-bold text-[#0B1F16] transition-colors hover:bg-[#ECF7F1] whitespace-nowrap dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5] dark:hover:bg-[#162E23]"
-                  >
-                    <Wallet className="h-4 w-4 shrink-0 text-[#075985] dark:text-[#38BDF8]" />
-                    <span className="truncate">{t.portfolioNavLabel}</span>
-                    {portfolioSummary.pendingCount > 0 && (
-                      <span className="tabular-nums opacity-75">
-                        ({formatNumber(portfolioSummary.pendingCount, lang)})
-                      </span>
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setWarehousesModalOpen(true)}
-                    className="flex min-h-[42px] items-center justify-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs font-bold text-[#0B1F16] transition-colors hover:bg-[#ECF7F1] whitespace-nowrap dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5] dark:hover:bg-[#162E23]"
-                  >
-                    <WarehouseIcon className="h-4 w-4 shrink-0 text-[#115E3B] dark:text-[#34D399]" />
-                    <span className="truncate">{t.warehousesNavLabel}</span>
-                    <span className="tabular-nums opacity-75">({formatNumber(warehouses.length, lang)})</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setAdjustmentsModalOpen(true)}
-                    className="flex min-h-[42px] items-center justify-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs font-bold text-[#0B1F16] transition-colors hover:bg-[#ECF7F1] whitespace-nowrap dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5] dark:hover:bg-[#162E23]"
-                  >
-                    <ArrowRightLeft className="h-4 w-4 shrink-0 text-[#115E3B] dark:text-[#34D399]" />
-                    <span className="truncate">{t.adjustmentsNavLabel}</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => openReportsHub({ reportType: 'inventory' })}
-                    className="flex min-h-[42px] items-center justify-center gap-1.5 rounded-xl bg-[#ECF7F1] px-3 text-xs font-bold text-[#115E3B] transition-colors hover:bg-[#DCF0E4] whitespace-nowrap dark:bg-[#132B20] dark:text-[#34D399]"
-                  >
-                    <Printer className="h-4 w-4 shrink-0" />
-                    <span className="truncate">{t.reportsNavLabel}</span>
-                  </button>
                 </div>
               </div>
             )}
