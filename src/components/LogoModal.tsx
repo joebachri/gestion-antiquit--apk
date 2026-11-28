@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { BookOpen, Camera, Check, Languages, Moon, RotateCcw, Store, Sun, Upload, X } from 'lucide-react';
+import { BookOpen, Camera, Check, FileSpreadsheet, Languages, Moon, RotateCcw, Store, Sun, Upload, X } from 'lucide-react';
 import type {
   Language,
   MetaAuthStatus,
@@ -46,6 +46,9 @@ interface LogoModalProps {
   onOpenGuide?: () => void;
   onToggleLanguage?: () => void;
   onToggleTheme?: () => void;
+  exportingExcel?: boolean;
+  onOpenImportExcel?: () => void;
+  onExportExcel?: () => void;
   onClose: () => void;
   onSave: (settings: ShopSettings) => Promise<void>;
 }
@@ -83,6 +86,9 @@ export function LogoModal({
   onOpenGuide,
   onToggleLanguage,
   onToggleTheme,
+  exportingExcel = false,
+  onOpenImportExcel,
+  onExportExcel,
   onClose,
   onSave,
 }: LogoModalProps) {
@@ -291,6 +297,40 @@ export function LogoModal({
                   </span>
                   <span className="text-[11px] font-medium text-[#335947] dark:text-[#9EC0AE]">
                     {isDark ? t.launcherThemeDark : t.launcherThemeLight}
+                  </span>
+                </button>
+              )}
+            </div>
+          )}
+
+          {(onOpenImportExcel || onExportExcel) && (
+            <div className="mb-5 grid grid-cols-2 gap-2.5">
+              {onOpenImportExcel && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    onOpenImportExcel();
+                  }}
+                  className="flex flex-col items-center justify-center gap-1.5 rounded-2xl border border-[#15803D]/25 bg-[#DCFCE7]/70 px-3 py-3 text-center transition-colors hover:bg-[#DCFCE7] dark:border-[#4ADE80]/30 dark:bg-[#0D2B1A] dark:hover:bg-[#133923]"
+                >
+                  <Upload className="h-5 w-5 text-[#166534] dark:text-[#86EFAC]" />
+                  <span className="text-xs font-semibold text-[#0B1F16] dark:text-[#F2F9F5]">
+                    {t.importExcelButton}
+                  </span>
+                </button>
+              )}
+
+              {onExportExcel && (
+                <button
+                  type="button"
+                  onClick={onExportExcel}
+                  disabled={exportingExcel}
+                  className="flex flex-col items-center justify-center gap-1.5 rounded-2xl border border-[#15803D]/25 bg-[#ECFDF5] px-3 py-3 text-center transition-colors hover:bg-[#D1FAE5] disabled:opacity-60 dark:border-[#34D399]/30 dark:bg-[#0D2720] dark:hover:bg-[#13352C]"
+                >
+                  <FileSpreadsheet className="h-5 w-5 text-[#065F46] dark:text-[#6EE7B7]" />
+                  <span className="text-xs font-semibold text-[#0B1F16] dark:text-[#F2F9F5]">
+                    {t.exportExcel}
                   </span>
                 </button>
               )}

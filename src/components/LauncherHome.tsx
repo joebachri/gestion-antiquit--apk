@@ -2,7 +2,6 @@ import {
   ArrowRightLeft,
   Banknote,
   Calculator,
-  FileSpreadsheet,
   Package,
   PlusSquare,
   Printer,
@@ -10,7 +9,6 @@ import {
   Receipt,
   Settings,
   Truck,
-  Upload,
   Users,
   Wallet,
 } from 'lucide-react';
@@ -25,7 +23,6 @@ interface LauncherHomeProps {
   totalSuppliers: number;
   totalInvoices: number;
   portfolioPendingCount?: number;
-  exportingExcel: boolean;
   onOpenInventory: () => void;
   onOpenAddProduct: () => void;
   onOpenCaisse: () => void;
@@ -36,8 +33,6 @@ interface LauncherHomeProps {
   onOpenSuppliers: () => void;
   onOpenAdjustments: () => void;
   onOpenReports: () => void;
-  onOpenImportExcel: () => void;
-  onExportExcel: () => void;
   onOpenCalculator: () => void;
   onOpenSettings: () => void;
 }
@@ -59,7 +54,6 @@ export function LauncherHome({
   totalSuppliers,
   totalInvoices,
   portfolioPendingCount = 0,
-  exportingExcel,
   onOpenInventory,
   onOpenAddProduct,
   onOpenCaisse,
@@ -70,8 +64,6 @@ export function LauncherHome({
   onOpenSuppliers,
   onOpenAdjustments,
   onOpenReports,
-  onOpenImportExcel,
-  onExportExcel,
   onOpenCalculator,
   onOpenSettings,
 }: LauncherHomeProps) {
@@ -166,23 +158,6 @@ export function LauncherHome({
       toneClass:
         'border-[#4338CA]/20 bg-[#E0E7FF] text-[#3730A3] dark:border-[#818CF8]/30 dark:bg-[#171A38] dark:text-[#A5B4FC]',
       onClick: onOpenReports,
-    },
-    {
-      id: 'import-excel',
-      label: t.importExcelButton,
-      icon: Upload,
-      toneClass:
-        'border-[#15803D]/25 bg-[#DCFCE7] text-[#166534] dark:border-[#4ADE80]/30 dark:bg-[#0D2B1A] dark:text-[#86EFAC]',
-      onClick: onOpenImportExcel,
-    },
-    {
-      id: 'export-excel',
-      label: t.exportExcel,
-      icon: FileSpreadsheet,
-      toneClass:
-        'border-[#15803D]/25 bg-[#ECFDF5] text-[#065F46] dark:border-[#34D399]/30 dark:bg-[#0D2720] dark:text-[#6EE7B7]',
-      disabled: exportingExcel,
-      onClick: onExportExcel,
     },
     {
       id: 'calculator',
