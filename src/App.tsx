@@ -1394,28 +1394,42 @@ export default function App() {
           <>
             {/* Top Module Switcher & Back-to-Launcher Bar */}
             {activeTab === 'inventory' ? (
-              <div className="mb-5 flex flex-wrap items-center gap-2">
+              <div className="mb-5 flex flex-wrap items-center justify-between gap-2.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('home')}
+                    className="flex min-h-[44px] items-center gap-1.5 rounded-2xl border border-[#DCE7E0] bg-white px-3.5 text-xs font-bold text-[#115E3B] transition-colors hover:bg-[#ECF7F1] whitespace-nowrap shrink-0 dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#34D399] dark:hover:bg-[#162E23]"
+                  >
+                    {lang === 'ar' ? (
+                      <ArrowRight className="h-4 w-4 shrink-0" />
+                    ) : (
+                      <ArrowLeft className="h-4 w-4 shrink-0" />
+                    )}
+                    <LayoutGrid className="h-4 w-4 shrink-0" />
+                    <span>{t.launcherBackHome}</span>
+                  </button>
+
+                  <div className="inline-flex min-h-[44px] items-center gap-2 rounded-2xl bg-[#115E3B] px-4 text-sm font-bold text-white dark:bg-[#10B981] dark:text-[#052E1C]">
+                    <Package className="h-4 w-4 shrink-0" />
+                    <span>{t.tabInventory}</span>
+                    <span className="tabular-nums opacity-80">
+                      ({formatNumber(summary.totalReferences, lang)})
+                    </span>
+                  </div>
+                </div>
+
                 <button
                   type="button"
-                  onClick={() => setActiveTab('home')}
-                  className="flex min-h-[44px] items-center gap-1.5 rounded-2xl border border-[#DCE7E0] bg-white px-3.5 text-xs font-bold text-[#115E3B] transition-colors hover:bg-[#ECF7F1] whitespace-nowrap shrink-0 dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#34D399] dark:hover:bg-[#162E23]"
+                  onClick={() => setWarehousesModalOpen(true)}
+                  className="flex min-h-[44px] items-center justify-center gap-1.5 rounded-2xl border border-[#DCE7E0] bg-white px-3.5 text-xs font-bold text-[#0B1F16] transition-colors hover:bg-[#ECF7F1] whitespace-nowrap dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5] dark:hover:bg-[#162E23]"
                 >
-                  {lang === 'ar' ? (
-                    <ArrowRight className="h-4 w-4 shrink-0" />
-                  ) : (
-                    <ArrowLeft className="h-4 w-4 shrink-0" />
-                  )}
-                  <LayoutGrid className="h-4 w-4 shrink-0" />
-                  <span>{t.launcherBackHome}</span>
-                </button>
-
-                <div className="inline-flex min-h-[44px] items-center gap-2 rounded-2xl bg-[#115E3B] px-4 text-sm font-bold text-white dark:bg-[#10B981] dark:text-[#052E1C]">
-                  <Package className="h-4 w-4 shrink-0" />
-                  <span>{t.tabInventory}</span>
-                  <span className="tabular-nums opacity-80">
-                    ({formatNumber(summary.totalReferences, lang)})
+                  <WarehouseIcon className="h-4 w-4 shrink-0 text-[#115E3B] dark:text-[#34D399]" />
+                  <span className="truncate">{t.warehousesNavLabel}</span>
+                  <span className="tabular-nums opacity-75">
+                    ({formatNumber(warehouses.length, lang)})
                   </span>
-                </div>
+                </button>
               </div>
             ) : (
               <div className="mb-5 flex flex-wrap items-center justify-between gap-2.5">
