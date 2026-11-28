@@ -227,6 +227,7 @@ export interface PosSalePayload {
   customerPhone?: string;
   paymentMethod?: PurchasePaymentMethod;
   paymentBreakdown?: PosPaymentSplit[];
+  paymentInstruments?: PosSaleInstrumentInput[];
   documentType?: PosDocumentType;
   blNumber?: string;
   saleDate?: string;
@@ -293,10 +294,84 @@ export type PurchasePaymentMethod =
   | 'cash'
   | 'transfer'
   | 'check'
+  | 'bill_of_exchange'
   | 'card'
   | 'credit'
   | 'mixed'
   | 'other';
+
+export type PaymentInstrumentType = 'check' | 'bill_of_exchange' | 'card';
+
+export type PaymentInstrumentStatus =
+  | 'pending'
+  | 'deposited'
+  | 'collected'
+  | 'bounced'
+  | 'cancelled';
+
+export interface PosSaleInstrumentInput {
+  instrumentType: PaymentInstrumentType;
+  holderName: string;
+  customerPhone?: string;
+  bankName: string;
+  instrumentNumber: string;
+  amount: number;
+  blNumber?: string;
+  receiptDate: string;
+  dueDate: string;
+  notes?: string;
+}
+
+export interface PaymentInstrument {
+  id: string;
+  instrumentType: PaymentInstrumentType;
+  invoiceId: string;
+  invoiceNumber: string;
+  blNumber: string;
+  customerId: string;
+  customerName: string;
+  customerPhone: string;
+  holderName: string;
+  bankName: string;
+  instrumentNumber: string;
+  amount: number;
+  receiptDate: string;
+  dueDate: string;
+  status: PaymentInstrumentStatus;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PaymentInstrumentPayload {
+  instrumentType: PaymentInstrumentType;
+  invoiceId?: string;
+  invoiceNumber?: string;
+  blNumber?: string;
+  customerId?: string;
+  customerName?: string;
+  customerPhone?: string;
+  holderName: string;
+  bankName: string;
+  instrumentNumber: string;
+  amount: number;
+  receiptDate: string;
+  dueDate: string;
+  status?: PaymentInstrumentStatus;
+  notes?: string;
+}
+
+export interface PaymentPortfolioSummary {
+  totalCount: number;
+  pendingCount: number;
+  pendingAmountMad: number;
+  dueSoonCount: number;
+  dueSoonAmountMad: number;
+  collectedCount: number;
+  collectedAmountMad: number;
+  bouncedCount: number;
+  bouncedAmountMad: number;
+}
 
 export type CustomerImageSource = 'facebook' | 'instagram' | 'website' | 'upload';
 

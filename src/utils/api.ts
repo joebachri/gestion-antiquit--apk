@@ -13,6 +13,9 @@ import type {
   InventoryAdjustmentPayload,
   InventorySummary,
   MetaAuthStatus,
+  PaymentInstrument,
+  PaymentInstrumentPayload,
+  PaymentPortfolioSummary,
   PosInvoice,
   PosSalePayload,
   PosSummary,
@@ -36,6 +39,7 @@ import {
   localConvertBlToInvoice,
   localCreateAdjustment,
   localCreateCustomer,
+  localCreatePaymentInstrument,
   localCreatePosSale,
   localCreateProduct,
   localCreateSupplier,
@@ -43,6 +47,7 @@ import {
   localDeleteAdjustment,
   localDeleteCustomer,
   localDeleteCustomerGalleryImage,
+  localDeletePaymentInstrument,
   localDeletePosSale,
   localDeleteProduct,
   localDeletePurchase,
@@ -56,6 +61,7 @@ import {
   localImportProducts,
   localListAdjustments,
   localListCustomers,
+  localListPaymentInstruments,
   localListPosSales,
   localListProducts,
   localListSuppliers,
@@ -65,6 +71,7 @@ import {
   localSaveSettings,
   localSetNextBlSequence,
   localUpdateCustomer,
+  localUpdatePaymentInstrument,
   localUpdateProduct,
   localUpdatePurchase,
   localUpdateSupplier,
@@ -803,6 +810,74 @@ export async function deleteAdjustmentApi(adjustmentId: string): Promise<void> {
   }
   const res = await fetch(`/api/adjustments/${adjustmentId}`, { method: 'DELETE' });
   if (!res.ok) throw new Error('Adjustment delete failed');
+}
+
+// Payment Instruments Portfolio API (Checks, Bills of Exchange, Cards)
+export async function fetchPaymentInstrumentsApi(): Promise<{
+  instruments: PaymentInstrument[];
+  summary: PaymentPortfolioSummary;
+}> {
+  if (isNative()) {
+    return localListPaymentInstruments();
+  }
+  try {
+    const res = await fetch('/api/payment-instruments');
+    if (!res.ok) throw new Error('HTTP error');
+    return (await res.json()) as {
+      instruments: PaymentInstrument[];
+      summary: PaymentPortfolioSummary;
+    };
+  } catch {
+    return localListPaymentInstruments();
+  }
+}
+
+export async function createPaymentInstrumentApi(
+  payload: PaymentInstrumentPayload
+): Promise<{ instrument: PaymentInstrument; summary: PaymentPortfolioSummary }> {
+  if (isNative()) {
+    return localCreatePaymentInstrument(payload);
+  }
+  const res = await fetch('/api/payment-instruments', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error('Create payment instrument failed');
+  return (await res.json()) as {
+    instrument: PaymentInstrument;
+    summary: PaymentPortfolioSummary;
+  };
+}
+
+export async function updatePaymentInstrumentApi(
+  id: string,
+  payload: Partial<PaymentInstrumentPayload>
+): Promise<{ instrument: PaymentInstrument; summary: PaymentPortfolioSummary }> {
+  if (isNative()) {
+    return localUpdatePaymentInstrument(id, payload);
+  }
+  const res = await fetch(`/api/payment-instruments/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error('Update payment instrument failed');
+  return (await res.json()) as {
+    instrument: PaymentInstrument;
+    summary: PaymentPortfolioSummary;
+  };
+}
+
+export async function deletePaymentInstrumentApi(
+  id: string
+): Promise<{ summary: PaymentPortfolioSummary }> {
+  if (isNative()) {
+    return localDeletePaymentInstrument(id);
+  }
+  const res = await fetch(`/api/payment-instruments/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Delete payment instrument failed');
+  return (await res.json()) as { summary: PaymentPortfolioSummary };
 }
 
 

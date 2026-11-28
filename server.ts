@@ -255,6 +255,27 @@ interface ProductHistoryRow {
   created_at: string;
 }
 
+interface PaymentInstrumentRow {
+  id: string;
+  instrument_type: string;
+  invoice_id: string;
+  invoice_number: string;
+  bl_number: string;
+  customer_id: string;
+  customer_name: string;
+  customer_phone: string;
+  holder_name: string;
+  bank_name: string;
+  instrument_number: string;
+  amount: number;
+  receipt_date: string;
+  due_date: string;
+  status: string;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+}
+
 const DATA_DIR = process.env.DATA_DIR?.trim()
   ? path.resolve(process.env.DATA_DIR.trim())
   : path.join(process.cwd(), 'data');
@@ -378,6 +399,30 @@ db.exec(`
     notes TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS payment_instruments (
+    id TEXT PRIMARY KEY,
+    instrument_type TEXT NOT NULL,
+    invoice_id TEXT NOT NULL DEFAULT '',
+    invoice_number TEXT NOT NULL DEFAULT '',
+    bl_number TEXT NOT NULL DEFAULT '',
+    customer_id TEXT NOT NULL DEFAULT '',
+    customer_name TEXT NOT NULL DEFAULT '',
+    customer_phone TEXT NOT NULL DEFAULT '',
+    holder_name TEXT NOT NULL DEFAULT '',
+    bank_name TEXT NOT NULL DEFAULT '',
+    instrument_number TEXT NOT NULL DEFAULT '',
+    amount REAL NOT NULL DEFAULT 0,
+    receipt_date TEXT NOT NULL DEFAULT '',
+    due_date TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending',
+    notes TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_payment_instruments_due ON payment_instruments(due_date);
+  CREATE INDEX IF NOT EXISTS idx_payment_instruments_receipt ON payment_instruments(receipt_date);
+  CREATE INDEX IF NOT EXISTS idx_payment_instruments_invoice ON payment_instruments(invoice_id);
 
   CREATE TABLE IF NOT EXISTS product_history (
     id TEXT PRIMARY KEY,
@@ -1317,6 +1362,82 @@ function mapSalesInvoiceRow(row: SalesInvoiceRow) {
     notes: row.notes || '',
     printCount: Number(row.print_count) || 0,
     createdAt: row.created_at,
+  };
+}
+
+function mapPaymentInstrumentRow(row: PaymentInstrumentRow) {
+  return {
+    id: row.id,
+    instrumentType: (['check', 'bill_of_exchange', 'card'].includes(row.instrument_type)
+      ? row.instrument_type
+      : 'check') as 'check' | 'bill_of_exchange' | 'card',
+    invoiceId: row.invoice_id || '',
+    invoiceNumber: row.invoice_number || '',
+    blNumber: row.bl_number || '',
+    customerId: row.customer_id || '',
+    customerName: row.customer_name || '',
+    customerPhone: row.customer_phone || '',
+    holderName: row.holder_name || '',
+    bankName: row.bank_name || '',
+    instrumentNumber: row.instrument_number || '',
+    amount: Number(row.amount) || 0,
+    receiptDate: row.receipt_date || '',
+    dueDate: row.due_date || '',
+    status: (['pending', 'deposited', 'collected', 'bounced', 'cancelled'].includes(row.status)
+      ? row.status
+      : 'pending') as 'pending' | 'deposited' | 'collected' | 'bounced' | 'cancelled',
+    notes: row.notes || '',
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function computePaymentPortfolioSummary(
+  instruments: ReturnType<typeof mapPaymentInstrumentRow>[]
+) {
+  const today = new Date().toISOString().slice(0, 10);
+  const in7DaysDate = new Date();
+  in7DaysDate.setDate(in7DaysDate.getDate() + 7);
+  const in7Days = in7DaysDate.toISOString().slice(0, 10);
+
+  let pendingCount = 0;
+  let pendingAmountMad = 0;
+  let dueSoonCount = 0;
+  let dueSoonAmountMad = 0;
+  let collectedCount = 0;
+  let collectedAmountMad = 0;
+  let bouncedCount = 0;
+  let bouncedAmountMad = 0;
+
+  for (const inst of instruments) {
+    const amt = Number(inst.amount) || 0;
+    if (inst.status === 'pending' || inst.status === 'deposited') {
+      pendingCount += 1;
+      pendingAmountMad += amt;
+      const due = (inst.dueDate || inst.receiptDate || today).slice(0, 10);
+      if (due <= in7Days) {
+        dueSoonCount += 1;
+        dueSoonAmountMad += amt;
+      }
+    } else if (inst.status === 'collected') {
+      collectedCount += 1;
+      collectedAmountMad += amt;
+    } else if (inst.status === 'bounced') {
+      bouncedCount += 1;
+      bouncedAmountMad += amt;
+    }
+  }
+
+  return {
+    totalCount: instruments.length,
+    pendingCount,
+    pendingAmountMad: Math.round(pendingAmountMad * 100) / 100,
+    dueSoonCount,
+    dueSoonAmountMad: Math.round(dueSoonAmountMad * 100) / 100,
+    collectedCount,
+    collectedAmountMad: Math.round(collectedAmountMad * 100) / 100,
+    bouncedCount,
+    bouncedAmountMad: Math.round(bouncedAmountMad * 100) / 100,
   };
 }
 
@@ -2826,6 +2947,18 @@ async function startServer() {
       customerPhone?: string;
       paymentMethod?: string;
       paymentBreakdown?: Array<{ method?: string; amount?: number }>;
+      paymentInstruments?: Array<{
+        instrumentType?: string;
+        holderName?: string;
+        customerPhone?: string;
+        bankName?: string;
+        instrumentNumber?: string;
+        amount?: number;
+        blNumber?: string;
+        receiptDate?: string;
+        dueDate?: string;
+        notes?: string;
+      }>;
       documentType?: string;
       blNumber?: string;
       saleDate?: string;
@@ -2905,7 +3038,7 @@ async function startServer() {
     const now = new Date().toISOString();
     const saleDate =
       typeof body.saleDate === 'string' && body.saleDate.trim() ? body.saleDate.trim() : now.slice(0, 10);
-    const validPayments = new Set(['cash', 'transfer', 'check', 'card', 'credit', 'mixed', 'other']);
+    const validPayments = new Set(['cash', 'transfer', 'check', 'bill_of_exchange', 'card', 'credit', 'mixed', 'other']);
     const paymentMethod =
       typeof body.paymentMethod === 'string' && validPayments.has(body.paymentMethod)
         ? body.paymentMethod
@@ -3076,6 +3209,95 @@ async function startServer() {
         notes,
         now
       );
+
+      const trackedInstrumentTypes = new Set(['check', 'bill_of_exchange', 'card']);
+      const validInstrumentInput = Array.isArray(body.paymentInstruments)
+        ? body.paymentInstruments.filter(
+            (inst) =>
+              inst &&
+              typeof inst.instrumentType === 'string' &&
+              trackedInstrumentTypes.has(inst.instrumentType) &&
+              Number(inst.amount) > 0
+          )
+        : [];
+
+      const instrumentsToPersist = [...validInstrumentInput];
+      for (const split of finalBreakdown) {
+        if (trackedInstrumentTypes.has(split.method)) {
+          const alreadyProvided = instrumentsToPersist.some(
+            (inst) => inst.instrumentType === split.method
+          );
+          if (!alreadyProvided) {
+            instrumentsToPersist.push({
+              instrumentType: split.method,
+              holderName: customerName || 'Client de passage',
+              customerPhone,
+              bankName: '',
+              instrumentNumber: '',
+              amount: split.amount,
+              blNumber: blNumber || invoiceNumber,
+              receiptDate: saleDate,
+              dueDate: saleDate,
+              notes,
+            });
+          }
+        }
+      }
+
+      for (const inst of instrumentsToPersist) {
+        const instType = String(inst.instrumentType);
+        const instAmount = Math.round((Number(inst.amount) || 0) * 100) / 100;
+        const instReceiptDate =
+          typeof inst.receiptDate === 'string' && inst.receiptDate.trim()
+            ? inst.receiptDate.trim()
+            : saleDate;
+        const instDueDate =
+          typeof inst.dueDate === 'string' && inst.dueDate.trim()
+            ? inst.dueDate.trim()
+            : instReceiptDate;
+        const instBl =
+          typeof inst.blNumber === 'string' && inst.blNumber.trim()
+            ? inst.blNumber.trim()
+            : blNumber || invoiceNumber;
+        const instHolder =
+          typeof inst.holderName === 'string' && inst.holderName.trim()
+            ? inst.holderName.trim()
+            : customerName;
+        const instPhone =
+          typeof inst.customerPhone === 'string' && inst.customerPhone.trim()
+            ? inst.customerPhone.trim()
+            : customerPhone;
+        const instBank = typeof inst.bankName === 'string' ? inst.bankName.trim() : '';
+        const instNumber = typeof inst.instrumentNumber === 'string' ? inst.instrumentNumber.trim() : '';
+        const instNotes = typeof inst.notes === 'string' ? inst.notes.trim() : notes;
+
+        db.prepare(
+          `INSERT INTO payment_instruments (
+            id, instrument_type, invoice_id, invoice_number, bl_number,
+            customer_id, customer_name, customer_phone,
+            holder_name, bank_name, instrument_number, amount,
+            receipt_date, due_date, status, notes, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`
+        ).run(
+          crypto.randomUUID(),
+          instType,
+          invoiceId,
+          invoiceNumber,
+          instBl,
+          customerId,
+          customerName || instHolder,
+          instPhone,
+          instHolder,
+          instBank,
+          instNumber,
+          instAmount,
+          instReceiptDate,
+          instDueDate,
+          instNotes,
+          now,
+          now
+        );
+      }
     });
 
     tx();
@@ -3115,6 +3337,9 @@ async function startServer() {
       db.prepare(
         "UPDATE sales_invoices SET invoice_number = ?, document_type = 'facture', bl_number = ? WHERE id = ?"
       ).run(formalNumber, originalBlNumber, invoice.id);
+      db.prepare(
+        'UPDATE payment_instruments SET invoice_number = ?, bl_number = ?, updated_at = ? WHERE invoice_id = ?'
+      ).run(formalNumber, originalBlNumber, now, invoice.id);
 
       for (const item of lineItems) {
         const prod = db.prepare('SELECT quantity FROM products WHERE id = ?').get(item.productId) as
@@ -3164,6 +3389,7 @@ async function startServer() {
     const now = new Date().toISOString();
     const tx = db.transaction(() => {
       db.prepare('DELETE FROM sales_invoices WHERE id = ?').run(invoice.id);
+      db.prepare('DELETE FROM payment_instruments WHERE invoice_id = ?').run(invoice.id);
       for (const item of lineItems) {
         const product = db
           .prepare('SELECT * FROM products WHERE id = ?')
@@ -3191,6 +3417,205 @@ async function startServer() {
 
     tx();
     res.json({ ok: true, summary: getInventorySummary() });
+  });
+
+  app.get('/api/payment-instruments', (_req: Request, res: Response) => {
+    const rows = db
+      .prepare('SELECT * FROM payment_instruments ORDER BY due_date ASC, receipt_date DESC, created_at DESC')
+      .all() as PaymentInstrumentRow[];
+    const instruments = rows.map(mapPaymentInstrumentRow);
+    res.json({
+      instruments,
+      summary: computePaymentPortfolioSummary(instruments),
+    });
+  });
+
+  app.post('/api/payment-instruments', (req: Request, res: Response) => {
+    const body = req.body as {
+      instrumentType?: string;
+      invoiceId?: string;
+      invoiceNumber?: string;
+      blNumber?: string;
+      customerId?: string;
+      customerName?: string;
+      customerPhone?: string;
+      holderName?: string;
+      bankName?: string;
+      instrumentNumber?: string;
+      amount?: number;
+      receiptDate?: string;
+      dueDate?: string;
+      status?: string;
+      notes?: string;
+    };
+
+    const validTypes = new Set(['check', 'bill_of_exchange', 'card']);
+    const validStatuses = new Set(['pending', 'deposited', 'collected', 'bounced', 'cancelled']);
+    const instrumentType =
+      typeof body?.instrumentType === 'string' && validTypes.has(body.instrumentType)
+        ? body.instrumentType
+        : 'check';
+    const amount = Math.round(toNumber(body?.amount, 0) * 100) / 100;
+    if (amount <= 0) {
+      res.status(400).json({ error: 'Amount must be greater than 0' });
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const id = crypto.randomUUID();
+    const receiptDate =
+      typeof body?.receiptDate === 'string' && body.receiptDate.trim()
+        ? body.receiptDate.trim()
+        : now.slice(0, 10);
+    const dueDate =
+      typeof body?.dueDate === 'string' && body.dueDate.trim()
+        ? body.dueDate.trim()
+        : receiptDate;
+    const status =
+      typeof body?.status === 'string' && validStatuses.has(body.status)
+        ? body.status
+        : 'pending';
+
+    const holderName = typeof body?.holderName === 'string' ? body.holderName.trim() : '';
+    const customerName =
+      typeof body?.customerName === 'string' && body.customerName.trim()
+        ? body.customerName.trim()
+        : holderName;
+
+    db.prepare(
+      `INSERT INTO payment_instruments (
+        id, instrument_type, invoice_id, invoice_number, bl_number,
+        customer_id, customer_name, customer_phone,
+        holder_name, bank_name, instrument_number, amount,
+        receipt_date, due_date, status, notes, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      id,
+      instrumentType,
+      typeof body?.invoiceId === 'string' ? body.invoiceId.trim() : '',
+      typeof body?.invoiceNumber === 'string' ? body.invoiceNumber.trim() : '',
+      typeof body?.blNumber === 'string' ? body.blNumber.trim() : '',
+      typeof body?.customerId === 'string' ? body.customerId.trim() : '',
+      customerName,
+      typeof body?.customerPhone === 'string' ? body.customerPhone.trim() : '',
+      holderName,
+      typeof body?.bankName === 'string' ? body.bankName.trim() : '',
+      typeof body?.instrumentNumber === 'string' ? body.instrumentNumber.trim() : '',
+      amount,
+      receiptDate,
+      dueDate,
+      status,
+      typeof body?.notes === 'string' ? body.notes.trim() : '',
+      now,
+      now
+    );
+
+    const created = db
+      .prepare('SELECT * FROM payment_instruments WHERE id = ?')
+      .get(id) as PaymentInstrumentRow;
+    const allRows = db
+      .prepare('SELECT * FROM payment_instruments ORDER BY due_date ASC, receipt_date DESC')
+      .all() as PaymentInstrumentRow[];
+    res.status(201).json({
+      instrument: mapPaymentInstrumentRow(created),
+      summary: computePaymentPortfolioSummary(allRows.map(mapPaymentInstrumentRow)),
+    });
+  });
+
+  app.put('/api/payment-instruments/:id', (req: Request, res: Response) => {
+    const existing = db
+      .prepare('SELECT * FROM payment_instruments WHERE id = ?')
+      .get(req.params.id) as PaymentInstrumentRow | undefined;
+    if (!existing) {
+      res.status(404).json({ error: 'Payment instrument not found' });
+      return;
+    }
+
+    const body = req.body as {
+      instrumentType?: string;
+      blNumber?: string;
+      customerName?: string;
+      customerPhone?: string;
+      holderName?: string;
+      bankName?: string;
+      instrumentNumber?: string;
+      amount?: number;
+      receiptDate?: string;
+      dueDate?: string;
+      status?: string;
+      notes?: string;
+    };
+
+    const validTypes = new Set(['check', 'bill_of_exchange', 'card']);
+    const validStatuses = new Set(['pending', 'deposited', 'collected', 'bounced', 'cancelled']);
+    const instrumentType =
+      typeof body?.instrumentType === 'string' && validTypes.has(body.instrumentType)
+        ? body.instrumentType
+        : existing.instrument_type;
+    const status =
+      typeof body?.status === 'string' && validStatuses.has(body.status)
+        ? body.status
+        : existing.status;
+    const amount =
+      typeof body?.amount === 'number' && Number.isFinite(body.amount) && body.amount > 0
+        ? Math.round(body.amount * 100) / 100
+        : existing.amount;
+    const now = new Date().toISOString();
+
+    db.prepare(
+      `UPDATE payment_instruments SET
+        instrument_type = ?, bl_number = ?, customer_name = ?, customer_phone = ?,
+        holder_name = ?, bank_name = ?, instrument_number = ?, amount = ?,
+        receipt_date = ?, due_date = ?, status = ?, notes = ?, updated_at = ?
+      WHERE id = ?`
+    ).run(
+      instrumentType,
+      typeof body?.blNumber === 'string' ? body.blNumber.trim() : existing.bl_number,
+      typeof body?.customerName === 'string' ? body.customerName.trim() : existing.customer_name,
+      typeof body?.customerPhone === 'string' ? body.customerPhone.trim() : existing.customer_phone,
+      typeof body?.holderName === 'string' ? body.holderName.trim() : existing.holder_name,
+      typeof body?.bankName === 'string' ? body.bankName.trim() : existing.bank_name,
+      typeof body?.instrumentNumber === 'string'
+        ? body.instrumentNumber.trim()
+        : existing.instrument_number,
+      amount,
+      typeof body?.receiptDate === 'string' && body.receiptDate.trim()
+        ? body.receiptDate.trim()
+        : existing.receipt_date,
+      typeof body?.dueDate === 'string' && body.dueDate.trim()
+        ? body.dueDate.trim()
+        : existing.due_date,
+      status,
+      typeof body?.notes === 'string' ? body.notes.trim() : existing.notes,
+      now,
+      existing.id
+    );
+
+    const updated = db
+      .prepare('SELECT * FROM payment_instruments WHERE id = ?')
+      .get(existing.id) as PaymentInstrumentRow;
+    const allRows = db
+      .prepare('SELECT * FROM payment_instruments ORDER BY due_date ASC, receipt_date DESC')
+      .all() as PaymentInstrumentRow[];
+    res.json({
+      instrument: mapPaymentInstrumentRow(updated),
+      summary: computePaymentPortfolioSummary(allRows.map(mapPaymentInstrumentRow)),
+    });
+  });
+
+  app.delete('/api/payment-instruments/:id', (req: Request, res: Response) => {
+    const result = db.prepare('DELETE FROM payment_instruments WHERE id = ?').run(req.params.id);
+    if (result.changes === 0) {
+      res.status(404).json({ error: 'Payment instrument not found' });
+      return;
+    }
+    const allRows = db
+      .prepare('SELECT * FROM payment_instruments ORDER BY due_date ASC, receipt_date DESC')
+      .all() as PaymentInstrumentRow[];
+    res.json({
+      ok: true,
+      summary: computePaymentPortfolioSummary(allRows.map(mapPaymentInstrumentRow)),
+    });
   });
 
   app.delete('/api/products/:id', (req: Request, res: Response) => {
@@ -4405,7 +4830,7 @@ async function startServer() {
       typeof body.purchaseDate === 'string' && body.purchaseDate.trim()
         ? body.purchaseDate.trim()
         : now.slice(0, 10);
-    const validPayments = new Set(['cash', 'transfer', 'check', 'card', 'other']);
+    const validPayments = new Set(['cash', 'transfer', 'check', 'bill_of_exchange', 'card', 'other']);
     const paymentMethod =
       typeof body.paymentMethod === 'string' && validPayments.has(body.paymentMethod)
         ? body.paymentMethod
@@ -4474,7 +4899,7 @@ async function startServer() {
       typeof body.purchaseDate === 'string' && body.purchaseDate.trim()
         ? body.purchaseDate.trim()
         : existingPurchase.purchase_date;
-    const validPayments = new Set(['cash', 'transfer', 'check', 'card', 'other']);
+    const validPayments = new Set(['cash', 'transfer', 'check', 'bill_of_exchange', 'card', 'other']);
     const paymentMethod =
       typeof body.paymentMethod === 'string' && validPayments.has(body.paymentMethod)
         ? body.paymentMethod
@@ -5320,7 +5745,7 @@ async function startServer() {
       typeof body.purchaseDate === 'string' && body.purchaseDate.trim()
         ? body.purchaseDate.trim()
         : now.slice(0, 10);
-    const validPayments = new Set(['cash', 'transfer', 'check', 'card', 'other']);
+    const validPayments = new Set(['cash', 'transfer', 'check', 'bill_of_exchange', 'card', 'other']);
     const paymentMethod =
       typeof body.paymentMethod === 'string' && validPayments.has(body.paymentMethod)
         ? body.paymentMethod
@@ -5393,7 +5818,7 @@ async function startServer() {
       typeof body.purchaseDate === 'string' && body.purchaseDate.trim()
         ? body.purchaseDate.trim()
         : existing.purchase_date;
-    const validPayments = new Set(['cash', 'transfer', 'check', 'card', 'other']);
+    const validPayments = new Set(['cash', 'transfer', 'check', 'bill_of_exchange', 'card', 'other']);
     const paymentMethod =
       typeof body.paymentMethod === 'string' && validPayments.has(body.paymentMethod)
         ? body.paymentMethod

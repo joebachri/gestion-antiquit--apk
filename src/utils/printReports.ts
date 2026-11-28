@@ -101,6 +101,7 @@ function paymentLabel(method: string, lang: Language): string {
   if (method === 'cash') return t.paymentCash;
   if (method === 'transfer') return t.paymentTransfer;
   if (method === 'check') return t.paymentCheck;
+  if (method === 'bill_of_exchange') return t.paymentBillOfExchange;
   if (method === 'card') return t.paymentCard;
   if (method === 'credit') return t.paymentCredit;
   if (method === 'mixed') return t.posPaymentMixed;
@@ -351,9 +352,13 @@ export function buildReportSpec(filters: ReportFilters, ctx: ReportContextData):
     const totalUnits = filtered.reduce((s, inv) => s + (Number(inv.quantity) || 0), 0);
     const grandTotal = filtered.reduce((s, inv) => s + (Number(inv.totalPrice) || 0), 0);
 
-    const paymentTotals: Record<'cash' | 'check' | 'card' | 'credit' | 'transfer' | 'other', number> = {
+    const paymentTotals: Record<
+      'cash' | 'check' | 'bill_of_exchange' | 'card' | 'credit' | 'transfer' | 'other',
+      number
+    > = {
       cash: 0,
       check: 0,
+      bill_of_exchange: 0,
       card: 0,
       credit: 0,
       transfer: 0,
@@ -386,6 +391,7 @@ export function buildReportSpec(filters: ReportFilters, ctx: ReportContextData):
     const paymentRows: Array<string[]> = [
       [t.paymentCash, formatCurrency(paymentTotals.cash, currency, lang)],
       [t.paymentCheck, formatCurrency(paymentTotals.check, currency, lang)],
+      [t.paymentBillOfExchange, formatCurrency(paymentTotals.bill_of_exchange, currency, lang)],
       [t.paymentCard, formatCurrency(paymentTotals.card, currency, lang)],
       [t.paymentCredit, formatCurrency(paymentTotals.credit, currency, lang)],
       [t.paymentTransfer, formatCurrency(paymentTotals.transfer, currency, lang)],

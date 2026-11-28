@@ -16,6 +16,7 @@ import {
   Truck,
   Upload,
   Users,
+  Wallet,
   Warehouse,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -30,11 +31,13 @@ interface LauncherHomeProps {
   totalSuppliers: number;
   totalInvoices: number;
   totalWarehouses: number;
+  portfolioPendingCount?: number;
   exportingExcel: boolean;
   onOpenInventory: () => void;
   onOpenAddProduct: () => void;
   onOpenCaisse: () => void;
   onOpenInvoices: () => void;
+  onOpenPortfolio: () => void;
   onOpenQrScanner: () => void;
   onOpenCustomers: () => void;
   onOpenSuppliers: () => void;
@@ -68,11 +71,13 @@ export function LauncherHome({
   totalSuppliers,
   totalInvoices,
   totalWarehouses,
+  portfolioPendingCount = 0,
   exportingExcel,
   onOpenInventory,
   onOpenAddProduct,
   onOpenCaisse,
   onOpenInvoices,
+  onOpenPortfolio,
   onOpenQrScanner,
   onOpenCustomers,
   onOpenSuppliers,
@@ -124,6 +129,18 @@ export function LauncherHome({
       toneClass:
         'border-[#B45309]/25 bg-[#FEF3C7] text-[#92400E] dark:border-[#F59E0B]/30 dark:bg-[#2B1F0B] dark:text-[#FBBF24]',
       onClick: onOpenInvoices,
+    },
+    {
+      id: 'portfolio',
+      label: t.portfolioNavLabel,
+      subtitle:
+        portfolioPendingCount > 0
+          ? `${formatNumber(portfolioPendingCount, lang)} · ${t.portfolioLauncherSubtitle}`
+          : t.portfolioLauncherSubtitle,
+      icon: Wallet,
+      toneClass:
+        'border-[#0369A1]/25 bg-[#E0F2FE] text-[#075985] dark:border-[#38BDF8]/30 dark:bg-[#0B2333] dark:text-[#7DD3FC]',
+      onClick: onOpenPortfolio,
     },
     {
       id: 'qr-scanner',

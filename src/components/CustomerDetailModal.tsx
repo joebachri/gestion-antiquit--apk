@@ -80,7 +80,9 @@ export function getPaymentMethodLabel(method: PurchasePaymentMethod, lang: Langu
   if (method === 'cash') return t.paymentCash;
   if (method === 'transfer') return t.paymentTransfer;
   if (method === 'check') return t.paymentCheck;
+  if (method === 'bill_of_exchange') return t.paymentBillOfExchange;
   if (method === 'card') return t.paymentCard;
+  if (method === 'credit') return t.paymentCredit;
   return t.paymentOther;
 }
 

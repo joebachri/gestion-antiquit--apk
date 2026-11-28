@@ -27,6 +27,7 @@ import {
   UserPlus,
   Users,
   Vault,
+  Wallet,
   X,
 } from 'lucide-react';
 import type {
@@ -34,9 +35,11 @@ import type {
   CustomerCategory,
   CustomerPayload,
   Language,
+  PaymentInstrumentType,
   PosInvoice,
   PosInvoiceItem,
   PosPaymentSplit,
+  PosSaleInstrumentInput,
   PosSalePayload,
   PosSummary,
   Product,
@@ -90,6 +93,8 @@ interface PosSalesModalProps {
     productId?: string;
     category?: string;
   }) => void;
+  onOpenPortfolio?: () => void;
+  onPortfolioChanged?: () => void;
   onNotify?: (message: string) => void;
 }
 
@@ -104,7 +109,58 @@ interface CartLineItem {
 }
 
 type DailyPreset = 'today' | 'morning' | 'afternoon' | 'week' | 'month' | 'custom';
-type SplitMethod = 'cash' | 'check' | 'card' | 'credit';
+type SplitMethod = 'cash' | 'check' | 'bill_of_exchange' | 'card' | 'credit';
+
+interface InstrumentDraft {
+  bankName: string;
+  instrumentNumber: string;
+  holderName: string;
+  customerPhone: string;
+  blNumber: string;
+  receiptDate: string;
+  dueDate: string;
+  notes: string;
+}
+
+function createEmptyInstrumentDrafts(
+  receiptDate: string,
+  blNumber: string,
+  customerName: string,
+  customerPhone: string
+): Record<PaymentInstrumentType, InstrumentDraft> {
+  return {
+    check: {
+      bankName: '',
+      instrumentNumber: '',
+      holderName: customerName,
+      customerPhone,
+      blNumber,
+      receiptDate,
+      dueDate: '',
+      notes: '',
+    },
+    bill_of_exchange: {
+      bankName: '',
+      instrumentNumber: '',
+      holderName: customerName,
+      customerPhone,
+      blNumber,
+      receiptDate,
+      dueDate: '',
+      notes: '',
+    },
+    card: {
+      bankName: '',
+      instrumentNumber: '',
+      holderName: customerName,
+      customerPhone,
+      blNumber,
+      receiptDate,
+      dueDate: receiptDate,
+      notes: '',
+    },
+  };
+}
 
 function formatBlCode(seq: number): string {
   const safe = Math.max(1, Math.floor(Number(seq) || 1));
@@ -166,6 +222,8 @@ export function PosSalesModal({
   onOpenProductDigitalFile,
   onPrintAggregateInvoices,
   onPrintSalesReport,
+  onOpenPortfolio,
+  onPortfolioChanged,
   onNotify,
 }: PosSalesModalProps) {
   const t = translations[lang];
@@ -228,9 +286,15 @@ export function PosSalesModal({
   const [splitAmounts, setSplitAmounts] = useState<Record<SplitMethod, string>>({
     cash: '',
     check: '',
+    bill_of_exchange: '',
     card: '',
     credit: '',
   });
+  const [instrumentDrafts, setInstrumentDrafts] = useState<
+    Record<PaymentInstrumentType, InstrumentDraft>
+  >(() =>
+    createEmptyInstrumentDrafts(new Date().toISOString().slice(0, 10), 'BL-0001', '', '')
+  );
   const [saleDate, setSaleDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -290,7 +354,10 @@ export function PosSalesModal({
     setPaymentModalOpen(false);
     setPaymentMode('single');
     setSinglePaymentMethod('cash');
-    setSplitAmounts({ cash: '', check: '', card: '', credit: '' });
+    setSplitAmounts({ cash: '', check: '', bill_of_exchange: '', card: '', credit: '' });
+    setInstrumentDrafts(
+      createEmptyInstrumentDrafts(todayStr, formatBlCode(summary.nextBlSeq || 1), '', '')
+    );
     setSaleDate(todayStr);
     setNotes('');
     setDailySummaryOpen(false);
@@ -660,6 +727,7 @@ export function PosSalesModal({
   const paymentLabel = (method: string) => {
     if (method === 'transfer') return t.paymentTransfer;
     if (method === 'check') return t.paymentCheck;
+    if (method === 'bill_of_exchange') return t.paymentBillOfExchange;
     if (method === 'card') return t.paymentCard;
     if (method === 'credit') return t.paymentCredit;
     if (method === 'mixed') return t.posPaymentMixed;
@@ -785,7 +853,7 @@ export function PosSalesModal({
 
   const splitSumDisplay =
     Math.round(
-      (['cash', 'check', 'card', 'credit'] as SplitMethod[]).reduce(
+      (['cash', 'check', 'bill_of_exchange', 'card', 'credit'] as SplitMethod[]).reduce(
         (s, m) => s + Math.max(0, Number(splitAmounts[m]) || 0),
         0
       ) * 100
@@ -803,6 +871,27 @@ export function PosSalesModal({
     }));
   };
 
+  const activeInstrumentTypes: Array<{ type: PaymentInstrumentType; amountDisplay: number }> = (() => {
+    const tracked: PaymentInstrumentType[] = ['check', 'bill_of_exchange', 'card'];
+    if (paymentMode === 'single') {
+      if (tracked.includes(singlePaymentMethod as PaymentInstrumentType)) {
+        return [
+          {
+            type: singlePaymentMethod as PaymentInstrumentType,
+            amountDisplay: cartGrandTotalDisplay,
+          },
+        ];
+      }
+      return [];
+    }
+    return tracked
+      .map((m) => ({
+        type: m,
+        amountDisplay: Math.max(0, Number(splitAmounts[m]) || 0),
+      }))
+      .filter((x) => x.amountDisplay > 0);
+  })();
+
   const handleConfirmPaymentAndPrint = async (e: React.FormEvent) => {
     e.preventDefault();
     if (cartItems.length === 0 || submitting) return;
@@ -811,7 +900,9 @@ export function PosSalesModal({
     let breakdown: PosPaymentSplit[] | undefined;
 
     if (paymentMode === 'mixed') {
-      const entries: PosPaymentSplit[] = (['cash', 'check', 'card', 'credit'] as SplitMethod[])
+      const entries: PosPaymentSplit[] = (
+        ['cash', 'check', 'bill_of_exchange', 'card', 'credit'] as SplitMethod[]
+      )
         .map((m) => ({
           method: m,
           amountDisplay: Math.max(0, Number(splitAmounts[m]) || 0),
@@ -834,6 +925,45 @@ export function PosSalesModal({
       }
     }
 
+    const paymentInstrumentsPayload: PosSaleInstrumentInput[] = [];
+    for (const item of activeInstrumentTypes) {
+      const d = instrumentDrafts[item.type];
+      if (item.type === 'check' || item.type === 'bill_of_exchange') {
+        if (
+          !d.bankName.trim() ||
+          !d.instrumentNumber.trim() ||
+          !d.holderName.trim() ||
+          !d.dueDate.trim()
+        ) {
+          setErrorMsg(
+            `${t.portfolioValidationRequired} ${
+              item.type === 'check' ? t.portfolioTypeCheck : t.portfolioTypeBillOfExchange
+            }`
+          );
+          return;
+        }
+      } else if (item.type === 'card') {
+        if (!d.holderName.trim() || !d.instrumentNumber.trim()) {
+          setErrorMsg(t.portfolioValidationCardRequired);
+          return;
+        }
+      }
+
+      const recDate = d.receiptDate.trim() || saleDate || new Date().toISOString().slice(0, 10);
+      paymentInstrumentsPayload.push({
+        instrumentType: item.type,
+        holderName: d.holderName.trim(),
+        customerPhone: (d.customerPhone || customerPhone).trim(),
+        bankName: d.bankName.trim(),
+        instrumentNumber: d.instrumentNumber.trim(),
+        amount: Math.round(convertToMad(item.amountDisplay, currency) * 100) / 100,
+        blNumber: d.blNumber.trim() || currentBlLabel,
+        receiptDate: recDate,
+        dueDate: d.dueDate.trim() || recDate,
+        notes: d.notes.trim() || notes.trim(),
+      });
+    }
+
     setSubmitting(true);
     setErrorMsg('');
     try {
@@ -853,6 +983,8 @@ export function PosSalesModal({
         customerPhone: customerPhone.trim(),
         paymentMethod: finalMethod,
         paymentBreakdown: breakdown,
+        paymentInstruments:
+          paymentInstrumentsPayload.length > 0 ? paymentInstrumentsPayload : undefined,
         documentType: 'bl',
         blNumber: currentBlLabel,
         saleDate: saleDate || new Date().toISOString().slice(0, 10),
@@ -867,9 +999,18 @@ export function PosSalesModal({
         setCustomerName('');
         setCustomerPhone('');
         setNotes('');
-        setSplitAmounts({ cash: '', check: '', card: '', credit: '' });
+        setSplitAmounts({ cash: '', check: '', bill_of_exchange: '', card: '', credit: '' });
+        setInstrumentDrafts(
+          createEmptyInstrumentDrafts(
+            new Date().toISOString().slice(0, 10),
+            currentBlLabel,
+            '',
+            ''
+          )
+        );
         setPaymentModalOpen(false);
         setPriceEditMode(false);
+        onPortfolioChanged?.();
 
         // Open drawer + auto print BL ticket
         await openCashDrawer();
@@ -969,14 +1110,26 @@ export function PosSalesModal({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label={t.close}
-            className="flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-xl text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            {onOpenPortfolio && (
+              <button
+                type="button"
+                onClick={onOpenPortfolio}
+                className="flex min-h-[40px] items-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-[#F7FAF8] px-3 text-xs font-bold text-[#115E3B] hover:bg-[#ECF7F1] whitespace-nowrap dark:border-[#1E3A2D] dark:bg-[#091611] dark:text-[#34D399]"
+              >
+                <Wallet className="h-4 w-4 shrink-0" />
+                <span className="hidden sm:inline">{t.portfolioNavLabel}</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label={t.close}
+              className="flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-xl text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
         </div>
 
         {/* Scrollable Content */}
@@ -1536,7 +1689,22 @@ export function PosSalesModal({
                     disabled={cartItems.length === 0 || submitting}
                     onClick={() => {
                       setErrorMsg('');
-                      setSplitAmounts({ cash: '', check: '', card: '', credit: '' });
+                      setSplitAmounts({
+                        cash: '',
+                        check: '',
+                        bill_of_exchange: '',
+                        card: '',
+                        credit: '',
+                      });
+                      const baseDate = saleDate || new Date().toISOString().slice(0, 10);
+                      setInstrumentDrafts(
+                        createEmptyInstrumentDrafts(
+                          baseDate,
+                          currentBlLabel,
+                          customerName.trim(),
+                          customerPhone.trim()
+                        )
+                      );
                       setPaymentModalOpen(true);
                     }}
                     className="col-span-2 flex min-h-[48px] items-center justify-center gap-1.5 rounded-xl bg-[#115E3B] px-3 py-2 text-center text-xs font-extrabold text-white hover:bg-[#0D4A2E] disabled:opacity-50 sm:col-span-1 dark:bg-[#10B981] dark:text-[#052E1C]"
@@ -2645,6 +2813,7 @@ export function PosSalesModal({
                       ['cash', t.paymentCash, Banknote],
                       ['card', t.paymentCard, CreditCard],
                       ['check', t.paymentCheck, Receipt],
+                      ['bill_of_exchange', t.paymentBillOfExchange, FileCheck2],
                       ['credit', t.paymentCredit, FileText],
                       ['transfer', t.paymentTransfer, Landmark],
                       ['other', t.paymentOther, FileText],
@@ -2675,11 +2844,12 @@ export function PosSalesModal({
                       ['cash', t.paymentCash],
                       ['card', t.paymentCard],
                       ['check', t.paymentCheck],
+                      ['bill_of_exchange', t.paymentBillOfExchange],
                       ['credit', t.paymentCredit],
                     ] as const
                   ).map(([method, label]) => (
                     <div key={method} className="flex items-center gap-2">
-                      <span className="w-28 shrink-0 text-xs font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
+                      <span className="w-32 shrink-0 text-xs font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
                         {label}
                       </span>
                       <input
@@ -2718,6 +2888,156 @@ export function PosSalesModal({
                   </div>
                 </div>
               )}
+
+              {/* Required Check / Bill of Exchange / Card Portfolio Capture */}
+              {activeInstrumentTypes.map(({ type: instType, amountDisplay }) => {
+                const draft = instrumentDrafts[instType];
+                const isCard = instType === 'card';
+                const heading =
+                  instType === 'check'
+                    ? t.portfolioTypeCheck
+                    : instType === 'bill_of_exchange'
+                    ? t.portfolioTypeBillOfExchange
+                    : t.portfolioTypeCard;
+
+                const updateField = (field: keyof InstrumentDraft, val: string) => {
+                  setInstrumentDrafts((prev) => ({
+                    ...prev,
+                    [instType]: {
+                      ...prev[instType],
+                      [field]: val,
+                    },
+                  }));
+                };
+
+                return (
+                  <div
+                    key={instType}
+                    className="space-y-2.5 rounded-2xl border border-[#115E3B]/30 bg-[#ECF7F1]/70 p-3.5 dark:border-[#10B981]/30 dark:bg-[#132B20]/60"
+                  >
+                    <div className="flex items-center justify-between gap-2 border-b border-[#DCE7E0] pb-2 dark:border-[#1E3A2D]">
+                      <div className="flex items-center gap-2">
+                        <Wallet className="h-4 w-4 text-[#115E3B] dark:text-[#34D399]" />
+                        <span className="text-xs font-extrabold text-[#0B1F16] dark:text-[#F2F9F5]">
+                          {heading} — {t.posInstrumentSectionTitle}
+                        </span>
+                      </div>
+                      <span className="tabular-nums text-xs font-extrabold text-[#115E3B] dark:text-[#34D399]">
+                        {formatNumber(amountDisplay, lang)} {currency}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <div>
+                        <label className="mb-1 block text-[11px] font-semibold text-[#335947] dark:text-[#9EC0AE]">
+                          {isCard ? t.portfolioBankCardLabel : `${t.portfolioBankLabel} *`}
+                        </label>
+                        <input
+                          type="text"
+                          required={!isCard}
+                          value={draft.bankName}
+                          onChange={(e) => updateField('bankName', e.target.value)}
+                          placeholder={isCard ? 'Visa / Mastercard / CMI / CIH...' : 'Attijariwafa, BP, BMCE...'}
+                          className={inputClass}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="mb-1 block text-[11px] font-semibold text-[#335947] dark:text-[#9EC0AE]">
+                          {isCard ? `${t.portfolioCardNumberLabel} *` : `${t.portfolioNumberLabel} *`}
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={draft.instrumentNumber}
+                          onChange={(e) => updateField('instrumentNumber', e.target.value)}
+                          placeholder={isCard ? 'Ex: **** 4821 / Auth #104' : 'Ex: CHQ-904812'}
+                          className={inputClass}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="mb-1 block text-[11px] font-semibold text-[#335947] dark:text-[#9EC0AE]">
+                          {isCard ? `${t.portfolioCardHolderLabel} *` : `${t.portfolioHolderLabel} *`}
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={draft.holderName}
+                          onChange={(e) => updateField('holderName', e.target.value)}
+                          placeholder={customerName.trim() || t.customerNamePlaceholder}
+                          className={inputClass}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="mb-1 block text-[11px] font-semibold text-[#335947] dark:text-[#9EC0AE]">
+                          {t.portfolioCustomerPhoneLabel}
+                        </label>
+                        <input
+                          type="tel"
+                          value={draft.customerPhone}
+                          onChange={(e) => updateField('customerPhone', e.target.value)}
+                          placeholder={customerPhone.trim() || t.customerPhonePlaceholder}
+                          className={inputClass}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="mb-1 block text-[11px] font-semibold text-[#335947] dark:text-[#9EC0AE]">
+                          {t.portfolioBlNumberLabel}
+                        </label>
+                        <input
+                          type="text"
+                          value={draft.blNumber}
+                          onChange={(e) => updateField('blNumber', e.target.value)}
+                          placeholder={currentBlLabel}
+                          className={`${inputClass} font-mono-code font-bold`}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="mb-1 block text-[11px] font-semibold text-[#335947] dark:text-[#9EC0AE]">
+                          {t.portfolioAmountLabel} ({currency})
+                        </label>
+                        <input
+                          type="text"
+                          readOnly
+                          value={formatNumber(amountDisplay, lang)}
+                          className={`${inputClass} tabular-nums font-bold opacity-85`}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="mb-1 block text-[11px] font-semibold text-[#335947] dark:text-[#9EC0AE]">
+                          {t.portfolioReceiptDateLabel}
+                        </label>
+                        <input
+                          type="date"
+                          value={draft.receiptDate}
+                          onChange={(e) => updateField('receiptDate', e.target.value)}
+                          className={inputClass}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="mb-1 block text-[11px] font-semibold text-[#335947] dark:text-[#9EC0AE]">
+                          {isCard
+                            ? t.portfolioCardSettlementDateLabel
+                            : `${t.portfolioDueDateLabel} *`}
+                        </label>
+                        <input
+                          type="date"
+                          required={!isCard}
+                          value={draft.dueDate}
+                          onChange={(e) => updateField('dueDate', e.target.value)}
+                          className={inputClass}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
 
               <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                 <div>

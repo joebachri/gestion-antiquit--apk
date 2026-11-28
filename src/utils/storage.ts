@@ -14,6 +14,11 @@ import type {
   InventoryAdjustment,
   InventoryAdjustmentPayload,
   InventorySummary,
+  PaymentInstrument,
+  PaymentInstrumentPayload,
+  PaymentInstrumentStatus,
+  PaymentInstrumentType,
+  PaymentPortfolioSummary,
   PosInvoice,
   PosInvoiceItem,
   PosPaymentSplit,
@@ -47,7 +52,7 @@ import ceramicImg from '../assets/images/antique_fez_ceramic_1794787509914.jpg';
 import teaServiceImg from '../assets/images/antique_silver_tea_service_1794787510384.jpg';
 
 const DB_NAME = 'gestion_antiquites_db';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 const STORE_PRODUCTS = 'products';
 const STORE_SETTINGS = 'settings';
 const STORE_CUSTOMERS = 'customers';
@@ -56,6 +61,7 @@ const STORE_HISTORY = 'product_history';
 const STORE_WAREHOUSES = 'warehouses';
 const STORE_SUPPLIERS = 'suppliers';
 const STORE_ADJUSTMENTS = 'inventory_adjustments';
+const STORE_PAYMENT_INSTRUMENTS = 'payment_instruments';
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -85,6 +91,9 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(STORE_ADJUSTMENTS)) {
         db.createObjectStore(STORE_ADJUSTMENTS, { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains(STORE_PAYMENT_INSTRUMENTS)) {
+        db.createObjectStore(STORE_PAYMENT_INSTRUMENTS, { keyPath: 'id' });
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -1820,6 +1829,58 @@ export async function localCreatePosSale(payload: PosSalePayload): Promise<{
   };
   await putInStore(db, STORE_INVOICES, invoice);
 
+  const trackedTypes = new Set<PaymentInstrumentType>(['check', 'bill_of_exchange', 'card']);
+  const explicitInstruments = Array.isArray(payload.paymentInstruments)
+    ? payload.paymentInstruments.filter(
+        (inst) => trackedTypes.has(inst.instrumentType) && Number(inst.amount) > 0
+      )
+    : [];
+  const toPersist = [...explicitInstruments];
+  for (const split of cleanBreakdown) {
+    if (trackedTypes.has(split.method as PaymentInstrumentType)) {
+      const exists = toPersist.some((i) => i.instrumentType === split.method);
+      if (!exists) {
+        toPersist.push({
+          instrumentType: split.method as PaymentInstrumentType,
+          holderName: customerName || 'Client de passage',
+          customerPhone,
+          bankName: '',
+          instrumentNumber: '',
+          amount: split.amount,
+          blNumber: blNumber || invoiceNumber,
+          receiptDate: invoice.saleDate,
+          dueDate: invoice.saleDate,
+          notes: invoice.notes,
+        });
+      }
+    }
+  }
+  for (const inst of toPersist) {
+    const recDate = (inst.receiptDate || invoice.saleDate).trim() || now.slice(0, 10);
+    const dueDate = (inst.dueDate || recDate).trim() || recDate;
+    const instrument: PaymentInstrument = {
+      id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
+      instrumentType: inst.instrumentType,
+      invoiceId: invoice.id,
+      invoiceNumber: invoice.invoiceNumber,
+      blNumber: (inst.blNumber || blNumber || invoiceNumber).trim(),
+      customerId,
+      customerName: customerName || (inst.holderName || '').trim(),
+      customerPhone: (inst.customerPhone || customerPhone || '').trim(),
+      holderName: (inst.holderName || customerName || '').trim(),
+      bankName: (inst.bankName || '').trim(),
+      instrumentNumber: (inst.instrumentNumber || '').trim(),
+      amount: Math.round((Number(inst.amount) || 0) * 100) / 100,
+      receiptDate: recDate,
+      dueDate,
+      status: 'pending',
+      notes: (inst.notes || invoice.notes || '').trim(),
+      createdAt: now,
+      updatedAt: now,
+    };
+    await putInStore(db, STORE_PAYMENT_INSTRUMENTS, instrument);
+  }
+
   const nextProducts = allProducts.map((p) => updatedProductsMap.get(p.id) || p);
   const primaryUpdated = updatedProductsMap.get(primaryProduct.id) || primaryProduct;
   return {
@@ -1853,6 +1914,18 @@ export async function localConvertBlToInvoice(invoiceId: string): Promise<PosInv
     blNumber: inv.blNumber || inv.invoiceNumber,
   };
   await putInStore(db, STORE_INVOICES, updated);
+  const allInst = await getAllFromStore<PaymentInstrument>(db, STORE_PAYMENT_INSTRUMENTS);
+  const now = new Date().toISOString();
+  for (const inst of allInst) {
+    if (inst.invoiceId === invoiceId) {
+      await putInStore(db, STORE_PAYMENT_INSTRUMENTS, {
+        ...inst,
+        invoiceNumber: formalNumber,
+        blNumber: updated.blNumber || inst.blNumber,
+        updatedAt: now,
+      });
+    }
+  }
   return updated;
 }
 
@@ -1910,6 +1983,146 @@ export async function localDeletePosSale(invoiceId: string): Promise<void> {
       });
     }
   }
+  const allInst = await getAllFromStore<PaymentInstrument>(db, STORE_PAYMENT_INSTRUMENTS);
+  for (const inst of allInst) {
+    if (inst.invoiceId === invoiceId) {
+      await deleteFromStore(db, STORE_PAYMENT_INSTRUMENTS, inst.id);
+    }
+  }
+}
+
+function computeLocalPortfolioSummary(instruments: PaymentInstrument[]): PaymentPortfolioSummary {
+  const today = new Date().toISOString().slice(0, 10);
+  const in7 = new Date();
+  in7.setDate(in7.getDate() + 7);
+  const in7Iso = in7.toISOString().slice(0, 10);
+  let pendingCount = 0;
+  let pendingAmountMad = 0;
+  let dueSoonCount = 0;
+  let dueSoonAmountMad = 0;
+  let collectedCount = 0;
+  let collectedAmountMad = 0;
+  let bouncedCount = 0;
+  let bouncedAmountMad = 0;
+
+  for (const inst of instruments) {
+    const amt = Number(inst.amount) || 0;
+    if (inst.status === 'pending' || inst.status === 'deposited') {
+      pendingCount += 1;
+      pendingAmountMad += amt;
+      const due = (inst.dueDate || inst.receiptDate || today).slice(0, 10);
+      if (due <= in7Iso) {
+        dueSoonCount += 1;
+        dueSoonAmountMad += amt;
+      }
+    } else if (inst.status === 'collected') {
+      collectedCount += 1;
+      collectedAmountMad += amt;
+    } else if (inst.status === 'bounced') {
+      bouncedCount += 1;
+      bouncedAmountMad += amt;
+    }
+  }
+
+  return {
+    totalCount: instruments.length,
+    pendingCount,
+    pendingAmountMad: Math.round(pendingAmountMad * 100) / 100,
+    dueSoonCount,
+    dueSoonAmountMad: Math.round(dueSoonAmountMad * 100) / 100,
+    collectedCount,
+    collectedAmountMad: Math.round(collectedAmountMad * 100) / 100,
+    bouncedCount,
+    bouncedAmountMad: Math.round(bouncedAmountMad * 100) / 100,
+  };
+}
+
+export async function localListPaymentInstruments(): Promise<{
+  instruments: PaymentInstrument[];
+  summary: PaymentPortfolioSummary;
+}> {
+  const db = await openDb();
+  await ensureSeeded(db);
+  const instruments = await getAllFromStore<PaymentInstrument>(db, STORE_PAYMENT_INSTRUMENTS);
+  instruments.sort(
+    (a, b) =>
+      (a.dueDate || '').localeCompare(b.dueDate || '') ||
+      (b.receiptDate || '').localeCompare(a.receiptDate || '')
+  );
+  return { instruments, summary: computeLocalPortfolioSummary(instruments) };
+}
+
+export async function localCreatePaymentInstrument(
+  payload: PaymentInstrumentPayload
+): Promise<{ instrument: PaymentInstrument; summary: PaymentPortfolioSummary }> {
+  const db = await openDb();
+  const now = new Date().toISOString();
+  const recDate = (payload.receiptDate || '').trim() || now.slice(0, 10);
+  const dueDate = (payload.dueDate || '').trim() || recDate;
+  const instrument: PaymentInstrument = {
+    id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
+    instrumentType: payload.instrumentType,
+    invoiceId: (payload.invoiceId || '').trim(),
+    invoiceNumber: (payload.invoiceNumber || '').trim(),
+    blNumber: (payload.blNumber || '').trim(),
+    customerId: (payload.customerId || '').trim(),
+    customerName: (payload.customerName || payload.holderName || '').trim(),
+    customerPhone: (payload.customerPhone || '').trim(),
+    holderName: (payload.holderName || '').trim(),
+    bankName: (payload.bankName || '').trim(),
+    instrumentNumber: (payload.instrumentNumber || '').trim(),
+    amount: Math.round((Number(payload.amount) || 0) * 100) / 100,
+    receiptDate: recDate,
+    dueDate,
+    status: (payload.status || 'pending') as PaymentInstrumentStatus,
+    notes: (payload.notes || '').trim(),
+    createdAt: now,
+    updatedAt: now,
+  };
+  await putInStore(db, STORE_PAYMENT_INSTRUMENTS, instrument);
+  const all = await getAllFromStore<PaymentInstrument>(db, STORE_PAYMENT_INSTRUMENTS);
+  return { instrument, summary: computeLocalPortfolioSummary(all) };
+}
+
+export async function localUpdatePaymentInstrument(
+  id: string,
+  payload: Partial<PaymentInstrumentPayload>
+): Promise<{ instrument: PaymentInstrument; summary: PaymentPortfolioSummary }> {
+  const db = await openDb();
+  const existing = await getFromStore<PaymentInstrument>(db, STORE_PAYMENT_INSTRUMENTS, id);
+  if (!existing) throw new Error('Payment instrument not found');
+  const updated: PaymentInstrument = {
+    ...existing,
+    instrumentType: payload.instrumentType ?? existing.instrumentType,
+    blNumber: payload.blNumber !== undefined ? payload.blNumber.trim() : existing.blNumber,
+    customerName: payload.customerName !== undefined ? payload.customerName.trim() : existing.customerName,
+    customerPhone: payload.customerPhone !== undefined ? payload.customerPhone.trim() : existing.customerPhone,
+    holderName: payload.holderName !== undefined ? payload.holderName.trim() : existing.holderName,
+    bankName: payload.bankName !== undefined ? payload.bankName.trim() : existing.bankName,
+    instrumentNumber:
+      payload.instrumentNumber !== undefined ? payload.instrumentNumber.trim() : existing.instrumentNumber,
+    amount:
+      typeof payload.amount === 'number' && Number.isFinite(payload.amount) && payload.amount > 0
+        ? Math.round(payload.amount * 100) / 100
+        : existing.amount,
+    receiptDate: payload.receiptDate !== undefined ? payload.receiptDate.trim() : existing.receiptDate,
+    dueDate: payload.dueDate !== undefined ? payload.dueDate.trim() : existing.dueDate,
+    status: payload.status ?? existing.status,
+    notes: payload.notes !== undefined ? payload.notes.trim() : existing.notes,
+    updatedAt: new Date().toISOString(),
+  };
+  await putInStore(db, STORE_PAYMENT_INSTRUMENTS, updated);
+  const all = await getAllFromStore<PaymentInstrument>(db, STORE_PAYMENT_INSTRUMENTS);
+  return { instrument: updated, summary: computeLocalPortfolioSummary(all) };
+}
+
+export async function localDeletePaymentInstrument(
+  id: string
+): Promise<{ summary: PaymentPortfolioSummary }> {
+  const db = await openDb();
+  await deleteFromStore(db, STORE_PAYMENT_INSTRUMENTS, id);
+  const all = await getAllFromStore<PaymentInstrument>(db, STORE_PAYMENT_INSTRUMENTS);
+  return { summary: computeLocalPortfolioSummary(all) };
 }
 
 // Local Warehouses CRUD

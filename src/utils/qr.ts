@@ -628,8 +628,8 @@ export async function buildInvoiceReceiptBlob(
 
   // Payment method right below total (stacked vertically when multiple)
   const payNameMap: Record<string, string> = isAr
-    ? { cash: 'نقداً', check: 'شيك', card: 'بطاقة', credit: 'آجل', transfer: 'تحويل', other: 'أخرى' }
-    : { cash: 'Espèces', check: 'Chèque', card: 'Carte bancaire', credit: 'Crédit', transfer: 'Virement', other: 'Autre' };
+    ? { cash: 'نقداً', check: 'شيك', bill_of_exchange: 'كمبيالة', card: 'بطاقة', credit: 'آجل', transfer: 'تحويل', other: 'أخرى' }
+    : { cash: 'Espèces', check: 'Chèque', bill_of_exchange: 'Lettre de change', card: 'Carte bancaire', credit: 'Crédit', transfer: 'Virement', other: 'Autre' };
   const payLines =
     activeSplits.length > 1
       ? [

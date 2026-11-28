@@ -206,6 +206,7 @@ export function ProductDigitalFileModal({
   const paymentLabel = (method: string) => {
     if (method === 'transfer') return t.paymentTransfer;
     if (method === 'check') return t.paymentCheck;
+    if (method === 'bill_of_exchange') return t.paymentBillOfExchange;
     if (method === 'card') return t.paymentCard;
     if (method === 'other') return t.paymentOther;
     return t.paymentCash;
@@ -818,6 +819,7 @@ export function ProductDigitalFileModal({
                             <option value="transfer">{t.paymentTransfer}</option>
                             <option value="card">{t.paymentCard}</option>
                             <option value="check">{t.paymentCheck}</option>
+                            <option value="bill_of_exchange">{t.paymentBillOfExchange}</option>
                             <option value="other">{t.paymentOther}</option>
                           </select>
                         </div>

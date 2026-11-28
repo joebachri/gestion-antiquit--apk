@@ -484,6 +484,7 @@ export function QrScannerModal({
   const paymentLabel = (pm: PurchasePaymentMethod) => {
     if (pm === 'transfer') return t.paymentTransfer;
     if (pm === 'check') return t.paymentCheck;
+    if (pm === 'bill_of_exchange') return t.paymentBillOfExchange;
     if (pm === 'card') return t.paymentCard;
     if (pm === 'other') return t.paymentOther;
     return t.paymentCash;

@@ -27,6 +27,7 @@ import {
   UserPlus,
   Users,
   Video,
+  Wallet,
   Warehouse as WarehouseIcon,
   X,
 } from 'lucide-react';
@@ -43,6 +44,9 @@ import type {
   InventorySummary,
   Language,
   MetaAuthStatus,
+  PaymentInstrument,
+  PaymentInstrumentPayload,
+  PaymentPortfolioSummary,
   PosInvoice,
   PosSalePayload,
   PosSummary,
@@ -70,11 +74,13 @@ import {
 import {
   convertBlToInvoiceApi,
   createAdjustmentApi,
+  createPaymentInstrumentApi,
   createPosSaleApi,
   deleteAdjustmentApi,
   deleteCustomerApi,
   deleteCustomerGalleryImageApi,
   deleteCustomerPurchaseApi,
+  deletePaymentInstrumentApi,
   deletePosSaleApi,
   deleteProductApi,
   deleteSupplierApi,
@@ -85,6 +91,7 @@ import {
   fetchCustomersApi,
   fetchExchangeRatesApi,
   fetchMetaAuthStatusApi,
+  fetchPaymentInstrumentsApi,
   fetchPosSalesApi,
   fetchProductDigitalFileApi,
   fetchProductsApi,
@@ -104,6 +111,7 @@ import {
   saveSupplierPurchaseApi,
   saveWarehouseApi,
   setNextBlSequenceApi,
+  updatePaymentInstrumentApi,
 } from './utils/api';
 import { saveOrShareBlob } from './utils/download';
 import { isVideoMedia } from './utils/image';
@@ -133,6 +141,7 @@ import { QrScannerModal, type QrScanMode } from './components/QrScannerModal';
 import { ProductDigitalFileModal } from './components/ProductDigitalFileModal';
 import { QrCodeDisplayModal } from './components/QrCodeDisplayModal';
 import { PosSalesModal } from './components/PosSalesModal';
+import { PaymentPortfolioModal } from './components/PaymentPortfolioModal';
 import { ImportProductsExcelModal } from './components/ImportProductsExcelModal';
 
 export default function App() {
@@ -285,6 +294,20 @@ export default function App() {
     reportType: 'inventory',
   });
 
+  const [paymentInstruments, setPaymentInstruments] = useState<PaymentInstrument[]>([]);
+  const [portfolioSummary, setPortfolioSummary] = useState<PaymentPortfolioSummary>({
+    totalCount: 0,
+    pendingCount: 0,
+    pendingAmountMad: 0,
+    dueSoonCount: 0,
+    dueSoonAmountMad: 0,
+    collectedCount: 0,
+    collectedAmountMad: 0,
+    bouncedCount: 0,
+    bouncedAmountMad: 0,
+  });
+  const [portfolioModalOpen, setPortfolioModalOpen] = useState(false);
+
   const showToast = useCallback((message: string) => {
     if (!message) return;
     setToastMessage(message);
@@ -375,6 +398,16 @@ export default function App() {
     }
   }, []);
 
+  const fetchPortfolio = useCallback(async () => {
+    try {
+      const data = await fetchPaymentInstrumentsApi();
+      setPaymentInstruments(data.instruments);
+      setPortfolioSummary(data.summary);
+    } catch {
+      // keep existing portfolio
+    }
+  }, []);
+
   const qrHandledOnMountRef = useRef(false);
 
   useEffect(() => {
@@ -383,8 +416,9 @@ export default function App() {
     void fetchPosSales();
     void fetchWarehouses();
     void fetchAdjustments();
+    void fetchPortfolio();
     void fetchExchangeRatesApi().then(() => setRatesVersion((v) => v + 1));
-  }, [fetchSettings, refreshMetaStatus, fetchPosSales, fetchWarehouses, fetchAdjustments]);
+  }, [fetchSettings, refreshMetaStatus, fetchPosSales, fetchWarehouses, fetchAdjustments, fetchPortfolio]);
 
   useEffect(() => {
     if (qrHandledOnMountRef.current) return;
@@ -727,11 +761,35 @@ export default function App() {
   const handleConvertBlToInvoice = useCallback(
     async (invoiceId: string): Promise<PosInvoice | null> => {
       const converted = await convertBlToInvoiceApi(invoiceId);
-      await Promise.all([fetchPosSales(), fetchProducts(searchQuery)]);
+      await Promise.all([fetchPosSales(), fetchProducts(searchQuery), fetchPortfolio()]);
       showToast(`${t.posConvertedToInvoiceToast} ${converted.invoiceNumber}`);
       return converted;
     },
-    [fetchPosSales, fetchProducts, searchQuery, showToast, t.posConvertedToInvoiceToast]
+    [fetchPosSales, fetchProducts, fetchPortfolio, searchQuery, showToast, t.posConvertedToInvoiceToast]
+  );
+
+  const handleCreatePortfolioInstrument = useCallback(
+    async (payload: PaymentInstrumentPayload) => {
+      await createPaymentInstrumentApi(payload);
+      await fetchPortfolio();
+    },
+    [fetchPortfolio]
+  );
+
+  const handleUpdatePortfolioInstrument = useCallback(
+    async (id: string, payload: Partial<PaymentInstrumentPayload>) => {
+      await updatePaymentInstrumentApi(id, payload);
+      await fetchPortfolio();
+    },
+    [fetchPortfolio]
+  );
+
+  const handleDeletePortfolioInstrument = useCallback(
+    async (id: string) => {
+      await deletePaymentInstrumentApi(id);
+      await fetchPortfolio();
+    },
+    [fetchPortfolio]
   );
 
   const handlePrintPosTicket = useCallback(
@@ -918,6 +976,7 @@ export default function App() {
         fetchProducts(searchQuery),
         fetchPosSales(),
         fetchCustomers(customerSearch, customerCategory),
+        fetchPortfolio(),
       ]);
       const matchedOpenProduct =
         digitalFileData?.product.id &&
@@ -934,6 +993,7 @@ export default function App() {
       searchQuery,
       fetchPosSales,
       fetchCustomers,
+      fetchPortfolio,
       customerSearch,
       customerCategory,
       digitalFileData?.product.id,
@@ -952,6 +1012,7 @@ export default function App() {
         fetchProducts(searchQuery),
         fetchPosSales(),
         fetchCustomers(customerSearch, customerCategory),
+        fetchPortfolio(),
       ]);
       const matchedOpenProduct =
         digitalFileData?.product.id &&
@@ -971,6 +1032,7 @@ export default function App() {
       searchQuery,
       fetchPosSales,
       fetchCustomers,
+      fetchPortfolio,
       customerSearch,
       customerCategory,
       digitalFileData?.product.id,
@@ -997,6 +1059,7 @@ export default function App() {
         fetchProducts(searchQuery),
         fetchPosSales(),
         fetchCustomers(customerSearch, customerCategory),
+        fetchPortfolio(),
       ]);
       if (digitalFileData) {
         try {
@@ -1013,6 +1076,7 @@ export default function App() {
       searchQuery,
       fetchPosSales,
       fetchCustomers,
+      fetchPortfolio,
       customerSearch,
       customerCategory,
       digitalFileData,
@@ -1300,6 +1364,7 @@ export default function App() {
             totalSuppliers={supplierSummary.totalSuppliers}
             totalInvoices={posSummary.totalInvoices}
             totalWarehouses={warehouses.length}
+            portfolioPendingCount={portfolioSummary.pendingCount}
             exportingExcel={exporting}
             onOpenInventory={() => setActiveTab('inventory')}
             onOpenAddProduct={() => {
@@ -1314,6 +1379,7 @@ export default function App() {
               setPosModalInitialView('invoices');
               setPosModalOpen(true);
             }}
+            onOpenPortfolio={() => setPortfolioModalOpen(true)}
             onOpenQrScanner={() => {
               setQrScannerLockedCustomer(null);
               setQrScannerInitialMode('view');
@@ -1428,6 +1494,20 @@ export default function App() {
                   <Receipt className="h-4 w-4 shrink-0 text-[#115E3B] dark:text-[#34D399]" />
                   <span className="truncate">{t.launcherInvoicesLabel}</span>
                   <span className="tabular-nums opacity-75">({formatNumber(posSummary.totalInvoices, lang)})</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setPortfolioModalOpen(true)}
+                  className="flex min-h-[42px] items-center justify-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-white px-3 text-xs font-bold text-[#0B1F16] transition-colors hover:bg-[#ECF7F1] whitespace-nowrap dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5] dark:hover:bg-[#162E23]"
+                >
+                  <Wallet className="h-4 w-4 shrink-0 text-[#075985] dark:text-[#38BDF8]" />
+                  <span className="truncate">{t.portfolioNavLabel}</span>
+                  {portfolioSummary.pendingCount > 0 && (
+                    <span className="tabular-nums opacity-75">
+                      ({formatNumber(portfolioSummary.pendingCount, lang)})
+                    </span>
+                  )}
                 </button>
 
                 <button
@@ -2716,6 +2796,22 @@ export default function App() {
             category: filters.category,
           })
         }
+        onOpenPortfolio={() => setPortfolioModalOpen(true)}
+        onPortfolioChanged={() => void fetchPortfolio()}
+        onNotify={showToast}
+      />
+
+      <PaymentPortfolioModal
+        isOpen={portfolioModalOpen}
+        lang={lang}
+        currency={settings.currency}
+        instruments={paymentInstruments}
+        summary={portfolioSummary}
+        customers={customers}
+        onClose={() => setPortfolioModalOpen(false)}
+        onCreateInstrument={handleCreatePortfolioInstrument}
+        onUpdateInstrument={handleUpdatePortfolioInstrument}
+        onDeleteInstrument={handleDeletePortfolioInstrument}
         onNotify={showToast}
       />
 
