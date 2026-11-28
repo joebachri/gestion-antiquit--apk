@@ -1,23 +1,18 @@
 import {
   ArrowRightLeft,
   Banknote,
-  BookOpen,
   Calculator,
   FileSpreadsheet,
-  Languages,
-  Moon,
   Package,
   PlusSquare,
   Printer,
   QrCode,
   Receipt,
   Settings,
-  Sun,
   Truck,
   Upload,
   Users,
   Wallet,
-  Warehouse,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { Language } from '../types';
@@ -25,12 +20,10 @@ import { formatNumber, translations } from '../i18n';
 
 interface LauncherHomeProps {
   lang: Language;
-  isDark: boolean;
   totalProducts: number;
   totalCustomers: number;
   totalSuppliers: number;
   totalInvoices: number;
-  totalWarehouses: number;
   portfolioPendingCount?: number;
   exportingExcel: boolean;
   onOpenInventory: () => void;
@@ -41,16 +34,12 @@ interface LauncherHomeProps {
   onOpenQrScanner: () => void;
   onOpenCustomers: () => void;
   onOpenSuppliers: () => void;
-  onOpenWarehouses: () => void;
   onOpenAdjustments: () => void;
   onOpenReports: () => void;
   onOpenImportExcel: () => void;
   onExportExcel: () => void;
   onOpenCalculator: () => void;
   onOpenSettings: () => void;
-  onOpenGuide: () => void;
-  onToggleLanguage: () => void;
-  onToggleTheme: () => void;
 }
 
 interface LauncherAppItem {
@@ -65,12 +54,10 @@ interface LauncherAppItem {
 
 export function LauncherHome({
   lang,
-  isDark,
   totalProducts,
   totalCustomers,
   totalSuppliers,
   totalInvoices,
-  totalWarehouses,
   portfolioPendingCount = 0,
   exportingExcel,
   onOpenInventory,
@@ -81,16 +68,12 @@ export function LauncherHome({
   onOpenQrScanner,
   onOpenCustomers,
   onOpenSuppliers,
-  onOpenWarehouses,
   onOpenAdjustments,
   onOpenReports,
   onOpenImportExcel,
   onExportExcel,
   onOpenCalculator,
   onOpenSettings,
-  onOpenGuide,
-  onToggleLanguage,
-  onToggleTheme,
 }: LauncherHomeProps) {
   const t = translations[lang];
 
@@ -169,15 +152,6 @@ export function LauncherHome({
       onClick: onOpenSuppliers,
     },
     {
-      id: 'warehouses',
-      label: t.warehousesNavLabel,
-      subtitle: `${formatNumber(totalWarehouses, lang)} ${t.launcherWarehousesUnit}`,
-      icon: Warehouse,
-      toneClass:
-        'border-[#334155]/20 bg-[#E2E8F0] text-[#1E293B] dark:border-[#94A3B8]/25 dark:bg-[#16222E] dark:text-[#CBD5E1]',
-      onClick: onOpenWarehouses,
-    },
-    {
       id: 'adjustments',
       label: t.adjustmentsNavLabel,
       icon: ArrowRightLeft,
@@ -225,32 +199,6 @@ export function LauncherHome({
       toneClass:
         'border-[#DCE7E0] bg-white text-[#115E3B] dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#34D399]',
       onClick: onOpenSettings,
-    },
-    {
-      id: 'guide',
-      label: t.guideButtonLabel,
-      icon: BookOpen,
-      toneClass:
-        'border-[#0F766E]/20 bg-[#F0FDFA] text-[#115E59] dark:border-[#2DD4BF]/25 dark:bg-[#0F2724] dark:text-[#5EEAD4]',
-      onClick: onOpenGuide,
-    },
-    {
-      id: 'language',
-      label: t.launcherLanguageLabel,
-      subtitle: t.launcherLanguageValue,
-      icon: Languages,
-      toneClass:
-        'border-[#DCE7E0] bg-white text-[#0B1F16] dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#F2F9F5]',
-      onClick: onToggleLanguage,
-    },
-    {
-      id: 'theme',
-      label: t.launcherThemeLabel,
-      subtitle: isDark ? t.launcherThemeDark : t.launcherThemeLight,
-      icon: isDark ? Sun : Moon,
-      toneClass:
-        'border-[#DCE7E0] bg-white text-[#0B1F16] dark:border-[#1E3A2D] dark:bg-[#0F2119] dark:text-[#FBBF24]',
-      onClick: onToggleTheme,
     },
   ];
 

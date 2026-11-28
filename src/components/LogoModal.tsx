@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { BookOpen, Camera, Check, RotateCcw, Store, Upload, X } from 'lucide-react';
+import { BookOpen, Camera, Check, Languages, Moon, RotateCcw, Store, Sun, Upload, X } from 'lucide-react';
 import type {
   Language,
   MetaAuthStatus,
@@ -18,6 +18,7 @@ import { PrinterSettingsCard } from './PrinterSettingsCard';
 interface LogoModalProps {
   isOpen: boolean;
   lang: Language;
+  isDark?: boolean;
   customLogo: string;
   storeName?: string;
   currency: string;
@@ -43,6 +44,8 @@ interface LogoModalProps {
   onRefreshMetaStatus: () => Promise<void>;
   onNotify?: (message: string) => void;
   onOpenGuide?: () => void;
+  onToggleLanguage?: () => void;
+  onToggleTheme?: () => void;
   onClose: () => void;
   onSave: (settings: ShopSettings) => Promise<void>;
 }
@@ -52,6 +55,7 @@ const CURRENCIES = SUPPORTED_CURRENCIES;
 export function LogoModal({
   isOpen,
   lang,
+  isDark = false,
   customLogo,
   storeName = '',
   currency,
@@ -77,6 +81,8 @@ export function LogoModal({
   onRefreshMetaStatus,
   onNotify,
   onOpenGuide,
+  onToggleLanguage,
+  onToggleTheme,
   onClose,
   onSave,
 }: LogoModalProps) {
@@ -225,7 +231,18 @@ export function LogoModal({
             <h2 className="font-display text-xl font-bold text-[#0B1F16] dark:text-[#F2F9F5]">
               {t.logoModalTitle}
             </h2>
-            <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label={t.close}
+              className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          {(onOpenGuide || onToggleLanguage || onToggleTheme) && (
+            <div className="mb-5 grid grid-cols-3 gap-2.5">
               {onOpenGuide && (
                 <button
                   type="button"
@@ -233,24 +250,52 @@ export function LogoModal({
                     onClose();
                     onOpenGuide();
                   }}
-                  aria-label={t.guideTitle}
-                  title={t.guideTitle}
-                  className="flex min-h-[44px] items-center gap-1.5 rounded-xl border border-[#DCE7E0] bg-[#ECF7F1] px-2.5 text-xs font-semibold text-[#115E3B] hover:bg-[#DCF0E4] dark:border-[#1E3A2D] dark:bg-[#132B20] dark:text-[#34D399]"
+                  className="flex flex-col items-center justify-center gap-1.5 rounded-2xl border border-[#0F766E]/20 bg-[#F0FDFA] px-2.5 py-3 text-center transition-colors hover:bg-[#CCFBF1]/70 dark:border-[#2DD4BF]/25 dark:bg-[#0F2724] dark:hover:bg-[#143631]"
                 >
-                  <BookOpen className="h-4 w-4" />
-                  <span>{t.guideButtonLabel}</span>
+                  <BookOpen className="h-5 w-5 text-[#115E59] dark:text-[#5EEAD4]" />
+                  <span className="text-xs font-semibold text-[#0B1F16] dark:text-[#F2F9F5]">
+                    {t.guideButtonLabel}
+                  </span>
                 </button>
               )}
-              <button
-                type="button"
-                onClick={onClose}
-                aria-label={t.close}
-                className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-[#335947] hover:bg-[#ECF7F1] dark:text-[#9EC0AE] dark:hover:bg-[#162E23]"
-              >
-                <X className="h-5 w-5" />
-              </button>
+
+              {onToggleLanguage && (
+                <button
+                  type="button"
+                  onClick={onToggleLanguage}
+                  className="flex flex-col items-center justify-center gap-1.5 rounded-2xl border border-[#DCE7E0] bg-[#F7FAF8] px-2.5 py-3 text-center transition-colors hover:bg-[#ECF7F1] dark:border-[#1E3A2D] dark:bg-[#091611] dark:hover:bg-[#162E23]"
+                >
+                  <Languages className="h-5 w-5 text-[#115E3B] dark:text-[#34D399]" />
+                  <span className="text-xs font-semibold text-[#0B1F16] dark:text-[#F2F9F5]">
+                    {t.launcherLanguageLabel}
+                  </span>
+                  <span className="text-[11px] font-medium text-[#335947] dark:text-[#9EC0AE]">
+                    {t.launcherLanguageValue}
+                  </span>
+                </button>
+              )}
+
+              {onToggleTheme && (
+                <button
+                  type="button"
+                  onClick={onToggleTheme}
+                  className="flex flex-col items-center justify-center gap-1.5 rounded-2xl border border-[#DCE7E0] bg-[#F7FAF8] px-2.5 py-3 text-center transition-colors hover:bg-[#ECF7F1] dark:border-[#1E3A2D] dark:bg-[#091611] dark:hover:bg-[#162E23]"
+                >
+                  {isDark ? (
+                    <Sun className="h-5 w-5 text-[#F59E0B] dark:text-[#FBBF24]" />
+                  ) : (
+                    <Moon className="h-5 w-5 text-[#115E3B]" />
+                  )}
+                  <span className="text-xs font-semibold text-[#0B1F16] dark:text-[#F2F9F5]">
+                    {t.launcherThemeLabel}
+                  </span>
+                  <span className="text-[11px] font-medium text-[#335947] dark:text-[#9EC0AE]">
+                    {isDark ? t.launcherThemeDark : t.launcherThemeLight}
+                  </span>
+                </button>
+              )}
             </div>
-          </div>
+          )}
 
           <div className="mb-5 flex flex-col items-center rounded-2xl border border-[#DCE7E0] bg-[#F7FAF8] p-5 dark:border-[#1E3A2D] dark:bg-[#091611]">
             <div className="mb-4 flex h-24 w-24 items-center justify-center overflow-hidden rounded-2xl border border-[#DCE7E0] bg-white p-2 dark:border-[#1E3A2D] dark:bg-[#102119]">

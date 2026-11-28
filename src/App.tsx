@@ -1358,12 +1358,10 @@ export default function App() {
         {activeTab === 'home' ? (
           <LauncherHome
             lang={lang}
-            isDark={isDark}
             totalProducts={summary.totalReferences}
             totalCustomers={customerSummary.totalCustomers}
             totalSuppliers={supplierSummary.totalSuppliers}
             totalInvoices={posSummary.totalInvoices}
-            totalWarehouses={warehouses.length}
             portfolioPendingCount={portfolioSummary.pendingCount}
             exportingExcel={exporting}
             onOpenInventory={() => setActiveTab('inventory')}
@@ -1388,16 +1386,12 @@ export default function App() {
             }}
             onOpenCustomers={() => setActiveTab('customers')}
             onOpenSuppliers={() => setActiveTab('suppliers')}
-            onOpenWarehouses={() => setWarehousesModalOpen(true)}
             onOpenAdjustments={() => setAdjustmentsModalOpen(true)}
             onOpenReports={() => openReportsHub({ reportType: 'inventory' })}
             onOpenImportExcel={() => setImportExcelOpen(true)}
             onExportExcel={() => void handleExportExcel()}
             onOpenCalculator={() => setCalculatorOpen(true)}
             onOpenSettings={() => setLogoModalOpen(true)}
-            onOpenGuide={() => setGuideOpen(true)}
-            onToggleLanguage={() => handleChangeLang(lang === 'fr' ? 'ar' : 'fr')}
-            onToggleTheme={() => setIsDark((d) => !d)}
           />
         ) : (
           <>
@@ -2429,6 +2423,7 @@ export default function App() {
       <LogoModal
         isOpen={logoModalOpen}
         lang={lang}
+        isDark={isDark}
         customLogo={settings.customLogo}
         storeName={settings.storeName}
         currency={settings.currency}
@@ -2454,6 +2449,8 @@ export default function App() {
         onRefreshMetaStatus={refreshMetaStatus}
         onNotify={showToast}
         onOpenGuide={() => setGuideOpen(true)}
+        onToggleLanguage={() => handleChangeLang(lang === 'fr' ? 'ar' : 'fr')}
+        onToggleTheme={() => setIsDark((d) => !d)}
         onClose={() => setLogoModalOpen(false)}
         onSave={handleSaveSettings}
       />
