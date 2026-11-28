@@ -1470,7 +1470,7 @@ export default function App() {
 
                   <nav
                     aria-label="Sections"
-                    className="grid flex-1 grid-cols-3 gap-1.5 rounded-2xl border border-[#DCE7E0] bg-white p-1.5 sm:inline-grid sm:flex-none sm:gap-2 dark:border-[#1E3A2D] dark:bg-[#0F2119]"
+                    className="grid flex-1 grid-cols-2 gap-1.5 rounded-2xl border border-[#DCE7E0] bg-white p-1.5 sm:inline-grid sm:flex-none sm:gap-2 dark:border-[#1E3A2D] dark:bg-[#0F2119]"
                   >
                     <button
                       type="button"
@@ -1491,18 +1491,6 @@ export default function App() {
                       <span className="truncate">{t.tabCustomers}</span>
                       <span className="tabular-nums opacity-80">
                         ({formatNumber(customerSummary.totalCustomers, lang)})
-                      </span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab('suppliers')}
-                      className="flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl px-2.5 text-xs font-bold text-[#335947] transition-colors hover:bg-[#ECF7F1] whitespace-nowrap sm:gap-2 sm:px-4 sm:text-sm dark:text-[#9EC0AE] dark:hover:bg-[#162E23]"
-                    >
-                      <Truck className="h-4 w-4 shrink-0" />
-                      <span className="truncate">{t.suppliersNavLabel}</span>
-                      <span className="tabular-nums opacity-80">
-                        ({formatNumber(supplierSummary.totalSuppliers, lang)})
                       </span>
                     </button>
                   </nav>
